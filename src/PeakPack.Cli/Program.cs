@@ -1,1 +1,214 @@
-﻿Console.WriteLine("Hello, World!");
+﻿using PeakPack.Core;
+
+// PeakPack command line: Joshua's publisher tool, plus headless versions of every friend-side action
+// (used for testing against the sandbox). Friends use the GUI app (PeakPack.exe) instead.
+
+var a = new Args(args);
+var cmd = a.Positional.FirstOrDefault()?.ToLowerInvariant();
+try
+{
+    return cmd switch
+    {
+        "scan" => await Scan(a),
+        "publish" => await Publish(a),
+        "keygen" => KeyGen(a),
+        "install" or "sync" => await Install(a),
+        "launch" => await Launch(a),
+        "status" => Status(a),
+        "uninstall" => Uninstall(a),
+        "locate" => Locate(),
+        _ => Help(),
+    };
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine("ERROR: " + ex.Message);
+    return 1;
+}
+
+static int Help()
+{
+    Console.WriteLine("""
+    PeakPack CLI
+
+    Publisher (Joshua):
+      scan    --plugins <BepInEx\plugins dir> [--out publish.json]   identify Thunderstore mods by hash, draft publish.json
+      publish --config publish.json --out <dir> [--previous <manifest.json>]
+                                                    resolve deps, pin versions + SHA-256, write manifest.json (+ .sig) and assets
+      keygen  --out <private-key.pem>                create a signing key; prints the public key for pack.config.json
+
+    Friend actions (headless; the GUI does the same):
+      install   --manifest <url|path> [--game-dir D] [--data-dir D] [--adopt] [--allow-local] [--public-key K]
+      launch    --modded|--vanilla [--sync --manifest ...] [--method steam|direct|dry] [--game-dir D] [--data-dir D]
+      status    [--game-dir D] [--data-dir D]
+      uninstall [--game-dir D] [--data-dir D] [--shortcut-dir D]
+      locate    show where Steam and PEAK were found
+    """);
+    return 0;
+}
+
+static string WorkDir(Args a) => a.Get("--work") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PeakPack-publisher");
+
+static async Task<ThunderstoreIndex> LoadIndex(Args a)
+{
+    var file = a.Get("--index") ?? Path.Combine(WorkDir(a), "peak-index.json");
+    Console.WriteLine($"Loading Thunderstore index ({file})...");
+    return await ThunderstoreIndex.LoadAsync(file, TimeSpan.FromHours(a.Has("--refresh") ? 0 : 6));
+}
+
+static async Task<int> Scan(Args a)
+{
+    var plugins = a.Require("--plugins");
+    var index = await LoadIndex(a);
+    using var dl = new Downloader(Path.Combine(WorkDir(a), "cache"));
+    var pub = new Publisher(dl, index, Console.WriteLine);
+    var (matched, unmatched) = await pub.ScanAsync(plugins);
+    var cfg = new PublishConfig
+    {
+        Mods = matched.Where(m => index.Find(PackageId.Parse(m).FullName)?.IsHostOnly != true).ToList(),
+        HostOnly = matched.Where(m => index.Find(PackageId.Parse(m).FullName)?.IsHostOnly == true).ToList(),
+        CustomFiles = unmatched.Select(u => new PublishConfig.CustomFile
+        {
+            Id = "Custom-" + Path.GetFileNameWithoutExtension(u).Replace(".", "_"),
+            Version = "1.0.0",
+            Source = u,
+            Dest = $"plugins/Custom-{Path.GetFileNameWithoutExtension(u).Replace(".", "_")}/{Path.GetFileName(u)}",
+        }).ToList(),
+    };
+    var outPath = a.Get("--out") ?? "publish.json";
+    File.WriteAllText(outPath, System.Text.Json.JsonSerializer.Serialize(cfg, PackManifest.JsonOptions));
+    Console.WriteLine($"Wrote {outPath}. Mods tagged \"Host Only\" on Thunderstore were put in hostOnly; review the rest (tags are self-reported by authors).");
+    return 0;
+}
+
+static async Task<int> Publish(Args a)
+{
+    var cfg = PublishConfig.Load(a.Require("--config"));
+    var outDir = a.Require("--out");
+    PackManifest? prev = null;
+    var prevPath = a.Get("--previous") ?? Path.Combine(outDir, "manifest.json");
+    if (File.Exists(prevPath)) prev = PackManifest.Parse(File.ReadAllText(prevPath));
+    var index = await LoadIndex(a);
+    using var dl = new Downloader(Path.Combine(WorkDir(a), "cache"));
+    var m = await new Publisher(dl, index, Console.WriteLine).PublishAsync(cfg, outDir, prev);
+    Console.WriteLine($"\nPublished revision {m.Revision} to {Path.GetFullPath(outDir)}");
+    Console.WriteLine($"  loader: {m.Loader.Id}");
+    foreach (var p in m.Packages) Console.WriteLine($"  {p.Id,-55} {p.Reason}");
+    foreach (var f in m.Files) Console.WriteLine($"  {f.Id,-55} file {f.Path}");
+    Console.WriteLine("Changes since previous:");
+    foreach (var d in Publisher.Diff(prev, m)) Console.WriteLine("  " + d);
+    Console.WriteLine("\nNext: upload everything in the output folder (see tools/publish-release.ps1).");
+    return 0;
+}
+
+static int KeyGen(Args a)
+{
+    var outPath = a.Require("--out");
+    if (File.Exists(outPath)) throw new IOException($"{outPath} exists; refusing to overwrite a signing key.");
+    var (priv, pub) = ManifestSigner.GenerateKeyPair();
+    File.WriteAllText(outPath, priv);
+    Console.WriteLine($"Private key written to {outPath} (keep it secret, never commit it).");
+    Console.WriteLine("Public key (put in pack.config.json \"publicKey\"):");
+    Console.WriteLine(pub);
+    return 0;
+}
+
+static (AppPaths Paths, string? GameDir) Ctx(Args a)
+{
+    var paths = new AppPaths(a.Get("--data-dir"));
+    var state = InstallState.Load(paths);
+    var game = a.Get("--game-dir") ?? state.GameDir ?? SteamLocator.FindGameDir();
+    return (paths, game);
+}
+
+static async Task<int> Install(Args a)
+{
+    var (paths, game) = Ctx(a);
+    if (game is null) throw new DirectoryNotFoundException("Couldn't find PEAK. Pass --game-dir.");
+    var manifest = a.Get("--manifest") ?? InstallState.Load(paths).ManifestUrl ?? throw new ArgumentException("--manifest is required the first time");
+    using var dl = new Downloader(paths.CacheDir) { AllowLocalFiles = a.Has("--allow-local") };
+    var inst = new Installer(paths, dl);
+    var lm = await inst.LoadManifestAsync(manifest, a.Get("--public-key"));
+    Console.WriteLine($"{lm.Manifest.PackName} - revision {lm.Manifest.Revision}{(lm.Signed ? " (signature OK)" : "")}");
+    var res = await inst.SyncAsync(lm, game, a.Has("--adopt"), new ConsoleProgress());
+    foreach (var w in res.Warnings) Console.WriteLine("  ! " + w);
+    foreach (var i in res.Installed) Console.WriteLine("  + " + i);
+    foreach (var r in res.Removed) Console.WriteLine("  - " + r);
+    Console.WriteLine(res.Changed ? $"Done. Now on revision {res.Revision}." : "Already up to date.");
+    return 0;
+}
+
+static async Task<int> Launch(Args a)
+{
+    if (a.Has("--sync")) { var rc = await Install(a); if (rc != 0) return rc; }
+    var (paths, game) = Ctx(a);
+    if (game is null) throw new DirectoryNotFoundException("Couldn't find PEAK.");
+    var mode = a.Has("--vanilla") ? LaunchMode.Vanilla : LaunchMode.Modded;
+    var method = (a.Get("--method") ?? "steam") switch { "direct" => Launcher.Method.DirectExe, "dry" => Launcher.Method.DryRun, _ => Launcher.Method.Steam };
+    var state = InstallState.Load(paths);
+    if (mode == LaunchMode.Modded) GameFolder.ApplyProxy(game, paths, state); // repair if r2modman/Gale overwrote it
+    state.Save(paths);
+    Console.WriteLine((method == Launcher.Method.DryRun ? "Would run: " : "Ran: ") + Launcher.Launch(mode, paths, state, game, method));
+    return 0;
+}
+
+static int Status(Args a)
+{
+    var (paths, game) = Ctx(a);
+    var state = InstallState.Load(paths);
+    Console.WriteLine($"Data folder : {paths.DataDir}");
+    Console.WriteLine($"PEAK folder : {game ?? "(not found)"}");
+    Console.WriteLine($"Pack        : {state.PackName ?? "(not installed)"} revision {state.InstalledRevision}");
+    Console.WriteLine($"Loader      : {state.LoaderId}");
+    foreach (var p in state.Packages.Keys.Order()) Console.WriteLine($"  mod  {p}");
+    foreach (var f in state.Files.Keys.Order()) Console.WriteLine($"  file {f}");
+    if (game is not null)
+    {
+        var i = GameFolder.Inspect(game, state);
+        Console.WriteLine($"Game folder : proxy={(i.HasProxy ? (i.ProxyIsOurs ? "ours" : "FOREIGN") : "none")}, ini enabled={i.IniEnabled?.ToString() ?? "n/a"}, BepInEx folder={(i.HasBepInExFolder ? "present" : "none")}");
+        Console.WriteLine($"Steam 'Play' button launches: {(i.SteamLaunchIsModded ? "MODDED" : "normal PEAK (vanilla)")}");
+    }
+    Console.WriteLine($"Last launch : {state.LastLaunchMode?.ToString() ?? "never"} {state.LastLaunchTime}");
+    return 0;
+}
+
+static int Uninstall(Args a)
+{
+    var (paths, game) = Ctx(a);
+    var opt = Setup.DefaultOptions(new PackConfig(), paths, a.Get("--shortcut-dir"));
+    if (a.Get("--shortcut-dir") is null && !paths.IsDefaultLocation) opt = opt with { DesktopDir = null, StartMenuDir = null };
+    var rep = Setup.Uninstall(paths, opt, game);
+    foreach (var r in rep.Removed) Console.WriteLine("  removed " + r);
+    foreach (var l in rep.LeftBehind) Console.WriteLine("  LEFT (not ours / changed): " + l);
+    if (rep.BackupDir is not null) Console.WriteLine($"  Your previous mod loader backup is still at {rep.BackupDir}");
+    if (game is not null) Console.WriteLine($"Game folder vanilla: {GameFolder.Inspect(game, new InstallState()).IsVanilla}");
+    return 0;
+}
+
+static int Locate()
+{
+    var steam = SteamLocator.FindSteamDir();
+    Console.WriteLine($"Steam dir : {steam}");
+    Console.WriteLine($"Steam exe : {SteamLocator.FindSteamExe()}");
+    if (steam is not null) foreach (var l in SteamLocator.GetLibraryFolders(steam)) Console.WriteLine($"Library   : {l}");
+    Console.WriteLine($"PEAK      : {SteamLocator.FindGameDir()}");
+    return 0;
+}
+
+/// <summary>Reports inline (Progress&lt;T&gt; would post asynchronously and scramble console output).</summary>
+sealed class ConsoleProgress : IProgress<SyncProgress>
+{
+    public void Report(SyncProgress v) => Console.WriteLine($"  [{(v.Fraction ?? 0) * 100,3:0}%] {v.Message}");
+}
+
+sealed class Args(string[] raw)
+{
+    public List<string> Positional { get; } = raw.TakeWhile(r => !r.StartsWith("--")).ToList();
+    public bool Has(string k) => raw.Contains(k, StringComparer.OrdinalIgnoreCase);
+    public string? Get(string k)
+    {
+        var i = Array.FindIndex(raw, r => r.Equals(k, StringComparison.OrdinalIgnoreCase));
+        return i >= 0 && i + 1 < raw.Length ? raw[i + 1] : null;
+    }
+    public string Require(string k) => Get(k) ?? throw new ArgumentException($"{k} is required");
+}

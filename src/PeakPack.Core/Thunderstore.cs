@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace PeakPack.Core;
 
@@ -9,8 +9,10 @@ public sealed class ThunderstoreIndex
     public const string PeakIndexUrl = "https://thunderstore.io/c/peak/api/v1/package/";
 
     public sealed record TsVersion(string FullName, Version Version, string DownloadUrl, long FileSize, IReadOnlyList<string> Dependencies, bool IsActive);
-    public sealed record TsPackage(string FullName, string Owner, bool IsDeprecated, IReadOnlyList<TsVersion> Versions)
+    public sealed record TsPackage(string FullName, string Owner, bool IsDeprecated, IReadOnlyList<TsVersion> Versions, IReadOnlyList<string> Categories)
     {
+        /// <summary>Authors tag PEAK mods "Host Only", "Client Side" or "All Clients" (self-reported).</summary>
+        public bool IsHostOnly => Categories.Any(c => c.Equals("Host Only", StringComparison.OrdinalIgnoreCase));
         public TsVersion Latest => Versions.Where(v => v.IsActive).MaxBy(v => v.Version) ?? Versions.MaxBy(v => v.Version)!;
     }
 
@@ -37,12 +39,13 @@ public sealed class ThunderstoreIndex
             }
             var name = p.GetProperty("full_name").GetString()!;
             idx._byName[name] = new TsPackage(name, p.GetProperty("owner").GetString() ?? "",
-                p.TryGetProperty("is_deprecated", out var dep) && dep.GetBoolean(), versions);
+                p.TryGetProperty("is_deprecated", out var dep) && dep.GetBoolean(), versions,
+                p.TryGetProperty("categories", out var cats) ? cats.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : []);
         }
         return idx;
     }
 
-    /// <summary>Loads the index from a cache file if fresh, else downloads it (≈9 MB).</summary>
+    /// <summary>Loads the index from a cache file if fresh, else downloads it (â‰ˆ9 MB).</summary>
     public static async Task<ThunderstoreIndex> LoadAsync(string cacheFile, TimeSpan maxAge, string url = PeakIndexUrl, CancellationToken ct = default)
     {
         if (!File.Exists(cacheFile) || DateTime.UtcNow - File.GetLastWriteTimeUtc(cacheFile) > maxAge)

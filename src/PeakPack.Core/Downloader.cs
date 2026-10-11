@@ -13,7 +13,8 @@ public sealed class Downloader : IDisposable
     /// Joshua hosts the manifest, his own DLLs and app updates). Add a host here only deliberately.</summary>
     public static readonly string[] DefaultAllowedHosts =
     [
-        "thunderstore.io", "gcdn.thunderstore.io", "cdn.thunderstore.io",
+        // thunderstore.io/package/download/... 302-redirects to ccdn.thunderstore.io/live/repository/packages/...
+        "thunderstore.io", "ccdn.thunderstore.io", "gcdn.thunderstore.io", "cdn.thunderstore.io",
         "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
         "raw.githubusercontent.com", "gist.githubusercontent.com",
     ];
