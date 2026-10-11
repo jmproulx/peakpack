@@ -50,6 +50,11 @@ public sealed class PublishConfig
     /// <summary>Lobby check policy and the live settings the lobby host's values apply to everyone in that lobby.</summary>
     public LobbySettings? Lobby { get; set; }
 
+    /// <summary>Fields this version doesn't know (e.g. added by hand or by a newer tool). Kept on load and written
+    /// back on Save, so the Host window and the CLI can both edit the same publish.json without losing anything.</summary>
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; set; }
+
     public sealed class ModText
     {
         public string? Title { get; set; }
@@ -168,7 +173,7 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
                 customFiles.Add(new PublishConfig.CustomFile
                 {
                     Id = PublishConfig.CompanionId, Source = comp, Dest = PublishConfig.CompanionDest,
-                    Version = System.Diagnostics.FileVersionInfo.GetVersionInfo(comp).FileVersion,
+                    Version = System.Diagnostics.FileVersionInfo.GetVersionInfo(comp) is var fv ? $"{fv.FileMajorPart}.{fv.FileMinorPart}.{fv.FileBuildPart}" : null,
                     Title = "Lobby check",
                     Description = $"Tells you in-game when your mods don't match {cfg.HostName}'s lobby.",
                 });

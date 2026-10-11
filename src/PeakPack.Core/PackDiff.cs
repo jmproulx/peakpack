@@ -44,7 +44,8 @@ public static class PackDiff
             var first = g.First();
             // Content fingerprint: changes whenever any of the mod's always-enforced files changes.
             var fp = string.Join(",", g.Where(f => f.Overwrite == OverwriteMode.Always).OrderBy(f => f.Path).Select(f => f.Sha256[..8]));
-            list.Add(new Item("file:" + g.Key + "#" + fp, first.Title ?? FriendlyFileTitle(g.Key), first.Version ?? "", false, true));
+            list.Add(new Item("file:" + g.Key + "#" + fp, first.Title ?? FriendlyFileTitle(g.Key), first.Version ?? "",
+                g.Key.Equals(PublishConfig.CompanionId, StringComparison.OrdinalIgnoreCase), true)); // the companion counts as a helper
         }
         return list;
     }
