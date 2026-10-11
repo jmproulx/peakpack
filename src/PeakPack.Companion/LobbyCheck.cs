@@ -54,7 +54,8 @@ namespace PeakPack.Companion
         {
             if (string.IsNullOrEmpty(nick)) return "Someone";
             var s = nick.Replace("<", "").Replace(">", "");
-            return s.Length > 32 ? s.Substring(0, 32) : s;
+            if (s.Length <= 32) return s;
+            return s.Substring(0, char.IsHighSurrogate(s[31]) ? 31 : 32); // don't cut an emoji in half
         }
     }
 }

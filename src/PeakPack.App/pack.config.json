@@ -1,7 +1,7 @@
 {
   "packName": "Joshua's PEAK mods",
   "hostName": "Joshua",
-  "manifestUrl": "https://github.com/CHANGE-ME/peak-pack/releases/latest/download/manifest.json",
-  "publicKey": null,
+  "manifestUrl": "https://github.com/jmproulx/peakpack/releases/latest/download/manifest.json",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeHX6onaqEsLTE89iM02riTk+mI9lJ8uGWyOrk+GeULl7eZA72CTcp0dZkg+rHb2TkkCTRxaYKqWjNrNjeZt1PA==",
   "shortcutName": "PEAK (Modded)"
 }

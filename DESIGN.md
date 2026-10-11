@@ -1,332 +1,258 @@
-﻿# PeakPack: one-click PEAK mods for friends
+# PeakPack: one-click PEAK mods for friends
 
-*Design doc, 11 Oct 2026. Prototype: `C:\Users\joshu\PeakMods\FriendInstaller` (see README.md).*
+*Design doc, v0.3, 11 Oct 2026. Code: `C:\Users\joshu\PeakMods\FriendInstaller` (see README.md). v0.2 decisions stand unless a section says otherwise.*
 
 ## 1. Recommendation in one paragraph
 
-Build a small, self-contained Windows app (**PeakPack.exe**) that:
+A small, self-contained Windows app (**PeakPack.exe**) that:
 
-- reads a hash-pinned, signed **manifest** that Joshua publishes on GitHub Releases;
-- downloads the listed mods **straight from Thunderstore**, plus Joshua's own DLLs from his release;
+- reads a hash-pinned, **signed manifest** that Joshua publishes on **GitHub Releases** (`jmproulx/peakpack`);
+- downloads the listed mods **straight from Thunderstore** (no re-hosting), plus Joshua's own DLLs from his release;
 - keeps BepInEx and all mods in its **own folder** (`%LOCALAPPDATA%\PeakPack\profile`), not in the game;
 - puts only Doorstop's `winhttp.dll` and a `doorstop_config.ini` with `enabled = false` in the PEAK folder;
-- starts modded PEAK through Steam with per-launch Doorstop arguments.
+- starts modded PEAK through Steam with per-launch Doorstop arguments (**verified on Joshua's real PC, §2.1**);
+- ships a tiny in-game **companion plugin** in every pack: lobby revision check + host-controlled live settings (§9).
 
-For the friend that means:
+For the friend:
 
-- **Starting PEAK from Steam is always normal PEAK.** The **"PEAK (Modded)"** desktop shortcut checks for updates, syncs and launches with mods in one double-click.
-- Nothing ever has to be switched back.
-- "Remove everything" returns the game folder to exactly what Steam installed.
+- **First open** of the downloaded exe installs the app and puts a **"PEAK (Modded)"** icon on the desktop (§6).
+- That icon checks for updates, syncs, and starts PEAK with mods in one double-click. **Steam's Play button is always normal PEAK.**
+- "Remove PeakPack" returns the game folder to exactly what Steam installed.
 
-Every existing friend-sync option (Thunderstore modpacks, r2modman profile codes, Gale Profile Sync) requires each friend to install a mod manager. I found no maintained standalone installer for BepInEx games, so a small custom app is the only way to meet the "no mod manager" requirement.
+For Joshua: keep developing in his own game folder with AutoReload as today; publish with the **Host window** (`PeakPack.exe --host`) or by asking an agent to run the **CLI** (§7).
 
 ## 2. Verified facts this design rests on
 
 | Fact | Source |
 |---|---|
-| PEAK is Steam app **3527290**; Windows only (no Mac/Linux build); no Steam Workshop; no official mod support | Steam appdetails API; `appmanifest_3527290.acf` in Joshua's library |
-| `BepInEx-BepInExPack_PEAK` 5.4.75301 (BepInEx 5.4.23.3) ships a PEAK fork of **Doorstop 4.4.1** (`.doorstop_version` = `4.4.1PEAK`, adds `[Extra] bypass_vulkan`). Zip layout: `BepInExPack_PEAK/{winhttp.dll, doorstop_config.ini, .doorstop_version, BepInEx/core/*, BepInEx/config/BepInEx.cfg}` | Inspected the zip; thunderstore.io/c/peak/p/BepInEx/BepInExPack_PEAK |
-| Doorstop 4 load order: built-in defaults (`enabled = FALSE`, no target) â†’ `doorstop_config.ini` if present (a *missing key* defaults to `true`) â†’ **command line** (`--doorstop-enabled`, `--doorstop-target-assembly`, â€¦) â†’ `DOORSTOP_DISABLE` env var. **The command line overrides the ini.** | NeighTools/UnityDoorstop `src/windows/config.c` `load_config()`, `src/config/common.c` `init_config_defaults()` |
-| BepInEx 5 takes its root from the preloader's location: `bepinPath = ParentDirectory(DOORSTOP_INVOKE_DLL_PATH, 2)`. So a preloader at `<profile>\BepInEx\core\` means plugins and config come from `<profile>\BepInEx\â€¦`, while the game root comes from the process path | BepInEx/BepInEx v5-lts `BepInEx.Preloader/Entrypoint.cs`, `BepInEx/Paths.cs` |
-| r2modman and Gale both launch on Windows with `steam.exe -applaunch <appid> --doorstop-enabled true --doorstop-target-assembly <profile>\BepInEx\core\BepInEx.Preloader.dll` for Doorstop 4 | r2modmanPlus `BepInExGameInstructions.ts`, `SteamGameRunner_Windows.ts`; Gale `src-tauri/src/profile/launch/{platform,mod_loader}.rs` |
-| Thunderstore BepInEx install rules: `plugins`, `patchers`, `core`, `monomod` â†’ `BepInEx/<route>/<Namespace-Name>/`; `config` â†’ `BepInEx/config/` (no subfolder); loose files â†’ `plugins/<Namespace-Name>/` | Thunderstore schema `api/experimental/schema/dev/latest`; r2modman `ecosystem.json` and wiki |
-| Thunderstore download URLs 302-redirect to `ccdn.thunderstore.io/live/repository/packages/<ns>-<name>-<ver>.zip`. The API publishes **no file hashes**, so we compute and pin our own SHA-256. Versions are immutable (a re-upload needs a version bump) | Live headers; Thunderstore OpenAPI; wiki |
-| Thunderstore has **no unlisted/private packages**. Its rules forbid re-uploading other authors' packages, and forbid packages that download and run external code (so an auto-updater plugin can't be listed there) | wiki.thunderstore.io moderation/global-rules |
-| Gale "Profile Sync" (beta): the owner pushes, subscribers pull (automatically on launch), but **every friend must install Gale** | github.com/Kesomannen/gale/wiki/Profile-sync |
-| GitHub Releases: files under 2 GiB, no total-size or bandwidth limit stated; `â€¦/releases/latest/download/<asset>` redirects to the latest release | docs.github.com about-releases, linking-to-releases |
-| SmartScreen: unsigned files start with zero reputation for every new version; **EV certificates no longer bypass SmartScreen**; Artifact (Trusted) Signing costs $9.99/mo, and **individuals must be in the US or Canada** | learn.microsoft.com smartscreen-reputation; azure artifact-signing quickstart/FAQ |
+| PEAK is Steam app **3527290**; Windows only; no Workshop; no official mod support | Steam appdetails; `appmanifest_3527290.acf` |
+| `BepInEx-BepInExPack_PEAK` 5.4.75301 (BepInEx 5.4.23.3) ships a PEAK fork of Doorstop 4.4.1. Joshua's own game folder has generic Doorstop **4.4.0** | Inspected the zip; `.doorstop_version` in his folder |
+| Doorstop 4 load order (Windows): defaults (`enabled = FALSE`) → `doorstop_config.ini` → **command line** → `DOORSTOP_DISABLE`. Arguments are split with `CommandLineToArgvW`; the value after `--doorstop-target-assembly` is taken whole and **replaces** the ini's value (`load_str_argv` frees the old one). Relative paths resolve against the game folder. `src/windows/config.c` etc. are byte-identical in 4.4.0 and 4.4.1 | NeighTools/UnityDoorstop v4.4.0 `src/windows/config.c` `load_config()`, `init_cmd_args()`, `load_str_argv()`; `src/windows/entrypoint.c` `fix_cwd()` |
+| BepInEx 5 root = two levels above the preloader: `Utility.ParentDirectory(DOORSTOP_INVOKE_DLL_PATH, 2)`. Game root comes from the process path | BepInEx v5-lts `BepInEx.Preloader/Entrypoint.cs`, `BepInEx/Paths.cs` |
+| r2modman and Gale launch Doorstop-4 games on Windows with `steam.exe -applaunch <id> --doorstop-enabled true --doorstop-target-assembly <profile preloader>` | r2modmanPlus `SteamGameRunner_Windows.ts`, `BepInExGameInstructions.ts`; Gale `profile/launch/platform.rs` |
+| Thunderstore install rules; download URLs 302 to `ccdn.thunderstore.io`; no hashes in the API (we pin our own SHA-256); versions immutable; no private packages; no re-uploading others' packages | Thunderstore schema, OpenAPI, wiki |
+| GitHub Releases: assets < 2 GiB; `…/releases/latest/download/<asset>` redirects to the latest release's asset | docs.github.com |
+| PEAK uses PUN **2.49**; sets player properties `UserID`, `PlatformFamily`, `ProductUserID` and room property `csid`. Its "X joined the expedition." feed is `PlayerConnectionLog` (TMP text, `joinedColor`/`leftColor`/`userColor`, `sfxJoin`/`sfxLeave`, 8 s per line) | `_decompiled` PhotonUnityNetworking `PhotonNetwork.PunVersion`; `NetworkingUtilities.cs`, `Player.cs`, `NetworkConnector.cs`, `PlayerConnectionLog.cs` |
 
-Not verified, needs a real-world check:
+### 2.1 Real-PC test (11 Oct 2026, Joshua's PC, `tools/real-pc-test.ps1`, report in `docs/real-pc-test-2026-10-11.txt`)
 
-- **Does Steam show a confirmation dialog for `-applaunch` with custom arguments?** It is known to for `steam://run/<id>//<args>`, which is why we don't use that. r2modman and Gale use `-applaunch` and I found no reports of a prompt, but no primary source either. This is the first thing to try on Joshua's PC.
-- **Does Steam's "Verify integrity of game files" leave extra files like `winhttp.dll` in place?** Community consensus says yes: it only restores depot files and ignores extras. I found no explicit Valve statement. Either way, our uninstall removes our files itself, so we don't depend on Verify.
+Non-destructive: Joshua's game folder already has Doorstop with `enabled = true` targeting his own BepInEx; the test only *overrides* the target on the command line, with a profile under `sandbox\real-pc-test\PeakPack Test Data\` (path with spaces) holding BepInExPack_PEAK's core and a test plugin that logs and quits.
 
-## 3. Options compared
+| Check | Result |
+|---|---|
+| `steam.exe -applaunch 3527290 --doorstop-enabled true --doorstop-target-assembly "<profile with spaces>\BepInEx\core\BepInEx.Preloader.dll"` (exactly what PeakPack runs) | PEAK started in 2.8 s; **BepInEx 5.4.23.3 loaded from the test profile** (`BepInExRootPath = …\PeakPack Test Data\profile\BepInEx`, `GameRootPath = D:\SteamLibrary\steamapps\common\PEAK`); test plugin ran |
+| Path with spaces | Arrived in PEAK as **one** argument |
+| Joshua's own BepInEx | **Not** loaded (his `LogOutput.log` unchanged) |
+| Steam confirmation dialog for custom args | **None.** The script saw no new Steam window in any phase, and Joshua saw no dialog. (Steam users have reported an "attempting to launch with optional parameters" prompt since 2024; it did not appear for `-applaunch` from a program on this PC. Re-check if a friend reports one.) |
+| `-applaunch … --doorstop-enabled false` | Plain PEAK, even with his ini at `enabled = true` |
+| Game folder before/after | Identical (309 files, path + size + timestamp) |
+| Fallback: PEAK.exe started directly with `SteamAppId` set | Inconclusive (BepInEx started, plugin did not run). Not needed, since Steam doesn't prompt; the script's measurement for this phase was fixed afterwards |
 
-| Option | Friend installs a manager? | Auto-updates | Joshua's custom DLLs | Verdict |
-|---|---|---|---|---|
-| **Thunderstore modpack** (manifest + deps uploaded as a package) | Yes, any manager | Through the manager | Only if uploaded publicly | Public only, so not suited to unreleased DLLs. A fine *complement* later. |
-| **r2modman / TMM profile code** | Yes | No (a one-off snapshot); the importer skips `.dll` files from codes | No | No |
-| **Gale Profile Sync** | Yes (Gale; friends don't need a login) | Yes, on launch | Profile import skips DLLs (same r2z format) | Best existing option, but breaks the "no manager" requirement |
-| **Thunderstore CLI (tcli)** | No, but it's a CLI | No | No | Stale (last release Jun 2024); not friend-friendly |
-| **Steam Workshop** | n/a | n/a | n/a | PEAK doesn't support it |
-| **Zip of the game folder / .bat / `irm â€¦ \| iex` one-liner** | No | No (or re-run) | Yes | No vanilla switch; a PowerShell one-liner is scary for non-technical friends and runs remote script code; redistributing others' mods in a zip is a licensing problem |
-| **In-game auto-updater BepInEx plugin only** | No, but someone must install BepInEx first | Yes | Yes | It can't update BepInEx or itself while loaded, has no UI before the game window, and Thunderstore rules forbid listing it. Doesn't solve the first install or vanilla switching |
-| **Custom app (PeakPack)** | **No** | **Yes, every launch (silent)** | **Yes** | **Recommended** |
-| Hybrid: app + an updater plugin that syncs at game start | No | Yes | Yes | No benefit over syncing in the shortcut before launch. A tiny plugin is still useful for *lobby checks* (Â§9) |
+Still unverified: whether Steam's "Verify integrity" removes extra files (we don't depend on it; uninstall removes ours).
 
-## 4. Switching between modded and normal PEAK (first-class requirement)
+## 3. Options compared (unchanged from v0.2)
 
-### 4.1 Options
+Every existing friend-sync option (Thunderstore modpacks, r2modman profile codes, Gale Profile Sync) requires each friend to install a mod manager. A small custom app is the only way to meet "no mod manager". Gale Profile Sync remains the best off-the-shelf alternative.
 
-| Approach | How you play vanilla | Risk for a non-technical friend | Verdict |
-|---|---|---|---|
-| **A. Clean game folder + per-launch args** (r2modman/Gale model). BepInEx and mods live in `%LOCALAPPDATA%\PeakPack\profile`. The game folder has only `winhttp.dll` and an ini with `enabled = false`. "PEAK (Modded)" passes `--doorstop-enabled true --doorstop-target-assembly <profile preloader>` | Just start PEAK from Steam (or "Play normal PEAK" in the app) | **None.** Modded is opt-in per launch and nothing stays switched on | **Recommended, implemented** |
-| B. BepInEx in the game folder; flip `enabled` in the ini | Toggle in the app | Sticky: friends forget they're modded, and Steam launches stay modded | No |
-| C. Rename `winhttp.dll` on and off | Toggle | Sticky, same as B; also breaks if Steam or AV interferes | No |
-| D. A separate copy of the game folder | Launch the copy | Steamworks games launched from a copied folder typically get relaunched by Steam from the original install. ~GBs of disk; updates diverge | No |
-| E. Steam launch options (`--doorstop-enabled false`) | Edit launch options | Requires friends to edit Steam settings | No |
+## 4. Modded vs normal PEAK
 
-Why A works (verified in source, Â§2):
+Clean game folder + per-launch arguments (the r2modman/Gale model), now verified on the real PC (§2.1):
 
-- Doorstop reads the ini (`enabled = false` â†’ plain Steam launches load nothing).
-- It then parses the command line, which wins.
-- BepInEx locates its plugins and config relative to the preloader we pass, so the game folder never needs a `BepInEx\` folder.
+- the game folder has only `winhttp.dll` and an ini with `enabled = false`, so **Steam's Play button = normal PEAK**;
+- "PEAK (Modded)" passes `--doorstop-enabled true --doorstop-target-assembly <profile>\BepInEx\core\BepInEx.Preloader.dll`;
+- PeakPack rewrites the two proxy files before each modded launch (undoes r2modman/Gale overwriting them);
+- "Play normal PEAK" passes `--doorstop-enabled false`.
 
-PeakPack also:
+**Joshua's own PC** keeps his manual install (BepInEx in the game folder, `enabled = true`, AutoReload, dev builds). PeakPack never syncs his game folder. The Host window's **"Play as a friend"** uses the same override trick verified in §2.1: it syncs the friend manifest into `%LOCALAPPDATA%\PeakPack-host\friend-view` (with `ManageGameFolder = false`) and launches with `--doorstop-target-assembly` pointing there. His folder is never written. Sync options for host/dev profiles: `Strict = false` keeps extra plugins (`--keep-extra`); `ManageGameFolder = false` never touches the game folder (`--no-game-folder`).
 
-- rewrites the two proxy files before each modded launch, which undoes r2modman or Gale overwriting them;
-- passes `--doorstop-enabled false` explicitly for "Play normal PEAK".
-
-r2modman's own Doorstop-4 vanilla launch passes the Doorstop-3 name `--doorstop-enable false`, which Doorstop 4 ignores. We use the correct name.
-
-### 4.2 What the friend sees
-
-- **Desktop "PEAK (Modded)"** (PEAK's icon) = with mods.
-- **Steam's Play button** = normal PEAK. Nothing to remember.
-- The PeakPack window has two big buttons, **Play Modded** and **Play normal PEAK**. It shows which mode the last launch from the app used, and states "Starting PEAK from Steam = normal PEAK".
-  - The app can also tell whether a game start really loaded BepInEx: BepInEx rewrites `profile\BepInEx\LogOutput.log` on every modded start (helper `Launcher.LastModdedStartUtc` exists; not yet shown in the UI).
-  - If the game-folder ini somehow says enabled, the window reports "Steam launch = WITH mods (unexpected)" and the next sync fixes it.
-
-### 4.3 Remove everything
-
-"Remove everything" (in the app, and in Windows' Installed Apps via `PeakPack.exe --uninstall`) does the following:
-
-- Deletes `winhttp.dll` and `doorstop_config.ini` from the PEAK folder, **only if they still match the SHA-256 we recorded when writing them**. A file someone else replaced is reported, never blindly deleted.
-- Deletes the profile, cache, state, shortcuts and registry entry. The running exe deletes itself after it exits.
-- **Tested: the sandbox game folder's file list is identical before install and after uninstall.**
-- If a friend already had a manual BepInEx install, setup asks first, then *moves* it to `%LOCALAPPDATA%\PeakPack-backups\â€¦` with a README. Uninstall never deletes that backup and tells the friend where it is.
-- Steam "Verify integrity" restores changed game files but (per community consensus, Â§2) does not remove extra files like `winhttp.dll`. That's why uninstall must do it, and does.
-
-### 4.4 Joshua's own PC
-
-Joshua currently has BepInEx installed directly in `D:\SteamLibrary\steamapps\common\PEAK` with `enabled = true`, so Steam launches are modded. **It was not changed.** Moving to the same model later would mean:
-
-- his Steam launches are vanilla too;
-- he tests exactly what friends get.
-
-Two catches must be addressed first:
-
-1. Host-only mods (PEAK_Unlimited) aren't in the friend manifest, so he'd want a "host profile" mode that also installs `hostOnly`.
-2. PeakPack's strict mode deletes unmanaged plugins, which would clobber dev builds of HeliPilot copied into the profile. A host/dev mode needs a "keep unmanaged plugins" switch, or a dev folder that is left alone.
-
-Until then he can keep his manual install. If he runs the friend app on his own PC, it will detect his BepInEx install as "foreign" and ask before backing it up.
-
-## 5. Architecture (as prototyped)
+## 5. Architecture
 
 ```
-Joshua's PC                                   GitHub Releases (public repo)            Thunderstore
-publish.json â”€â–º PeakPack.Cli publish â”€â–º out\  â”€â–º rev-N: manifest.json, .sig,           ccdn.thunderstore.io
-   (scan can draft it from a plugins folder)      HeliPilot-<sha8>.dll, PeakPack-x.y.exe   (mod zips, pinned by SHA-256)
-                                                            â”‚                                 â”‚
-Friend's PC: "PEAK (Modded)" â”€â–º PeakPack.exe --launch â”€â”€â”€â”€â”€â”€â”´â”€â”€ HTTPS, host allowlist â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-   â”œâ”€ verify manifest signature (ECDSA P-256, public key baked into the exe)
-   â”œâ”€ self-update if manifest.app is newer (hash-pinned)
-   â”œâ”€ sync %LOCALAPPDATA%\PeakPack\profile\BepInEx to the manifest (download â†’ verify SHA-256 â†’ extract)
-   â”œâ”€ write PEAK\winhttp.dll + PEAK\doorstop_config.ini (enabled=false)
-   â””â”€ steam.exe -applaunch 3527290 --doorstop-enabled true --doorstop-target-assembly <profile>\BepInEx\core\BepInEx.Preloader.dll
+Joshua's PC                                         GitHub Releases (jmproulx/peakpack)          Thunderstore
+publish.json ─► PublishPipeline (CLI or Host window)   rev-N: manifest.json(.sig), JetpackBoost-<sha8>.dll,   ccdn.thunderstore.io
+                 prepare: previous = live manifest      PeakPack.Companion-<sha8>.dll, PeakPack-0.3.0.exe,     (mod zips, pinned by SHA-256)
+                 release: gh release create rev-N       PeakPack.exe (stable name for the share link)
+                 stamp:   companion + pack-info → his own BepInEx
+Friend's PC: "PEAK (Modded)" ─► PeakPack.exe --launch ── HTTPS, host allowlist ──────────────────────────────┘
+   verify signature → self-update if newer → sync profile → pack-info.json → write proxy → steam -applaunch … (args)
+In game: PeakPack.Companion reads <profile>\BepInEx\PeakPack\pack-info.json → Photon properties → lobby check / live settings
 ```
 
-### Manifest (`manifest.json`, schema 1, example in `examples/manifest.example.json`)
+### Manifest (schema 1; v0.3 fields are optional, so v0.2 apps still read new manifests)
 
-```jsonc
-{
-  "schema": 1, "packName": "Joshua's PEAK mods", "revision": 7, "published": "â€¦", "gameAppId": 3527290,
-  "gameVersion": "2.6.b", "notes": "Added HeliPilot!", "modsRequiredToJoin": true,
-  "app":    { "version": "0.2.0", "url": "PeakPack-0.2.0.exe", "sha256": "â€¦", "size": 51699433 },
-  "loader": { "id": "BepInEx-BepInExPack_PEAK-5.4.75301", "url": "https://thunderstore.io/package/download/BepInEx/BepInExPack_PEAK/5.4.75301/", "sha256": "â€¦", "size": 670172 },
-  "packages": [ { "id": "PEAKModding-PEAKLib_Core-1.7.2", "url": "https://thunderstore.io/package/download/â€¦", "sha256": "â€¦", "size": 118064,
-                  "reason": "requested", "tags": ["All Clients"] }, â€¦ ],     // fully resolved and pinned (a lock file)
-  "files": [ { "id": "Joshua-HeliPilot", "version": "0.1.0", "path": "plugins/Joshua-HeliPilot/HeliPilot.dll",
-               "url": "https://github.com/<you>/peak-pack/releases/download/rev-7/Joshua-HeliPilot-a057a3d7-HeliPilot.dll",
-               "sha256": "â€¦", "overwrite": "always" },                        // or "ifMissing" for default configs
-             â€¦ ],
-  "hostOnly": ["glarmer-PEAK_Unlimited"]                                      // informational, never installed
-}
-```
+v0.2 fields plus: `hostName`, `packId` (stable slug for the lobby check), `changelog[]` (last 20, newest first), `lobby { mismatchPolicy: warn|block, liveSettings[{plugin, section, key}] }`, and per package/file `title` + `description` (friendly name and one line "what it does", from `modInfo` in publish.json or Thunderstore's own description). The manifest is still pure data: **no field can run a command or script**.
 
-The manifest is pure data. **There is no field that can run a command or script.**
+### Sync (`Installer.SyncAsync`), idempotent
 
-### Sync algorithm (`Installer.SyncAsync`), idempotent
+As v0.2, plus: honours `SyncOptions(Strict, ManageGameFolder, ShortcutName)`; writes `profile\BepInEx\PeakPack\pack-info.json` (pack id, revision, host name, shortcut name, lobby policy, live-setting whitelist) and `installed-manifest.json` (so the next check can say exactly what changed: `PackDiff`).
 
-The steps run in this order:
+## 6. Friend experience
 
-1. Refuse a game folder that isn't PEAK, or one with someone else's loader (unless the friend says yes â†’ back it up).
-2. If the loader changed or is missing, extract the pack: `BepInEx/core` â†’ profile; `BepInEx.cfg` only if missing; proxy files â†’ `profile\loader\`.
-3. Remove packages that are gone, have a changed version, or are missing files. Removal deletes their `<route>/<Namespace-Name>` folders.
-4. Install missing packages using the Thunderstore layout rules. A package's `config/` files are written only if missing, so friend tweaks survive.
-5. Write or update Joshua's files (`always` = enforce the hash; `ifMissing` = seed once). Delete files dropped from the manifest.
-6. **Strict mode:** anything in `plugins/` or `patchers/` that the manifest doesn't own is deleted. That guarantees "exactly the host's set".
-7. Write the two game-folder proxy files and save `state.json` (installed files, game-folder file hashes, revision, last launch).
+**First time:**
 
-Downloads are cached by SHA-256, so re-syncs and repairs don't re-download. Dependency resolution happens **at publish time**: every dependency string names a version, the highest required version wins, explicit pins win, and any `BepInExPack*` dependency becomes the PEAK pack. Friends just install the pinned list. That gives deterministic installs, everyone matches the host, and no Thunderstore API calls happen on friends' PCs.
-
-## 6. Friend experience, step by step
-
-**First time (about a minute):**
-
-1. Joshua sends a link to `PeakPack.exe` (one file, ~49 MB, no .NET install needed).
-2. The friend downloads and double-clicks it. Unsigned, it will show SmartScreen's "Windows protected your PC". The friend clicks **More info â†’ Run anyway** (Â§10; Joshua's message should say this).
-3. A window: "Joshua's PEAK mods: this sets up Joshua's PEAK modsâ€¦ your normal PEAK stays exactly as it is" with one orange **Install** button. PEAK is found automatically (registry â†’ Steam `libraryfolders.vdf` â†’ `appmanifest_3527290.acf`). Only if that fails does it ask for the folder, and it validates that `PEAK.exe` is there.
-4. Progress bar while it downloads BepInEx and the mods. Done: "All set! Use 'PEAK (Modded)' on your desktopâ€¦". Shortcuts are created on the desktop and in the Start Menu, plus an Installed Apps entry.
-5. The window now shows **Play Modded**, **Play normal PEAK**, the mod list, "Check for updates", "Open mods folder" and "Remove everythingâ€¦".
+1. Joshua sends `https://github.com/jmproulx/peakpack/releases/latest/download/PeakPack.exe` (one ~50 MB file, nothing else to install).
+2. Browser warning, then SmartScreen, once (§10 has exactly what to click).
+3. **First open installs the app**: it writes itself to `%LOCALAPPDATA%\PeakPack\PeakPack.exe`, creates **Desktop "PEAK (Modded)"** (PEAK.exe's icon), **Start Menu → PeakPack → "PEAK (Modded)" and "PeakPack"** (the app window), and an Installed Apps entry, then restarts from the installed copy. The downloaded file is never needed again. (A desktop "PeakPack" icon is optional, `desktopAppShortcut`, off by default: one icon on the desktop keeps it obvious.)
+4. Welcome page: status "Not installed yet: click Install to download 2 mods (about 1 MB)", what will happen in three bullets, and **what's in the pack and why** (friendly names + one-line descriptions, helpers collapsed). One **Install** button.
+5. Done page: **"All set. Your desktop now has a "PEAK (Modded)" icon"** with a picture of that icon, and **Play now / Close**.
 
 **Every time after:** double-click **PEAK (Modded)**.
 
-- Up to date: no window at all. It checks, then PEAK starts in about 0.5 s (measured in the sandbox).
-- Joshua published an update: a small "Downloading HeliPilotâ€¦" window appears, then PEAK starts (about 2 s for a small update in the sandbox).
-- PEAK is already running: "Close it first".
-- Offline, or the update failed: a plain-English message with **Yes** = play with the mods you already have, **No** = play normal PEAK, **Cancel**.
-- PEAK updated since Joshua's pack was made: the window notes the version mismatch and suggests normal PEAK until Joshua updates.
+- Up to date: no window; PEAK starts in about half a second.
+- Update published: a small progress window, then PEAK starts.
+- Offline or failed: a native task dialog: "Play with the mods I have" / "Play normal PEAK" / Cancel, with details.
 
-**Normal PEAK:** start it from Steam as always, or use "Play normal PEAK".
+**Opening the PeakPack window later** shows one status line in the style of Windows Update:
 
-**Uninstall:** Installed Apps â†’ PeakPack â†’ Uninstall, or "Remove everythingâ€¦" in the window. The PEAK folder goes back to exactly vanilla.
+| Status | When |
+|---|---|
+| **Ready to play** (green) | up to date: "You have Joshua's mods, pack revision 7, checked just now." |
+| **Update available: 2 mods changed** (amber) | "Added Infinite Glider · Updated Jetpack Boost (new build). Play with mods updates automatically, or click Update now." |
+| **Not installed yet** (blue) | first run |
+| **Something went wrong** (red) | plain heading (e.g. "Can't reach the internet") + what to do + "Copy details" for Joshua |
+| PEAK is running / PEAK has updated since this pack was made / Steam would start PEAK with mods | the special cases, each with one sentence of advice |
 
-## 7. Joshua's publish workflow, step by step
+The two main actions are native command links: **Play with mods** ("Same as the PEAK (Modded) icon on your desktop") and **Play normal PEAK** ("No mods. Same as pressing Play in Steam."). One muted line restates the rule: mods only load from PeakPack; Steam = normal PEAK; to join Joshua's games, play with mods.
 
-One-time setup:
+**Look:** classic Windows installer layout (white header with title and app icon, a thin PEAK-orange line under it, system face colour, Segoe UI, standard buttons right-aligned in a bottom bar, native command links, ListView with groups, TaskDialogs). No gradients, emoji or oversized cards. The app icon is original (navy badge, two-tone mountain with snow cap, orange pack crate; `tools/make-icon.ps1`); the desktop "PEAK (Modded)" shortcut uses PEAK.exe's own icon.
 
-1. Create a **public** GitHub repo, e.g. `peak-pack` (release assets in private repos need auth).
-2. Create a signing key outside any repo: `PeakPack.Cli keygen --out C:\Users\joshu\PeakPack-keys\peakpack-signing.pem`. It prints the public key.
-3. Put the manifest URL (`https://github.com/<you>/peak-pack/releases/latest/download/manifest.json`) and the public key into `src/PeakPack.App/pack.config.json`. Build: `dotnet publish src\PeakPack.App -c Release -o publish-out`. Share `publish-out\PeakPack.exe`. This is the only time an exe is handed out by hand; later app versions ship through self-update.
-4. Draft `publish.json` from his own working install. `PeakPack.Cli scan --plugins D:\â€¦\PEAK\BepInEx\plugins` identifies each DLL's Thunderstore package and version **by SHA-256**. Mods tagged "Host Only" go into `hostOnly`, and unknown DLLs (HeliPilot) become `customFiles`.
-   - Tested read-only on his real folder: it found AutoReload 1.0.2, InfiniteGlider 0.0.2 and InfiniteJetpack 1.0.1, put PEAK_Unlimited 4.0.1 into hostOnly, and listed HeliPilot as custom.
+**DPI:** all sizes are in 96-DPI units multiplied by the scale (`DeviceDpi/96`, or `--ui-scale` for screenshots); fonts are created in pixels; `AutoScaleMode.None`, rebuilt on `DpiChanged`. Screenshots at 100/125/150 % in `docs/screenshots/after/`.
 
-Every update (one command):
+## 7. Joshua's workflow (recommended)
 
-5. Edit `publish.json` (add or remove a mod, bump a pin, point at a new HeliPilot build).
-6. `.\tools\publish-release.ps1 -Config publish.json -Repo <you>/peak-pack` does two things:
-   - runs `publish`, which resolves dependencies, downloads and SHA-256-pins every zip, copies custom files with content-addressed names, signs, and prints a +/- diff against the last revision;
-   - creates GitHub release `rev-N` marked latest, using `gh`.
-7. Friends get the update the next time they double-click the shortcut. Optionally Joshua posts "pack rev N" in the group chat.
+**Normal week:**
 
-## 8. Hosting plan (free)
+1. Develop in his own game folder exactly as now (`dotnet build -p:Deploy=true`, AutoReload hot-reloads his DLL). PeakPack never touches that folder.
+2. When a build is worth sharing: open **PeakPack Host** (`PeakPack.exe --host`), check "What friends will get" (+/- list in plain words), type one changelog line, **Publish**. Optionally **Play as a friend** first to test exactly the friend set.
+3. Friends get it the next time they start PEAK (Modded). Their in-game lobby check tells them if they're behind.
 
-- **GitHub Releases on a public repo**, one release per revision (`rev-N`).
-  - The manifest URL friends' apps use never changes: `â€¦/releases/latest/download/manifest.json`.
-  - Inside the manifest, custom files use **immutable** per-revision URLs (`assetBaseUrl: â€¦/releases/download/rev-{revision}/`). A friend who fetched rev 7's manifest just as rev 8 went up still downloads rev 7's files, so hashes never race.
-- Mods are always downloaded from **Thunderstore's own URLs**. We host only Joshua's files.
-- Alternatives:
-  - Cloudflare R2 (free tier, but needs a custom domain to avoid r2.dev rate limits).
-  - GitHub Pages (fine for JSON; Releases are recommended for binaries).
-  - `raw.githubusercontent.com` (5-minute cache) also works for the manifest.
-  - The host allowlist would need the chosen host added.
+**Or by talking to an agent** (everything is headless):
 
-## 9. Multiplayer: mismatches and vanilla friends
+```powershell
+$cli = "C:\Users\joshu\PeakMods\FriendInstaller\src\PeakPack.Cli\bin\Debug\net10.0-windows\PeakPack.Cli.exe"
+$cfg = "$env:LOCALAPPDATA\PeakPack-publisher\publish.json"
+& $cli prepare --config $cfg                         # build rev N+1 into staging, print what friends will get
+& $cli release --config $cfg --notes "Glider added" --dry-run    # print the exact gh command
+& $cli release --config $cfg --notes "Glider added" --stamp "D:\SteamLibrary\steamapps\common\PEAK\BepInEx"
+```
 
-- PEAK uses Photon PUN. Matchmaking separates **game versions**, not mod sets. A vanilla friend *can* join a modded lobby.
-  - Host-only mods (e.g. PEAK_Unlimited, tagged "Host Only") are fine.
-  - Mods tagged "All Clients" (and most gameplay mods with RPCs or items, possibly HeliPilot) need everyone to run them. Otherwise expect desyncs or missing features.
-- The publisher records each package's Thunderstore side tag and sets `modsRequiredToJoin`: true if any mod is "All Clients", or if any custom DLL is included. Joshua can override it in `publish.json`. The app then shows "To join Joshua's games, use Play Modded" next to the buttons.
-- Everyone on the same pack revision is guaranteed by construction: the shortcut syncs before every launch, and the window shows "Pack revision N".
-- **In-game check (optional next step):**
-  - Add an existing verifier mod to the pack: `LengSword-BetterModVerifier` (host whitelist, exact-match mode, optional kick) or `Jaz-ModSync`. Both are "All Clients".
-  - Or write a ~50-line plugin, "PeakPackBeacon", that publishes the pack revision as a Photon player property, so the host sees "Sam: no mods / old pack".
-  - Either way, friends get it automatically because it's just another manifest entry.
+Recommendation: use the **Host window** for routine publishes (the diff preview and the confirmation make mistakes unlikely); use an agent when he wants something done for him ("add InfiniteGlider, pin it, publish"). Both edit the same `publish.json` and run the same pipeline. A management UI isn't strictly needed, but it's the safer default because it shows exactly what friends will get before anything goes out.
 
-## 10. Windows SmartScreen, antivirus and signing
+**One-time setup (done in v0.3 prep):** signing key `C:\Users\joshu\PeakPack-keys\peakpack-signing.pem` (outside any repo; public key baked into `pack.config.json`); manifest URL `https://github.com/jmproulx/peakpack/releases/latest/download/manifest.json`; `publish.json` at `%LOCALAPPDATA%\PeakPack-publisher\publish.json` (copy of `examples/first-pack.publish.json`). **Not done (by design): creating the repo, pushing, publishing.**
 
-- **Unsigned (free):** the first download shows browser and SmartScreen warnings ("not commonly downloaded", "Windows protected your PC â†’ More info â†’ Run anyway").
-  - With a handful of friends, reputation never builds, and every new exe version resets it.
-  - Mitigation built in: **only the first exe ever goes through a browser.** Self-updates are downloaded by PeakPack itself over HTTPS and hash-verified. Files written this way carry no Mark-of-the-Web, so updates don't re-trigger SmartScreen.
-  - Windows 11 Smart App Control (if a friend has it on) can block unsigned apps outright.
-- **Signing options:**
+**The pipeline in detail** (`PublishPipeline`, shared by CLI and Host window):
 
-  | Option | Cost | Catch |
-  |---|---|---|
-  | Microsoft Artifact (Trusted) Signing | $9.99/mo | Joshua must be in the **US or Canada** as an individual; reputation is per publisher, so it builds faster |
-  | Certum Open Source Code Signing | ~â‚¬69 + yearly | Requires an open-source project; reports on SmartScreen acceptance are mixed |
-  | SignPath Foundation | Free | For OSI-licensed open-source projects built in public CI; manual approval per release |
+1. *Previous revision* = the live manifest at the manifest URL (what friends really have); a 404 means first publish; else the last local release in `<work>\current`. Network errors stop the publish rather than guess a revision.
+2. *Prepare* into `<work>\staging`: resolve and pin, copy own DLLs with content-addressed names, include the companion, sign, add the stable `PeakPack.exe`, check problems (unsigned, no repo, no app exe, asset URLs not matching the release).
+3. *Release*: `gh release create rev-N <assets> --repo jmproulx/peakpack --title … --notes <changelog + plain change list> --latest`. Only after success is staging copied to `<work>\current` and `<work>\history\rev-N`.
+4. *Stamp* (optional): companion + `pack-info.json` into his own `BepInEx`, so his game announces revision N in lobbies.
 
-  EV certificates no longer skip SmartScreen, so they aren't worth the premium.
-- **Antivirus:** single-file or self-extracting .NET exes occasionally trip Defender heuristics (e.g. "Wacatac" false positives). If it happens, submit at microsoft.com/wdsi/filesubmission ("software developer").
-- **Alternatives:**
-  - A zip with `.bat`: same MOTW warnings, plus extraction steps.
-  - `irm <url> | iex`: no SmartScreen prompt, but asks non-technical friends to paste a command that runs remote code. Not recommended.
-- **Size:** the self-contained single-file WinForms exe is **49 MB** (WinForms can't be trimmed). If that matters:
-  - framework-dependent would be ~1 MB, but friends would need the .NET Desktop Runtime (no);
-  - a NativeAOT build with a raw Win32 or a small native-UI library could get to ~5â€“10 MB, for 1â€“2 days of extra work.
+Every release carries `PeakPack.exe`, so the share link never breaks. **Never create a non-pack release marked "latest"** in this repo: `latest/download/manifest.json` must always resolve to a pack release.
+
+## 8. Hosting plan
+
+GitHub Releases on the public repo `jmproulx/peakpack` (app source included), one release per revision (`rev-N`). The manifest URL never changes; custom files use immutable per-revision URLs (`…/releases/download/rev-N/…`), so a friend who fetched rev 7 while rev 8 went up still gets rev 7's files. Mods always come from Thunderstore.
+
+## 9. Multiplayer: lobby check, live settings, and "can it stream updates?"
+
+### 9.1 What Joshua actually gets
+
+| Ask | Verdict | What happens |
+|---|---|---|
+| (a) Code and mod changes reach friends | **Yes, at next launch** | The PEAK (Modded) icon syncs before every start. Publishing takes seconds; friends just restart PEAK from the icon. |
+| (b) Know when someone is behind | **Yes, implemented** (companion) | In the lobby, a line in PEAK's own feed: *"Joshua's expedition uses mod pack rev 7. You have rev 6. Restart PEAK from the PEAK (Modded) icon to update."* The host sees *"Sam has mod pack rev 6. Yours is rev 7."* or *"Sam joined without the mod pack."* (the latter only if the pack says mods are required). Optional `mismatchPolicy: block` makes an outdated player leave after 10 s. |
+| (c) Live settings from host to friends | **Yes, implemented** (companion) | BepInEx config values whitelisted in the signed pack (e.g. JetpackBoost `ThrustMultiplier`, `ForwardPush`) follow the lobby host's values within about a second, including when he tunes them in game with his hotkeys. Friends get *"Using Joshua's settings for JetpackBoost."* Their own values come back when they leave; their config file is never left with the host's values. |
+| Live **code** updates into friends' running games (AutoReload-style) | **Not recommended; not built** | See 9.3. |
+
+### 9.2 How the companion works (`src/PeakPack.Companion`, ~300 lines, BepInEx 5, netstandard2.1, embedded PDB)
+
+- Reads `<BepInEx root>\PeakPack\pack-info.json` (written by every sync; for the host by `stamp`). No file → does nothing.
+- Every player sets Photon **player** properties `pp.pack`, `pp.rev`. The lobby host (Photon master client) also sets **room** properties `pp.pack`, `pp.rev`, `pp.cfg` (live-setting values). Keys are prefixed to avoid PEAK's own (`UserID`, `PlatformFamily`, `ProductUserID`, `csid`).
+- Joiners are checked once their character exists (OnJoinedRoom is too early: they're still loading). The host checks each joiner 12 s after they enter (time for their properties to arrive), and reports each thing once per lobby.
+- Notices are **PEAK's own UI**: lines added to `PlayerConnectionLog` (the "X joined the expedition." feed) with the game's TMP text, its `leftColor`/`joinedColor`, player names in `userColor`, the game's join/leave sounds, and its 8-second fade. Wording follows the feed's short, plain tone. No IMGUI, no custom boxes. If a game update renames the private `AddMessage`, notices fall back to the log only.
+- Live settings: only keys in **this player's own signed pack** are applied, parsed as the entry's type and clamped to its allowed range; applied with `SaveOnConfigSet` off; restored (and saved) on leaving, on becoming host, and on unload.
+- **Reload-safe:** no Harmony patches, no static state; `OnDestroy` unregisters the Photon callbacks and restores settings. Builds with an embedded PDB for AutoReload.
+- Limitation: Photon lets any player in a room set room properties, so a modified client could push different values *for whitelisted keys only*, within their allowed ranges. Fine among friends; documented.
+- Logic is unit-tested without Unity (`tools/LobbyCheckTests`, 38 checks). In-game behaviour still needs a real two-player session to confirm (not testable in the sandbox).
+
+### 9.3 Why not stream code into running games
+
+AutoReload works for Joshua because he's a developer watching his own log. Doing it to friends would mean:
+
+- **Mods must support unloading.** Most Thunderstore mods don't clean up Harmony patches, spawned objects or event handlers; reloading them mid-game leaks or crashes. Only Joshua's own mods would qualify, and only if written carefully.
+- **Mid-match desync.** Players would briefly run different code in the same run (physics, items, RPC signatures).
+- **Security.** It turns "download a signed manifest at launch" into "a running game accepts new code from the network". Even with signatures, it's a much larger attack surface, and Thunderstore's rules forbid plugins that download and run code.
+- **Benefit is small.** Restarting PEAK from the icon takes ~30 s and is exactly the tested path.
+
+If Joshua ever wants it: an opt-in "dev lobby" mode for his own mods only, where the companion offers *"Joshua published rev 8. Restart now?"* is the safe version. Not worth building now.
+
+## 10. Unsigned exe: exactly what happens
+
+Sources: Microsoft Learn (SmartScreen reputation, Smart App Control), Google Chrome help (download warnings), Eric Lawrence's MOTW/SmartScreen write-ups; plus our own test of the Mark-of-the-Web mechanics (`tools/v3-test.ps1`). Exact browser wording changes over time.
+
+| Moment | What the friend sees | Why |
+|---|---|---|
+| Downloading `PeakPack.exe` in **Edge** | "PeakPack.exe isn't commonly downloaded. Make sure you trust PeakPack.exe before you open it." → click **…** → **Keep** → **Show more** → **Keep anyway** | Edge SmartScreen: new unsigned file with no reputation |
+| Downloading in **Chrome** | "Suspicious download blocked" (or "uncommon download") → **Download suspicious file**; on the full-page variant pick **"I'm willing to accept the risk"** (or "I trust the site") → **Download** | Safe Browsing: uncommon executable |
+| First double-click of the downloaded file | **"Windows protected your PC"** → **More info** → **Run anyway** | Windows SmartScreen checks files with Mark-of-the-Web (ZoneId 3) launched from Explorer; unsigned + new = no reputation. Every new exe version starts at zero again |
+| PeakPack installs itself | Nothing | The app writes its bytes to `%LOCALAPPDATA%\PeakPack\PeakPack.exe` as a **new file**, like any installer writes its payload. Tested: `File.Copy` (v0.2) carried the Mark-of-the-Web over; the v0.3 byte copy does not |
+| Every later launch (desktop icon, Start Menu) | **Nothing** | The installed copy has no Mark-of-the-Web, so SmartScreen doesn't check it |
+| Self-updates | **Nothing** | Downloaded by PeakPack itself (HttpClient, no MOTW), hash-pinned in the signed manifest |
+| Opening the downloaded file again | SmartScreen may ask again (behaviour differs between Windows versions) | It still carries MOTW. Tell friends they can delete it after setup |
+| **Windows 11 Smart App Control** on (clean installs only, after its evaluation period) | **Blocked, no "Run anyway"** | SAC requires a signature or cloud reputation, regardless of MOTW. The only fixes are turning SAC off (Windows Security → App & browser control) or signing |
+| Antivirus | Usually nothing; occasionally a machine-learning false positive (e.g. `Trojan:Win32/Wacatac.B!ml`) on unsigned single-file .NET apps | Heuristics. Self-copy to AppData and rename-on-update look installer-like. If it happens, submit at microsoft.com/wdsi/filesubmission ("Software developer", "Incorrectly detected"); the limit is 50 MB, so submit the exe itself |
+
+**Message for friends** (put next to the link):
+
+> 1. Download PeakPack.exe. If the browser warns, keep it (Edge: … → Keep → Show more → Keep anyway; Chrome: Download suspicious file).
+> 2. Open it. If Windows says "Windows protected your PC", click **More info → Run anyway**. That's the only time.
+> 3. Click **Install**. You'll get a **PEAK (Modded)** icon on your desktop: use it whenever you play with me. Steam's Play button is still normal PEAK.
+
+Signing options are unchanged from v0.2: Microsoft Artifact (Trusted) Signing ($9.99/mo; individuals in the US or Canada only), Certum Open Source (~€69 + yearly), SignPath Foundation (free for OSI open source built in public CI). With the repo public including source, SignPath is now a realistic free option. EV certificates no longer skip SmartScreen.
 
 ## 11. Security model
 
-- **Trust root:** the manifest. It's fetched over HTTPS from the URL baked into the exe, and **ECDSA-signed** with Joshua's private key; the public key is baked into the exe.
-  - A compromised GitHub account or a swapped file can't push a manifest friends will accept.
-  - Signed manifests can't be rolled back to an older revision.
-- **Every file is SHA-256-pinned** in the manifest and verified before use. Mismatches are rejected. Tested: tampered manifest, tampered hosted DLL.
-- **Host allowlist with redirects checked hop by hop:** thunderstore.io and its CDNs, github.com and its asset hosts, raw/gist.githubusercontent.com. HTTPS only. Local files are allowed only with the test flag `--allow-local`.
-- **No code execution from the manifest:** no scripts, no installers, no "run after download". Zip entries and manifest paths are normalized and confined (zip-slip protection). Manifest files can only land under `plugins/`, `patchers/` or `config/`.
-- **No admin rights,** all per-user. The game folder gets only the two proxy files, and deletion is hash-checked.
-- **Self-update** uses the same hash pinning, and only replaces the installed copy in `%LOCALAPPDATA%\PeakPack`.
-- **Residual risks:**
-  - A malicious Thunderstore mod version that Joshua chooses to include. Pinning means friends get exactly what he vetted, never a later upload.
-  - Joshua's PC or private key being compromised. Keep the key outside the repo, maybe on a USB stick.
+As v0.2 (signed manifest, SHA-256 pinning, HTTPS host allowlist with per-hop redirect checks, zip-slip protection, no code execution from the manifest, no admin rights, hash-checked game-folder deletion), plus:
+
+- **Real signing key** created outside the repo (`C:\Users\joshu\PeakPack-keys\peakpack-signing.pem`, gitignored pattern `*.pem`); public key baked into `pack.config.json`. Back it up (USB stick). Losing it means a new app build for everyone.
+- The pipeline **refuses a real release that isn't signed**.
+- The companion accepts network values only for whitelisted, typed, range-clamped settings from the signed pack, and never writes them to disk.
+- `pack-info.json` and the companion only read local files and Photon properties. No downloads, no code loading.
 
 ## 12. Game updates breaking mods
 
-- PEAK updates arrive through Steam for everyone at once. BepInEx mods may break until their authors update.
-- The friend can always play normal PEAK: the Steam button, or "No" in the failure prompt.
-- The app notices `version.txt` differs from the pack's `gameVersion` and says so.
-- Joshua's fix is a normal publish with updated versions (`scan` can also re-detect his updated install). The friend's next shortcut launch picks it up.
-- Possible later: a manifest flag to block modded launch ("pack paused, PEAK updated"), set by Joshua with one publish.
+The app compares PEAK's `version.txt` with the pack's `gameVersion` and says so in the status line ("PEAK has updated since this pack was made…"). Friends can always play normal PEAK. Joshua's fix is a normal publish.
 
 ## 13. Licensing
 
-- PeakPack **never redistributes other authors' mods**. The manifest points at Thunderstore's download URLs, and each friend downloads directly from Thunderstore, the same as any mod manager does. Only hashes and version numbers are stored.
-  - This matters because some PEAK mods are GPL-3.0 (PEAK_Unlimited), some MIT, and some have **no licence**, which means no redistribution right.
-  - It also complies with Thunderstore's "don't re-upload others' packages" rule.
-- Joshua's own DLLs (HeliPilot) are his to host.
-- The BepInEx pack (BepInEx and Doorstop are both LGPL-licensed) is likewise downloaded from Thunderstore, not rehosted.
+PeakPack never redistributes other authors' mods: friends download from Thunderstore's own URLs. Joshua hosts only his own DLLs, the companion, and the app. BepInEx/Doorstop (LGPL) also come from Thunderstore.
 
-## 14. Mac, Steam Deck, Linux
+## 14. Platforms
 
-- PEAK has **no Mac build**. Mac players use CrossOver, Whisky or GeForce NOW; out of scope.
-- **Steam Deck / Linux (Proton):** PeakPack is a Windows app. Workable path: run PeakPack.exe once under Proton as a non-Steam game so it sets up a profile, then set PEAK's Steam launch option to `WINEDLLOVERRIDES="winhttp=n,b" %command% --doorstop-enabled true --doorstop-target-assembly Z:\â€¦\BepInEx.Preloader.dll`. That's fiddly.
-  - Simpler for a Deck friend: Gale on Linux (native) with Profile Sync, or a later `--deck` mode that installs in-folder with `enabled = true`.
-  - BepInEx docs require the `winhttp` DLL override under Proton.
+Out of scope by Joshua's decision (11 Oct 2026): all friends are on Windows with Steam. No Mac, Steam Deck or Linux support is planned.
 
-## 15. Prototype status
+## 15. Status (v0.3)
 
-**Works and tested (sandbox only; fake `PEAK.exe` that logs its arguments):**
+**Works and tested:**
 
-- Publisher:
-  - `scan` (identifies mods by hash; tested read-only against Joshua's real plugins folder; auto-detects Host Only);
-  - `publish` (dependency resolution, e.g. PEAKLib_Core â†’ MonoDetour_BepInEx_5 â†’ MonoDetour, plus SoftDependencyFix; SHA-256 pinning; custom files; signing; +/- diff; revision bump);
-  - `keygen`.
-- Installer, via `tools/sandbox-test.ps1` (**39/39 checks pass**). Real Thunderstore downloads covering:
-  - layout rules (plugins, patchers, core); idempotent re-sync;
-  - update: add, remove, change; strict removal of unmanaged plugins; repair of deleted files; friend-edited configs preserved;
-  - signature and hash tamper rejection; allowlist refusal;
-  - modded and vanilla launch arguments; proxy repair after an r2modman/Gale-style overwrite;
-  - foreign-loader backup and takeover; uninstall leaving the game folder byte-for-byte file-list identical.
-- GUI:
-  - `tools/gui-selftest.ps1` drives the real window: Install â†’ shortcuts created â†’ Play Modded â†’ Play normal, with screenshots.
-  - `tools/shortcut-launch-test.ps1` runs the created desktop shortcut's exact command line, before and after a new publish. It confirmed the silent update and launch.
-- Self-update: v0.1.0 â†’ v0.2.0 via the manifest `app` entry; restarted and launched.
+- Real PC: launch method verified (§2.1).
+- `tools/sandbox-test.ps1`: the 39 v0.2 end-to-end checks.
+- `tools/v3-test.ps1`: friendly manifest fields, changelog, companion inclusion, pack-info, update check with plain-language changes, `--keep-extra` / `--no-game-folder`, self-install without Mark-of-the-Web and correct shortcuts, pipeline dry run (exact gh command, stable PeakPack.exe, refusal without signature), host stamp, LobbyCheck unit tests.
+- `tools/gui-selftest.ps1 -Published`: drives the real window at 100/125/150 % (welcome, done, ready, update available, error), checks shortcuts → installed copy, no MOTW, launch arguments.
+- `tools/host-selftest.ps1`: Host window at 100/125/150 % with a dry-run publish.
 
 **Not done / not tested:**
 
-- Never run against the real game or real Steam. Still to check:
-  - Steam's behaviour with `-applaunch` args (dialog or not; argument quoting with spaces in the profile path);
-  - that BepInEx really loads from the profile folder in PEAK (expected, per source and r2modman/Gale practice).
-- Uninstall's interactive confirmation dialogs and the real desktop, Start Menu and registry writes were not exercised; tests use `--shortcut-dir`.
-- No in-game mismatch beacon; no host/dev mode; no `--deck` mode; no code signing; the exe has no custom icon.
-- GUI polish: no "what's new" list. Error texts are plain but could be friendlier. The app is not localized.
-- No automated unit tests beyond the scripts. `Resolver` edge cases (dependency cycles, missing deps) only produce warnings.
+- The companion in a real multiplayer lobby (needs two players). The sandbox can't run Unity/Photon.
+- Uninstall's real desktop/registry writes are still only exercised with test overrides.
+- Not code-signed. Smart App Control blocks it on PCs where SAC is on.
+- No localization (English only).
 
 ## 16. Decisions for Joshua
 
-1. **Hosting:** GitHub Releases on a public repo (recommended, free)? What account and repo name?
-2. **Code signing:**
-   - Stay unsigned and tell friends "More info â†’ Run anyway" once (free; self-updates avoid repeat prompts)?
-   - Or pay $9.99/mo for Artifact Signing (only if he's in the US or Canada)?
-   - Or make PeakPack open-source to qualify for SignPath or Certum?
-3. **Manifest signing:** on (recommended) and where to keep the private key.
-4. **Strictness:** delete anything friends add to plugins (exact match, recommended), or allow extras?
-5. **Dependency policy:** highest-required versions (default, matches r2modman) or always-latest dependencies?
-6. **Who's in the pack:** confirm the client mods (AutoReload, InfiniteJetpack, InfiniteGlider, HeliPilot?) vs host-only (PEAK_Unlimited). Is HeliPilot "everyone needs it"?
-7. **Naming and branding:** app name ("PeakPack"), shortcut name ("PEAK (Modded)"), pack name and icon.
-8. **His own machine:** keep the manual install, or move to the clean-folder model later (needs a host/dev mode, Â§4.4)?
-9. **Exe size:** accept 49 MB, or invest in a NativeAOT build later?
-10. **Lobby check:** add BetterModVerifier or ModSync to the pack, or have a small PeakPackBeacon plugin written?
-11. **Steam Deck/Linux friends:** are there any? That decides whether a `--deck` mode is needed.
+1. **Publish v0.3 + the first pack** to `jmproulx/peakpack` (main session runs it with him; commands in README).
+2. **Back up the signing key** somewhere safe.
+3. **Lobby policy:** `warn` (default) or `block` outdated players?
+4. **Live settings:** JetpackBoost's thrust and forward push follow the host. Add more keys?
+5. **modsRequiredToJoin:** set to false for the first pack (both mods are client-side; vanilla friends can join). Turn on when a mod needs everyone.
+6. **Signing later?** SignPath (free, public repo) is worth trying once the pack is in regular use.
