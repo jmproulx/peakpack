@@ -15,43 +15,109 @@ public static class Setup
             ? new Options(cfg.ShortcutName, ShortcutHelper.DesktopDir, Path.Combine(ShortcutHelper.StartMenuProgramsDir, AppPaths.AppName), paths.IsDefaultLocation)
             : new Options(cfg.ShortcutName, Path.Combine(shortcutDirOverride, "Desktop"), Path.Combine(shortcutDirOverride, "StartMenu"), false);
 
-    /// <summary>Copies the running exe into the data folder (so the downloaded file can be deleted) and
-    /// creates the shortcuts. Returns the path of the installed exe.</summary>
-    public static string InstallApp(AppPaths paths, string gameDir, Options opt, string? runningExe = null, string? extraArgs = null)
+    public const string AppShortcutName = "PeakPack";
+    const string LegacyAppShortcut = "PeakPack (mods, normal PEAK, uninstall).lnk"; // v0.2 name
+
+    public sealed record SelfInstallResult(string InstalledExe, bool Copied, bool KeptNewerInstalledCopy);
+
+    /// <summary>
+    /// First run: install the app the way any per-user installer does, so that the downloaded file is never
+    /// needed again. Writes the running exe's bytes to %LOCALAPPDATA%\PeakPack\PeakPack.exe as a NEW file
+    /// (a stream copy, like an installer writing its payload). Unlike File.Copy / CopyFileEx, a stream copy
+    /// doesn't carry over the download's alternate data streams (Mark-of-the-Web), so later launches of the
+    /// installed copy don't show SmartScreen again: the friend already approved this exact program once.
+    /// If a NEWER copy is already installed (e.g. self-updated), it is kept.
+    /// </summary>
+    public static SelfInstallResult EnsureInstalledCopy(AppPaths paths, string? runningExe = null)
     {
         runningExe ??= Environment.ProcessPath!;
         Directory.CreateDirectory(paths.DataDir);
         var exe = paths.InstalledExePath;
-        if (!string.Equals(Path.GetFullPath(runningExe), exe, StringComparison.OrdinalIgnoreCase))
-            File.Copy(runningExe, exe, true);
+        if (string.Equals(Path.GetFullPath(runningExe), Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase))
+            return new SelfInstallResult(exe, false, false);
+        if (File.Exists(exe) && FileVersion(exe) is { } inst && FileVersion(runningExe) is { } run && inst > run)
+            return new SelfInstallResult(exe, false, true);
 
-        var icon = Path.Combine(gameDir, "PEAK.exe");
+        var tmp = exe + ".new";
+        CopyBytesOnly(runningExe, tmp);
+        File.Move(tmp, exe, true);
+        paths.Log($"App installed to {exe} (from {runningExe})");
+        return new SelfInstallResult(exe, true, false);
+    }
+
+    /// <summary>Copies file content only (no alternate data streams, no attributes).</summary>
+    public static void CopyBytesOnly(string src, string dst)
+    {
+        using var i = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var o = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None);
+        i.CopyTo(o);
+    }
+
+    /// <summary>True if the file carries a Mark-of-the-Web (Zone.Identifier alternate data stream).</summary>
+    public static bool HasMarkOfTheWeb(string path)
+    {
+        try { return File.Exists(path + ":Zone.Identifier"); } catch { return false; }
+    }
+
+    static Version? FileVersion(string path)
+    {
+        try
+        {
+            var v = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+            return new Version(v.FileMajorPart, v.FileMinorPart, v.FileBuildPart);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Creates (or refreshes) the shortcuts, all pointing at the INSTALLED copy:
+    ///   Desktop:               "PEAK (Modded)"  -> PeakPack.exe --launch   (PEAK.exe's icon when PEAK is known)
+    ///   Start Menu\PeakPack:   "PEAK (Modded)"  and  "PeakPack" (the app window: status, normal PEAK, remove)
+    /// plus the Installed Apps entry. Desktop "PeakPack" only if <paramref name="desktopAppShortcut"/>.
+    /// </summary>
+    public static void CreateShortcuts(AppPaths paths, string? gameDir, Options opt, string? extraArgs = null, bool desktopAppShortcut = false)
+    {
+        var exe = paths.InstalledExePath;
+        var icon = gameDir is not null && File.Exists(Path.Combine(gameDir, "PEAK.exe")) ? Path.Combine(gameDir, "PEAK.exe") : exe;
         var lnkName = opt.ShortcutName + ".lnk";
         // Normal installs need no extra arguments; test installs pass their overrides (--data-dir etc.).
         var dataArg = extraArgs is { Length: > 0 } ? " " + extraArgs : paths.IsDefaultLocation ? "" : $" --data-dir \"{paths.DataDir}\"";
+        const string playDesc = "Updates the mods if needed, then starts PEAK with mods.";
+        const string appDesc = "PeakPack: mod pack status, play normal PEAK, or remove the mods.";
         if (opt.DesktopDir is not null)
-            ShortcutHelper.CreateShortcut(Path.Combine(opt.DesktopDir, lnkName), exe, "--launch" + dataArg, paths.DataDir, icon, 0,
-                "Updates the mods if needed, then starts PEAK with mods.");
+        {
+            ShortcutHelper.CreateShortcut(Path.Combine(opt.DesktopDir, lnkName), exe, "--launch" + dataArg, paths.DataDir, icon, 0, playDesc);
+            if (desktopAppShortcut)
+                ShortcutHelper.CreateShortcut(Path.Combine(opt.DesktopDir, AppShortcutName + ".lnk"), exe, dataArg.Trim(), paths.DataDir, exe, 0, appDesc);
+        }
         if (opt.StartMenuDir is not null)
         {
-            ShortcutHelper.CreateShortcut(Path.Combine(opt.StartMenuDir, lnkName), exe, "--launch" + dataArg, paths.DataDir, icon, 0,
-                "Updates the mods if needed, then starts PEAK with mods.");
-            ShortcutHelper.CreateShortcut(Path.Combine(opt.StartMenuDir, "PeakPack (mods, normal PEAK, uninstall).lnk"), exe, dataArg.Trim(), paths.DataDir, exe, 0,
-                "Open PeakPack: play modded or normal PEAK, see the mod list, or remove everything.");
+            ShortcutHelper.CreateShortcut(Path.Combine(opt.StartMenuDir, lnkName), exe, "--launch" + dataArg, paths.DataDir, icon, 0, playDesc);
+            ShortcutHelper.CreateShortcut(Path.Combine(opt.StartMenuDir, AppShortcutName + ".lnk"), exe, dataArg.Trim(), paths.DataDir, exe, 0, appDesc);
+            try { File.Delete(Path.Combine(opt.StartMenuDir, LegacyAppShortcut)); } catch { }
         }
         if (opt.RegisterUninstall)
         {
             using var k = Registry.CurrentUser.CreateSubKey(UninstallKey);
-            k.SetValue("DisplayName", "PeakPack (PEAK mods from " + opt.ShortcutName + ")");
+            k.SetValue("DisplayName", "PeakPack (PEAK mods)");
             k.SetValue("DisplayIcon", exe);
+            k.SetValue("DisplayVersion", SelfUpdate.CurrentVersion.ToString(3));
             k.SetValue("Publisher", "PeakPack");
             k.SetValue("InstallLocation", paths.DataDir);
             k.SetValue("UninstallString", $"\"{exe}\" --uninstall");
             k.SetValue("NoModify", 1, RegistryValueKind.DWord);
             k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+            try { k.SetValue("EstimatedSize", (int)(new FileInfo(exe).Length / 1024), RegistryValueKind.DWord); } catch { }
         }
-        paths.Log($"App installed to {exe}; shortcuts: {opt.DesktopDir}, {opt.StartMenuDir}");
-        return exe;
+        paths.Log($"Shortcuts: {opt.DesktopDir}, {opt.StartMenuDir} -> {exe}");
+    }
+
+    /// <summary>v0.2 entry point kept for callers: install the copy, then the shortcuts.</summary>
+    public static string InstallApp(AppPaths paths, string gameDir, Options opt, string? runningExe = null, string? extraArgs = null)
+    {
+        var r = EnsureInstalledCopy(paths, runningExe);
+        CreateShortcuts(paths, gameDir, opt, extraArgs);
+        return r.InstalledExe;
     }
 
     public sealed record UninstallReport(List<string> Removed, List<string> LeftBehind, string? BackupDir);
@@ -76,7 +142,7 @@ public static class Setup
         }
 
         var lnk = opt.ShortcutName + ".lnk";
-        foreach (var f in new[] { opt.DesktopDir is null ? null : Path.Combine(opt.DesktopDir, lnk) })
+        foreach (var f in new[] { opt.DesktopDir is null ? null : Path.Combine(opt.DesktopDir, lnk), opt.DesktopDir is null ? null : Path.Combine(opt.DesktopDir, AppShortcutName + ".lnk") })
             if (f is not null && File.Exists(f)) { File.Delete(f); removed.Add(f); }
         if (opt.StartMenuDir is not null && Directory.Exists(opt.StartMenuDir)) { Directory.Delete(opt.StartMenuDir, true); removed.Add(opt.StartMenuDir); }
         if (opt.RegisterUninstall) { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); removed.Add(@"HKCU\" + UninstallKey); }

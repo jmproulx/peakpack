@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace PeakPack.Core;
 
@@ -8,12 +8,16 @@ public sealed class ThunderstoreIndex
 {
     public const string PeakIndexUrl = "https://thunderstore.io/c/peak/api/v1/package/";
 
-    public sealed record TsVersion(string FullName, Version Version, string DownloadUrl, long FileSize, IReadOnlyList<string> Dependencies, bool IsActive);
-    public sealed record TsPackage(string FullName, string Owner, bool IsDeprecated, IReadOnlyList<TsVersion> Versions, IReadOnlyList<string> Categories)
+    public sealed record TsVersion(string FullName, Version Version, string DownloadUrl, long FileSize, IReadOnlyList<string> Dependencies, bool IsActive, string Description = "", long Downloads = 0);
+    public sealed record TsPackage(string FullName, string Owner, bool IsDeprecated, IReadOnlyList<TsVersion> Versions, IReadOnlyList<string> Categories, int Rating = 0)
     {
         /// <summary>Authors tag PEAK mods "Host Only", "Client Side" or "All Clients" (self-reported).</summary>
         public bool IsHostOnly => Categories.Any(c => c.Equals("Host Only", StringComparison.OrdinalIgnoreCase));
         public TsVersion Latest => Versions.Where(v => v.IsActive).MaxBy(v => v.Version) ?? Versions.MaxBy(v => v.Version)!;
+        public string Name => FullName[(FullName.IndexOf('-') + 1)..];
+        public long TotalDownloads => Versions.Sum(v => v.Downloads);
+        /// <summary>"InfiniteJetpack" -> "Infinite Jetpack", "PEAK_Unlimited" -> "PEAK Unlimited"</summary>
+        public string FriendlyName => Friendly(Name);
     }
 
     readonly Dictionary<string, TsPackage> _byName = new(StringComparer.OrdinalIgnoreCase);
@@ -35,12 +39,15 @@ public sealed class ThunderstoreIndex
                     v.GetProperty("download_url").GetString()!,
                     v.TryGetProperty("file_size", out var fs) ? fs.GetInt64() : 0,
                     v.GetProperty("dependencies").EnumerateArray().Select(d => d.GetString()!).ToList(),
-                    !v.TryGetProperty("is_active", out var a) || a.GetBoolean()));
+                    !v.TryGetProperty("is_active", out var a) || a.GetBoolean(),
+                    v.TryGetProperty("description", out var desc) ? desc.GetString() ?? "" : "",
+                    v.TryGetProperty("downloads", out var dls) && dls.TryGetInt64(out var dn) ? dn : 0));
             }
             var name = p.GetProperty("full_name").GetString()!;
             idx._byName[name] = new TsPackage(name, p.GetProperty("owner").GetString() ?? "",
                 p.TryGetProperty("is_deprecated", out var dep) && dep.GetBoolean(), versions,
-                p.TryGetProperty("categories", out var cats) ? cats.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : []);
+                p.TryGetProperty("categories", out var cats) ? cats.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : [],
+                p.TryGetProperty("rating_score", out var rs) && rs.TryGetInt32(out var r) ? r : 0);
         }
         return idx;
     }
@@ -64,6 +71,49 @@ public sealed class ThunderstoreIndex
     }
 
     public TsPackage? Find(string fullName) => _byName.GetValueOrDefault(fullName);
+
+    /// <summary>Host view search: matches name, owner and description; best matches and most downloaded first.
+    /// Deprecated packages and modpacks are left out.</summary>
+    public IReadOnlyList<TsPackage> Search(string query, int max = 50)
+    {
+        var q = query.Trim();
+        var qn = Norm(q);
+        return _byName.Values
+            .Where(p => !p.IsDeprecated && !p.Categories.Contains("Modpacks", StringComparer.OrdinalIgnoreCase))
+            .Select(p =>
+            {
+                var name = Norm(p.Name);
+                int score = q.Length == 0 ? 1
+                    : name == qn ? 100
+                    : name.StartsWith(qn) ? 60
+                    : name.Contains(qn) ? 40
+                    : Norm(p.Owner).Contains(qn) ? 20
+                    : p.Latest.Description.Contains(q, StringComparison.OrdinalIgnoreCase) ? 10 : 0;
+                return (p, score);
+            })
+            .Where(x => x.score > 0)
+            .OrderByDescending(x => x.score).ThenByDescending(x => x.p.TotalDownloads)
+            .Take(max).Select(x => x.p).ToList();
+
+        static string Norm(string s) => new string(s.Where(char.IsAsciiLetterOrDigit).ToArray()).ToLowerInvariant();
+    }
+
+    /// <summary>"InfiniteJetpack" -> "Infinite Jetpack"; underscores become spaces; acronyms kept ("PEAKLib_Core" -> "PEAKLib Core").</summary>
+    public static string Friendly(string name)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < name.Length; i++)
+        {
+            char c = name[i];
+            if (c == '_') { sb.Append(' '); continue; }
+            // Split "InfiniteJetpack" but keep "BepInEx" / "PickUp": only before a capital that starts a word of 3+ letters.
+            int run = 0;
+            while (i + 1 + run < name.Length && char.IsLower(name[i + 1 + run])) run++;
+            if (i > 0 && char.IsUpper(c) && char.IsLower(name[i - 1]) && run >= 2) sb.Append(' ');
+            sb.Append(c);
+        }
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     public TsVersion Get(PackageId id)
     {

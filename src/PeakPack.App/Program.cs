@@ -15,6 +15,12 @@ static class Program
     static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (AppSession.Has(args, "--host") || AppSession.Has(args, "--host-selftest"))
+        {
+            // Joshua's Host / Publisher window. Never syncs or touches the game folder by itself.
+            Application.Run(new HostForm(args));
+            return;
+        }
         var s = new AppSession(args);
         SelfUpdate.CleanupOld(s.Paths);
 

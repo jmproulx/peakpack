@@ -1,4 +1,4 @@
-﻿using PeakPack.Core;
+using PeakPack.Core;
 
 // PeakPack command line: Joshua's publisher tool, plus headless versions of every friend-side action
 // (used for testing against the sandbox). Friends use the GUI app (PeakPack.exe) instead.
@@ -12,6 +12,11 @@ try
         "scan" => await Scan(a),
         "publish" => await Publish(a),
         "keygen" => KeyGen(a),
+        "prepare" => await Prepare(a, release: false),
+        "release" => await Prepare(a, release: true),
+        "stamp" => Stamp(a),
+        "check" => await Check(a),
+        "selfinstall" => SelfInstall(a),
         "install" or "sync" => await Install(a),
         "launch" => await Launch(a),
         "status" => Status(a),
@@ -36,10 +41,21 @@ static int Help()
       publish --config publish.json --out <dir> [--previous <manifest.json>]
                                                     resolve deps, pin versions + SHA-256, write manifest.json (+ .sig) and assets
       keygen  --out <private-key.pem>                create a signing key; prints the public key for pack.config.json
+      prepare --config publish.json [--work D] [--previous manifest.json]
+                                                    build the next revision into <work>\staging and list what friends will get
+      release --config publish.json [--work D] [--repo owner/name] [--dry-run] [--stamp <host BepInEx dir>]
+                                                    prepare + upload as GitHub release rev-N (gh), keep a copy in <work>\current;
+                                                    --stamp also updates the host's own companion/pack-info after the release
+      stamp   --manifest <dir with manifest.json> --bepinex <BepInEx dir>
+                                                    write the companion + pack-info.json into the host's own game
+      (work dir default: %LOCALAPPDATA%\PeakPack-publisher)
 
     Friend actions (headless; the GUI does the same):
       install   --manifest <url|path> [--game-dir D] [--data-dir D] [--adopt] [--allow-local] [--public-key K]
-      launch    --modded|--vanilla [--sync --manifest ...] [--method steam|direct|dry] [--game-dir D] [--data-dir D]
+                [--keep-extra] [--no-game-folder]   host/dev profile: keep extra plugins / never touch the game folder
+      check     [--manifest ...] [--data-dir D]     what an update would change ("Update available: 2 mods changed")
+      selfinstall --exe <PeakPack.exe> [--data-dir D] [--shortcut-dir D] [--game-dir D]   first-run install of the app (testing)
+      launch    --modded|--vanilla [--sync --manifest ...] [--method steam|direct|dry] [--game-dir D] [--data-dir D] [--no-proxy]
       status    [--game-dir D] [--data-dir D]
       uninstall [--game-dir D] [--data-dir D] [--shortcut-dir D]
       locate    show where Steam and PEAK were found
@@ -130,7 +146,8 @@ static async Task<int> Install(Args a)
     var inst = new Installer(paths, dl);
     var lm = await inst.LoadManifestAsync(manifest, a.Get("--public-key"));
     Console.WriteLine($"{lm.Manifest.PackName} - revision {lm.Manifest.Revision}{(lm.Signed ? " (signature OK)" : "")}");
-    var res = await inst.SyncAsync(lm, game, a.Has("--adopt"), new ConsoleProgress());
+    var opts = new SyncOptions(Strict: !a.Has("--keep-extra"), ManageGameFolder: !a.Has("--no-game-folder"));
+    var res = await inst.SyncAsync(lm, game, a.Has("--adopt"), new ConsoleProgress(), default, opts);
     foreach (var w in res.Warnings) Console.WriteLine("  ! " + w);
     foreach (var i in res.Installed) Console.WriteLine("  + " + i);
     foreach (var r in res.Removed) Console.WriteLine("  - " + r);
@@ -146,9 +163,78 @@ static async Task<int> Launch(Args a)
     var mode = a.Has("--vanilla") ? LaunchMode.Vanilla : LaunchMode.Modded;
     var method = (a.Get("--method") ?? "steam") switch { "direct" => Launcher.Method.DirectExe, "dry" => Launcher.Method.DryRun, _ => Launcher.Method.Steam };
     var state = InstallState.Load(paths);
-    if (mode == LaunchMode.Modded) GameFolder.ApplyProxy(game, paths, state); // repair if r2modman/Gale overwrote it
+    // --no-proxy: never touch the game folder (real-PC test against a game folder that already has Doorstop).
+    if (mode == LaunchMode.Modded && !a.Has("--no-proxy")) GameFolder.ApplyProxy(game, paths, state); // repair if r2modman/Gale overwrote it
     state.Save(paths);
     Console.WriteLine((method == Launcher.Method.DryRun ? "Would run: " : "Ran: ") + Launcher.Launch(mode, paths, state, game, method));
+    return 0;
+}
+
+static async Task<PublishPipeline.Prepared> PrepareOnly(Args a, PublishConfig cfg, string work)
+{
+    var index = await LoadIndex(a);
+    using var dl = new Downloader(Path.Combine(work, "cache"));
+    var pipe = new PublishPipeline(Console.WriteLine);
+    var prev = await pipe.LoadPreviousAsync(cfg, work, dl, a.Get("--previous"));
+    var p = await pipe.PrepareAsync(cfg, work, index, dl, prev);
+    Console.WriteLine();
+    Console.WriteLine($"Revision {p.Manifest.Revision} staged in {p.StagingDir}");
+    Console.WriteLine($"What friends will get ({PackDiff.Summary(p.Changes)}):");
+    foreach (var c in p.Changes) Console.WriteLine("  " + c);
+    if (p.Changes.Count == 0) Console.WriteLine("  (no mod changes)");
+    Console.WriteLine("Assets:");
+    foreach (var f in p.Assets) Console.WriteLine("  " + f);
+    foreach (var pr in p.Problems) Console.WriteLine("NOT READY: " + pr);
+    return p;
+}
+
+static async Task<int> Prepare(Args a, bool release)
+{
+    var cfg = PublishConfig.Load(a.Require("--config"));
+    if (a.Get("--notes") is { } notes) cfg.Notes = notes;
+    var work = a.Get("--work") ?? PublishPipeline.DefaultWorkDir;
+    var p = await PrepareOnly(a, cfg, work);
+    if (!release) return p.CanRelease ? 0 : 2;
+    var repo = a.Get("--repo") ?? cfg.GithubRepo ?? throw new ArgumentException("--repo or githubRepo is required");
+    var pipe = new PublishPipeline(Console.WriteLine);
+    var rc = await pipe.ReleaseAsync(p, repo, work, a.Has("--dry-run"));
+    if (rc == 0 && !a.Has("--dry-run") && a.Get("--stamp") is { } bep) pipe.StampHost(p.Manifest, p.StagingDir, bep);
+    return rc;
+}
+
+static int Stamp(Args a)
+{
+    var dir = a.Require("--manifest");
+    var m = PackManifest.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
+    new PublishPipeline(Console.WriteLine).StampHost(m, dir, a.Require("--bepinex"));
+    return 0;
+}
+
+static async Task<int> Check(Args a)
+{
+    var (paths, _) = Ctx(a);
+    var manifest = a.Get("--manifest") ?? InstallState.Load(paths).ManifestUrl ?? throw new ArgumentException("--manifest is required");
+    using var dl = new Downloader(paths.CacheDir) { AllowLocalFiles = a.Has("--allow-local") };
+    var inst = new Installer(paths, dl);
+    var lm = await inst.LoadManifestAsync(manifest, a.Get("--public-key"));
+    var changes = inst.PendingChanges(lm.Manifest);
+    var st = InstallState.Load(paths);
+    Console.WriteLine(st.InstalledRevision == 0 ? "Not installed." : changes.Count == 0 && lm.Manifest.Revision == st.InstalledRevision
+        ? $"Up to date (revision {st.InstalledRevision})."
+        : $"Update available: revision {st.InstalledRevision} -> {lm.Manifest.Revision}, {PackDiff.Summary(changes)}");
+    foreach (var c in changes) Console.WriteLine("  " + c.Friendly);
+    return 0;
+}
+
+static int SelfInstall(Args a)
+{
+    var paths = new AppPaths(a.Get("--data-dir"));
+    var opt = Setup.DefaultOptions(new PackConfig(), paths, a.Get("--shortcut-dir"));
+    if (a.Get("--shortcut-dir") is null && !paths.IsDefaultLocation) opt = opt with { DesktopDir = null, StartMenuDir = null };
+    var r = Setup.EnsureInstalledCopy(paths, a.Require("--exe"));
+    Setup.CreateShortcuts(paths, a.Get("--game-dir"), opt);
+    Console.WriteLine($"Installed copy: {r.InstalledExe} (copied: {r.Copied}, kept newer: {r.KeptNewerInstalledCopy})");
+    Console.WriteLine($"Mark-of-the-Web on installed copy: {Setup.HasMarkOfTheWeb(r.InstalledExe)}");
     return 0;
 }
 

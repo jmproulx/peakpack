@@ -5,6 +5,13 @@ namespace PeakPack.Core;
 
 public sealed record SyncProgress(string Message, double? Fraction = null, bool IsDownload = false);
 
+/// <param name="Strict">Delete anything in plugins/ and patchers/ the manifest doesn't own ("exactly the host's set").
+/// Off = keep extra plugins (a host or dev profile).</param>
+/// <param name="ManageGameFolder">Write winhttp.dll + doorstop_config.ini into the game folder and refuse foreign loaders.
+/// Off = never touch the game folder (the host's "friend view" profile on a PC that already has its own Doorstop).</param>
+/// <param name="ShortcutName">Used in the companion's in-game notices ("restart PEAK from the PEAK (Modded) icon").</param>
+public sealed record SyncOptions(bool Strict = true, bool ManageGameFolder = true, string ShortcutName = "PEAK (Modded)");
+
 public sealed class SyncResult
 {
     public int Revision { get; init; }
@@ -46,9 +53,19 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         return new LoadedManifest(m, location, signed);
     }
 
-    public async Task<SyncResult> SyncAsync(LoadedManifest lm, string gameDir, bool adoptForeignLoader,
-        IProgress<SyncProgress>? progress = null, CancellationToken ct = default)
+    /// <summary>What would change if this manifest were applied (for "Update available: 2 mods changed").</summary>
+    public List<PackDiff.Change> PendingChanges(PackManifest m) => PackDiff.Compare(LoadInstalledManifest(paths), m);
+
+    public static PackManifest? LoadInstalledManifest(AppPaths paths)
     {
+        try { return File.Exists(paths.InstalledManifestPath) ? PackManifest.Parse(File.ReadAllText(paths.InstalledManifestPath)) : null; }
+        catch (Exception ex) { paths.Log("installed-manifest.json unreadable: " + ex.Message); return null; }
+    }
+
+    public async Task<SyncResult> SyncAsync(LoadedManifest lm, string gameDir, bool adoptForeignLoader,
+        IProgress<SyncProgress>? progress = null, CancellationToken ct = default, SyncOptions? options = null)
+    {
+        options ??= new SyncOptions();
         var m = lm.Manifest;
         var state = InstallState.Load(paths);
         var result = new SyncResult { Revision = m.Revision };
@@ -60,7 +77,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
 
         // 0. Game folder: refuse to silently clobber someone else's loader.
         var insp = GameFolder.Inspect(gameDir, state);
-        if (insp.HasForeignLoader)
+        if (options.ManageGameFolder && insp.HasForeignLoader)
         {
             if (!adoptForeignLoader) throw new ForeignLoaderException(gameDir);
             state.BackupDir = GameFolder.BackupForeignLoader(gameDir, paths);
@@ -141,12 +158,20 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         }
 
         // 5. Strict mode: plugins/ and patchers/ contain exactly what the manifest says - nothing else.
-        result.Removed.AddRange(RemoveUnmanaged(m, state));
+        if (options.Strict) result.Removed.AddRange(RemoveUnmanaged(m, state));
 
         // 6. Game folder proxy files (enabled=false => Steam launches stay vanilla).
-        Report("Preparing the game folder...");
-        GameFolder.ApplyProxy(gameDir, paths, state);
+        if (options.ManageGameFolder)
+        {
+            Report("Preparing the game folder...");
+            GameFolder.ApplyProxy(gameDir, paths, state);
+        }
         step++;
+
+        // 7. What the in-game companion reads (pack id + revision + lobby settings), and the applied manifest
+        //    (so the next check can say exactly what changed).
+        PackInfo.From(m, options.ShortcutName).Save(paths.PackInfoPath);
+        File.WriteAllText(paths.InstalledManifestPath, m.ToJson());
 
         state.GameDir = gameDir;
         state.ManifestUrl = lm.Location;

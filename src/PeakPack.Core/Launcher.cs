@@ -31,6 +31,10 @@ public static class Launcher
         {
             psi.FileName = Path.Combine(gameDir, "PEAK.exe");
             psi.WorkingDirectory = gameDir;
+            // What Steam itself sets for a game it starts; lets steam_api treat the process as Steam-launched
+            // instead of bouncing it through Steam (which would drop our arguments).
+            psi.Environment["SteamAppId"] = SteamLocator.PeakAppId.ToString();
+            psi.Environment["SteamGameId"] = SteamLocator.PeakAppId.ToString();
         }
         else
         {

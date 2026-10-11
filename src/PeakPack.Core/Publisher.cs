@@ -29,6 +29,33 @@ public sealed class PublishConfig
     /// <summary>Optional: friend app release to advertise for self-update.</summary>
     public AppSource? App { get; set; }
 
+    // ---- v0.3 ----
+
+    /// <summary>Shown to friends: "Joshua's lobby uses pack rev 7".</summary>
+    public string HostName { get; set; } = "Joshua";
+    /// <summary>Stable pack id for the lobby check. Default: slug of packName. Don't change it once friends have the pack.</summary>
+    public string? PackId { get; set; }
+    /// <summary>GitHub repo "owner/name" the release pipeline uploads to. Also used to derive manifestUrl and
+    /// assetBaseUrl when those are empty.</summary>
+    public string? GithubRepo { get; set; }
+    /// <summary>Where friends' apps read the manifest. Used to find the previous revision (what friends really have).
+    /// Default with githubRepo: https://github.com/OWNER/REPO/releases/latest/download/manifest.json</summary>
+    public string? ManifestUrl { get; set; }
+    /// <summary>Friendly names and one-line "why it's in the pack" texts for the friend app, keyed by
+    /// "Namespace-Name" (Thunderstore) or a custom file id. Missing entries fall back to Thunderstore's own text.</summary>
+    public Dictionary<string, ModText> ModInfo { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The in-game companion plugin (lobby revision check + live settings). "auto" (default) = the build
+    /// in this repo (src/PeakPack.Companion/bin/Release/PeakPack.Companion.dll); a path; or "" to leave it out.</summary>
+    public string? Companion { get; set; } = "auto";
+    /// <summary>Lobby check policy and the live settings the lobby host's values apply to everyone in that lobby.</summary>
+    public LobbySettings? Lobby { get; set; }
+
+    public sealed class ModText
+    {
+        public string? Title { get; set; }
+        public string? Description { get; set; }
+    }
+
     public sealed class CustomFile
     {
         public string Id { get; set; } = "";
@@ -37,7 +64,40 @@ public sealed class PublishConfig
         /// <summary>Relative to BepInEx/, e.g. plugins/Joshua-HeliPilot/HeliPilot.dll</summary>
         public string Dest { get; set; } = "";
         public OverwriteMode Overwrite { get; set; } = OverwriteMode.Always;
+        public string? Title { get; set; }
+        public string? Description { get; set; }
     }
+
+    public const string CompanionId = "PeakPack-Companion";
+    public const string CompanionDest = "plugins/PeakPack-Companion/PeakPack.Companion.dll";
+
+    public string? EffectiveManifestUrl =>
+        !string.IsNullOrWhiteSpace(ManifestUrl) ? ManifestUrl
+        : HasRealRepo ? $"https://github.com/{GithubRepo}/releases/latest/download/manifest.json" : null;
+
+    public string? EffectiveAssetBaseUrl =>
+        !string.IsNullOrWhiteSpace(AssetBaseUrl) ? AssetBaseUrl
+        : HasRealRepo ? $"https://github.com/{GithubRepo}/releases/download/rev-{{revision}}/" : null;
+
+    public bool HasRealRepo => GithubRepo is { Length: > 2 } r && r.Contains('/') && !r.Contains("CHANGE-ME", StringComparison.OrdinalIgnoreCase);
+
+    public string EffectivePackId => string.IsNullOrWhiteSpace(PackId) ? PackManifest.Slug(PackName) : PackManifest.Slug(PackId);
+
+    /// <summary>Resolves "auto" to the companion DLL built in this repo (searching upward from the running exe).</summary>
+    public string? ResolveCompanionSource()
+    {
+        if (Companion is null || Companion.Length == 0) return null;
+        if (!Companion.Equals("auto", StringComparison.OrdinalIgnoreCase)) return Companion;
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+        {
+            var c = Path.Combine(d.FullName, "src", "PeakPack.Companion", "bin", "Release", "PeakPack.Companion.dll");
+            if (File.Exists(c)) return c;
+        }
+        return null;
+    }
+
+    public void Save(string path) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(this, PackManifest.JsonOptions), new UTF8Encoding(false));
 
     public sealed class AppSource
     {
@@ -66,7 +126,12 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
             Revision = (previous?.Revision ?? 0) + 1,
             Published = DateTimeOffset.UtcNow,
             HostOnly = cfg.HostOnly.ToList(),
+            HostName = cfg.HostName,
+            PackId = cfg.EffectivePackId,
+            Lobby = cfg.Lobby,
         };
+        m.Changelog = (previous?.Changelog ?? []).Take(19).ToList();
+        if (!string.IsNullOrWhiteSpace(cfg.Notes)) m.Changelog.Insert(0, new ChangelogEntry { Revision = m.Revision, Date = m.Published, Notes = cfg.Notes.Trim() });
         if (cfg.GameDir is not null && File.Exists(Path.Combine(cfg.GameDir, "version.txt")))
             m.GameVersion = File.ReadLines(Path.Combine(cfg.GameDir, "version.txt")).FirstOrDefault()?.Trim();
 
@@ -75,8 +140,16 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
         {
             log($"  hashing {v.FullName} ...");
             var (_, sha, size) = await downloader.GetVerifiedAsync(v.DownloadUrl, null, null, ct);
-            var cats = index.Find(PackageId.Parse(v.FullName).FullName)?.Categories.Where(c => c is "All Clients" or "Client Side" or "Host Only").ToList();
-            return new PackageEntry { Id = v.FullName, Url = v.DownloadUrl, Sha256 = sha, Size = size, Reason = reason, Tags = cats is { Count: > 0 } ? cats : null };
+            var full = PackageId.Parse(v.FullName).FullName;
+            var pkg = index.Find(full);
+            var cats = pkg?.Categories.Where(c => c is "All Clients" or "Client Side" or "Host Only").ToList();
+            cfg.ModInfo.TryGetValue(full, out var info);
+            return new PackageEntry
+            {
+                Id = v.FullName, Url = v.DownloadUrl, Sha256 = sha, Size = size, Reason = reason, Tags = cats is { Count: > 0 } ? cats : null,
+                Title = info?.Title ?? (pkg is null ? null : ThunderstoreIndex.Friendly(pkg.Name)),
+                Description = info?.Description ?? (string.IsNullOrWhiteSpace(v.Description) ? null : v.Description.Trim()),
+            };
         }
         m.Loader = await Pin(resolved.Loader, "loader");
         foreach (var (pkg, reason) in resolved.Packages)
@@ -87,16 +160,32 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
         }
 
         // Joshua's own files: copied into outDir with flat, content-addressed names (GitHub release assets are flat).
-        var baseUrl = cfg.AssetBaseUrl?.Replace("{revision}", m.Revision.ToString());
-        foreach (var cf in cfg.CustomFiles)
+        var baseUrl = cfg.EffectiveAssetBaseUrl?.Replace("{revision}", m.Revision.ToString());
+        var customFiles = cfg.CustomFiles.ToList();
+        if (customFiles.All(c => !c.Id.Equals(PublishConfig.CompanionId, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (cfg.ResolveCompanionSource() is { } comp && File.Exists(comp))
+                customFiles.Add(new PublishConfig.CustomFile
+                {
+                    Id = PublishConfig.CompanionId, Source = comp, Dest = PublishConfig.CompanionDest,
+                    Version = System.Diagnostics.FileVersionInfo.GetVersionInfo(comp).FileVersion,
+                    Title = "Lobby check",
+                    Description = $"Tells you in-game when your mods don't match {cfg.HostName}'s lobby.",
+                });
+            else if (!string.IsNullOrEmpty(cfg.Companion))
+                log($"WARNING: companion plugin not found ({cfg.Companion}); this pack has no in-game lobby check. Build src/PeakPack.Companion (Release) or set \"companion\": \"\".");
+        }
+        foreach (var cf in customFiles)
         {
             if (!File.Exists(cf.Source)) throw new FileNotFoundException($"Custom file not found: {cf.Source}");
             var sha = Downloader.Sha256OfFile(cf.Source);
             var assetName = $"{cf.Id}-{sha[..8]}-{Path.GetFileName(cf.Source)}";
             File.Copy(cf.Source, Path.Combine(outDir, assetName), true);
+            cfg.ModInfo.TryGetValue(cf.Id, out var finfo);
             m.Files.Add(new FileEntry
             {
                 Id = cf.Id, Version = cf.Version, Path = cf.Dest, Overwrite = cf.Overwrite,
+                Title = cf.Title ?? finfo?.Title, Description = cf.Description ?? finfo?.Description,
                 Url = string.IsNullOrEmpty(baseUrl) ? assetName : baseUrl.TrimEnd('/') + "/" + assetName,
                 Sha256 = sha, Size = new FileInfo(cf.Source).Length,
             });

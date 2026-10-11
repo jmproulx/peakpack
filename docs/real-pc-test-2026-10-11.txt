@@ -1,0 +1,48 @@
+﻿PeakPack real-PC test  2026-10-11 17:31:18
+Game folder: D:\SteamLibrary\steamapps\common\PEAK
+Game-folder doorstop_config.ini (read only): enabled = true; target_assembly=BepInEx\core\BepInEx.Preloader.dll
+Game-folder .doorstop_version: 4.4.0
+Steam: c:/program files (x86)/steam/steam.exe (running: True)
+
+== preparing test profile: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data
+  PASS  test profile preloader at C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll
+Game folder snapshot: 309 files. Joshua's own BepInEx\LogOutput.log last written 10/11/2026 22:58:37 (UTC)
+
+== phase A: Steam -applaunch + Doorstop override (what PeakPack does)
+  Ran: "c:\program files (x86)\steam\steam.exe" -applaunch 3527290 --doorstop-enabled true --doorstop-target-assembly "C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll"
+  PEAK.exe started after 2.8 s, pid 50856
+  its command line: D:\SteamLibrary\steamapps\common\PEAK\PEAK.exe --doorstop-enabled true --doorstop-target-assembly "C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll"
+  PASS  test plugin ran (wrote real-pc-test-result.json)
+  PASS  BepInEx root is the test profile: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx
+  PASS  game root is the real game folder: D:\SteamLibrary\steamapps\common\PEAK
+  PASS  path with spaces arrived as ONE argument: 'C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll'
+  game saw args: D:\SteamLibrary\steamapps\common\PEAK\PEAK.exe | --doorstop-enabled | true | --doorstop-target-assembly | C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll
+  PASS  test profile LogOutput.log has the plugin's line (C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\LogOutput.log)
+    | [Message:   BepInEx] BepInEx 5.4.23.3 - PEAK (9/6/2026 9:03:08 PM)
+    | [Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]
+    | [Message:   BepInEx] Chainloader ready
+    | [Message:   BepInEx] Chainloader started
+    | [Info   :PeakPack real-PC test] PEAKPACK-REAL-PC-TEST loaded from C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\plugins\PeakPack-RealPcTest\PeakPackRealPcTest.dll
+    | [Info   :PeakPack real-PC test] PEAKPACK-REAL-PC-TEST BepInExRootPath=C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx GameRootPath=D:\SteamLibrary\steamapps\common\PEAK
+    | [Message:   BepInEx] Chainloader startup complete
+    | [Info   :PeakPack real-PC test] PEAKPACK-REAL-PC-TEST quitting the test instance
+  PASS  Joshua's own BepInEx was NOT loaded (his LogOutput.log unchanged)
+  PASS  no new Steam window/dialog appeared (0 seen)
+
+== phase B: PEAK.exe directly, SteamAppId env set
+  Ran: "D:\SteamLibrary\steamapps\common\PEAK\PEAK.exe" --doorstop-enabled true --doorstop-target-assembly "C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.Preloader.dll" [UnityMemory] Configuration Parameters - Can be set up in boot.config     "memorysetup-allocator-temp-initial-block-size-main=262144"     "memorysetup-allocator-temp-initial-block-size-worker=262144"     "memorysetup-temp-allocator-size-background-worker=32768"     "memorysetup-temp-allocator-size-job-worker=262144"     "memorysetup-temp-allocator-size-preload-manager=262144"     "memorysetup-temp-allocator-size-nav-mesh-worker=65536"     "memorysetup-temp-allocator-size-audio-worker=65536"     "memorysetup-temp-allocator-size-cloud-worker=32768"     "memorysetup-bucket-allocator-granularity=16"     "memorysetup-bucket-allocator-bucket-count=8"     "memorysetup-bucket-allocator-block-size=4194304"     "memorysetup-bucket-allocator-block-count=1"     "memorysetup-main-allocator-block-size=16777216"     "memorysetup-thread-allocator-block-size=16777216"     "memorysetup-gfx-main-allocator-block-size=16777216"     "memorysetup-gfx-thread-allocator-block-size=16777216"     "memorysetup-cache-allocator-block-size=4194304"     "memorysetup-typetree-allocator-block-size=2097152"     "memorysetup-profiler-bucket-allocator-granularity=16"     "memorysetup-profiler-bucket-allocator-bucket-count=8"     "memorysetup-profiler-bucket-allocator-block-size=4194304"     "memorysetup-profiler-bucket-allocator-block-count=1"     "memorysetup-profiler-allocator-block-size=16777216"     "memorysetup-profiler-editor-allocator-block-size=1048576"     "memorysetup-temp-allocator-size-main=4194304"     "memorysetup-job-temp-allocator-block-size=2097152"     "memorysetup-job-temp-allocator-block-size-background=1048576"     "memorysetup-job-temp-allocator-reduction-small-platforms=262144"     "memorysetup-temp-allocator-size-gfx=262144" cant resolve internal call to "UnityEngine.UnityLogWriter::WriteStringToUnityLogImpl" (tested without signature also)  Your mono runtime and class libraries are out of sync. The out of sync library is: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.dll  When you update one from git you need to update, compile and install the other too. Do not report this as a bug unless you're sure you have updated correctly: you probably have a broken mono install. If you see other errors or faults after this message they are probably related and you need to fix your mono install first. cant resolve internal call to "UnityEngine.UnityLogWriter::WriteStringToUnityLogImpl" (tested without signature also)  Your mono runtime and class libraries are out of sync. The out of sync library is: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.dll  When you update one from git you need to update, compile and install the other too. Do not report this as a bug unless you're sure you have updated correctly: you probably have a broken mono install. If you see other errors or faults after this message they are probably related and you need to fix your mono install first. cant resolve internal call to "UnityEngine.UnityLogWriter::WriteStringToUnityLog" (tested without signature also)  Your mono runtime and class libraries are out of sync. The out of sync library is: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.dll  When you update one from git you need to update, compile and install the other too. Do not report this as a bug unless you're sure you have updated correctly: you probably have a broken mono install. If you see other errors or faults after this message they are probably related and you need to fix your mono install first. cant resolve internal call to "UnityEngine.UnityLogWriter::WriteStringToUnityLog" (tested without signature also)  Your mono runtime and class libraries are out of sync. The out of sync library is: C:\Users\joshu\PeakMods\FriendInstaller\sandbox\real-pc-test\PeakPack Test Data\profile\BepInEx\core\BepInEx.dll  When you update one from git you need to update, compile and install the other too. Do not report this as a bug unless you're sure you have updated correctly: you probably have a broken mono install. If you see other errors or faults after this message they are probably related and you need to fix your mono install first.
+  PEAK did not start with our arguments (see above: a Steam dialog waiting for a click, or Steam relaunched PEAK without them).
+
+== phase C: Steam -applaunch --doorstop-enabled false
+  Ran: "c:\program files (x86)\steam\steam.exe" -applaunch 3527290 --doorstop-enabled false
+  PEAK.exe started after 1.8 s, pid 20632
+  its command line: D:\SteamLibrary\steamapps\common\PEAK\PEAK.exe --doorstop-enabled false
+  closing the test instance this phase started (pid 20632)
+  PASS  no plugin ran (vanilla)
+  PASS  Joshua's own BepInEx did not load either (his LogOutput.log unchanged: 10/11/2026 22:58:37)
+  PASS  no new Steam window/dialog appeared (0 seen)
+
+== game folder
+  PASS  game folder unchanged (309 files, path+size+timestamp)
+
+1 CHECK(S) FAILED

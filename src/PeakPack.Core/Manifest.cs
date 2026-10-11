@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace PeakPack.Core;
@@ -42,6 +42,18 @@ public sealed class PackManifest
 
     /// <summary>Mods the host runs that friends don't need (informational only, never installed).</summary>
     public List<string> HostOnly { get; set; } = new();
+
+    // ---- v0.3 additions. All optional, so v0.2 apps (which ignore unknown fields) still read new manifests. ----
+
+    /// <summary>Who runs the pack ("Joshua"). Shown to friends and in in-game notices.</summary>
+    public string? HostName { get; set; }
+    /// <summary>Stable identifier of the pack (lower-case slug). The in-game lobby check only compares
+    /// revisions between players whose pack ids match.</summary>
+    public string? PackId { get; set; }
+    /// <summary>Most recent first; the publisher keeps the last 20 entries.</summary>
+    public List<ChangelogEntry> Changelog { get; set; } = new();
+    /// <summary>Settings for the in-game companion plugin (lobby revision check, live settings).</summary>
+    public LobbySettings? Lobby { get; set; }
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -89,6 +101,20 @@ public sealed class PackManifest
             if (!dests.Add(f.Path))
                 throw new InvalidDataException($"File '{f.Path}' is listed twice.");
         }
+        foreach (var ls in Lobby?.LiveSettings ?? [])
+            if (string.IsNullOrWhiteSpace(ls.Plugin) || string.IsNullOrWhiteSpace(ls.Section) || string.IsNullOrWhiteSpace(ls.Key)
+                || (ls.Plugin + ls.Section + ls.Key).IndexOfAny(BadSettingChars) >= 0)
+                throw new InvalidDataException($"Live setting '{ls.Plugin}/{ls.Section}/{ls.Key}' is incomplete or has invalid characters.");
+    }
+
+    static readonly char[] BadSettingChars = ['|', '\n', '\r'];
+
+    /// <summary>"Joshua's PEAK mods" -> "joshuas-peak-mods"</summary>
+    public static string Slug(string s)
+    {
+        var chars = s.ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-').ToArray();
+        var slug = string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
+        return slug.Length == 0 ? "pack" : slug.Length > 40 ? slug[..40] : slug;
     }
 
     public static bool IsSha256(string? s) =>
@@ -106,6 +132,43 @@ public sealed class PackageEntry
     public string? Reason { get; set; }
     /// <summary>Thunderstore categories at publish time (e.g. "All Clients", "Client Side"); informational.</summary>
     public List<string>? Tags { get; set; }
+    /// <summary>Friendly name for the friend app ("Infinite Jetpack"). Optional.</summary>
+    public string? Title { get; set; }
+    /// <summary>One line: what it does / why it's in the pack. Optional.</summary>
+    public string? Description { get; set; }
+
+    [JsonIgnore] public bool IsHelper => Reason is not null && Reason != "requested";
+}
+
+public sealed class ChangelogEntry
+{
+    public int Revision { get; set; }
+    public DateTimeOffset Date { get; set; }
+    public string Notes { get; set; } = "";
+}
+
+public enum MismatchPolicy
+{
+    /// <summary>Show a notice; let the player stay.</summary>
+    Warn,
+    /// <summary>Show a notice, then leave the lobby after a few seconds (only for players on an OLDER revision).</summary>
+    Block,
+}
+
+public sealed class LobbySettings
+{
+    public MismatchPolicy MismatchPolicy { get; set; } = MismatchPolicy.Warn;
+    /// <summary>BepInEx config entries the lobby host's values apply to everyone while in that lobby.
+    /// Only entries listed here are ever accepted from the network.</summary>
+    public List<LiveSetting> LiveSettings { get; set; } = new();
+}
+
+public sealed class LiveSetting
+{
+    /// <summary>BepInEx plugin GUID, e.g. com.joshua.jetpackboost</summary>
+    public string Plugin { get; set; } = "";
+    public string Section { get; set; } = "";
+    public string Key { get; set; } = "";
 }
 
 public enum OverwriteMode
@@ -128,6 +191,8 @@ public sealed class FileEntry
     public string Sha256 { get; set; } = "";
     public long Size { get; set; }
     public OverwriteMode Overwrite { get; set; } = OverwriteMode.Always;
+    public string? Title { get; set; }
+    public string? Description { get; set; }
 }
 
 public sealed class AppRelease

@@ -23,6 +23,10 @@ public sealed class AppPaths
     public string StatePath => Path.Combine(DataDir, "state.json");
     public string LogPath => Path.Combine(DataDir, "log.txt");
     public string InstalledExePath => Path.Combine(DataDir, AppName + ".exe");
+    /// <summary>The manifest last applied by a sync (for "what changed" in the next update).</summary>
+    public string InstalledManifestPath => Path.Combine(DataDir, "installed-manifest.json");
+    /// <summary>Read by the in-game companion plugin (BepInEx root = the profile's BepInEx folder).</summary>
+    public string PackInfoPath => PackInfo.PathIn(BepInExDir);
     /// <summary>Backups of anything we move out of the game folder. Deliberately NOT inside DataDir,
     /// so "Remove everything" never deletes a friend's pre-existing files.</summary>
     public string BackupRoot => Path.Combine(Path.GetDirectoryName(DataDir.TrimEnd('\\', '/'))!, AppName + "-backups");

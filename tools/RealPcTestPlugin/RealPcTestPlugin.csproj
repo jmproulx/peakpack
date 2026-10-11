@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Harmless BepInEx plugin used only by tools\real-pc-test.ps1: it logs one line, writes a small JSON
+       report (where BepInEx was loaded from, the game's command line) and quits the game after a few seconds.
+       References the real game's DLLs read-only; nothing is ever copied INTO the game folder. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>PeakPackRealPcTest</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>embedded</DebugType>
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\PEAK</GameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(GameDir)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GameDir)\PEAK_Data\Managed\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameDir)\PEAK_Data\Managed\UnityEngine.CoreModule.dll" Private="false" />
+  </ItemGroup>
+</Project>
