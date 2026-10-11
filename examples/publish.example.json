@@ -1,0 +1,25 @@
+{
+  "packName": "Joshua's PEAK mods",
+  "notes": "Added HeliPilot!",
+  "loader": "BepInEx-BepInExPack_PEAK",
+  "mods": [
+    "Hamunii-AutoReload",
+    "Sapphire009-InfiniteJetpack-1.0.1",
+    "Sapphire009-InfiniteGlider"
+  ],
+  "hostOnly": [
+    "glarmer-PEAK_Unlimited"
+  ],
+  "latestDependencies": false,
+  "customFiles": [
+    {
+      "id": "Joshua-HeliPilot",
+      "version": "0.1.0",
+      "source": "C:\\Users\\joshu\\PeakMods\\HeliPilot\\bin\\Release\\HeliPilot.dll",
+      "dest": "plugins/Joshua-HeliPilot/HeliPilot.dll"
+    }
+  ],
+  "assetBaseUrl": "https://github.com/CHANGE-ME/peak-pack/releases/download/rev-{revision}/",
+  "gameDir": "D:\\SteamLibrary\\steamapps\\common\\PEAK",
+  "signingKey": "C:\\Users\\joshu\\PeakPack-keys\\peakpack-signing.pem"
+}

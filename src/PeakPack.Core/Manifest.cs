@@ -36,6 +36,10 @@ public sealed class PackManifest
     /// <summary>Loose files hosted by Joshua (his own DLLs, config files).</summary>
     public List<FileEntry> Files { get; set; } = new();
 
+    /// <summary>True if a player without these mods can't properly join the host's lobby (some mod is tagged
+    /// "All Clients" on Thunderstore, or the host said so). The app uses it to warn before "Play normal PEAK".</summary>
+    public bool ModsRequiredToJoin { get; set; }
+
     /// <summary>Mods the host runs that friends don't need (informational only, never installed).</summary>
     public List<string> HostOnly { get; set; } = new();
 
@@ -100,6 +104,8 @@ public sealed class PackageEntry
     public long Size { get; set; }
     /// <summary>"requested" for mods Joshua picked, otherwise which package pulled it in.</summary>
     public string? Reason { get; set; }
+    /// <summary>Thunderstore categories at publish time (e.g. "All Clients", "Client Side"); informational.</summary>
+    public List<string>? Tags { get; set; }
 }
 
 public enum OverwriteMode

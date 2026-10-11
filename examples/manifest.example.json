@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "packName": "Joshua's PEAK mods (sandbox test)",
+  "revision": 3,
+  "published": "2026-10-11T23:05:31.9939858+00:00",
+  "gameAppId": 3527290,
+  "gameVersion": "2.6.b-sandbox",
+  "loader": {
+    "id": "BepInEx-BepInExPack_PEAK-5.4.75301",
+    "url": "https://thunderstore.io/package/download/BepInEx/BepInExPack_PEAK/5.4.75301/",
+    "sha256": "a71432613ab0b2f560046bc341d949c9d853b4f5d5223ab5e7f2ef1f113522e7",
+    "size": 670172,
+    "reason": "loader"
+  },
+  "packages": [
+    {
+      "id": "Hamunii-AutoReload-1.0.2",
+      "url": "https://thunderstore.io/package/download/Hamunii/AutoReload/1.0.2/",
+      "sha256": "9a94ca0608f8c4ea2666df6de50e44bbc464f42bb6c50c675908c2b43b5b8a93",
+      "size": 28884,
+      "reason": "requested",
+      "tags": [
+        "Client Side"
+      ]
+    },
+    {
+      "id": "MonoDetour-MonoDetour-0.6.7",
+      "url": "https://thunderstore.io/package/download/MonoDetour/MonoDetour/0.6.7/",
+      "sha256": "fd7580fc24cae4fc33f03caa3d7bcfbf636053d3ae518a688705c5edcd9b310b",
+      "size": 116462,
+      "reason": "dependency of MonoDetour-MonoDetour_BepInEx_5"
+    },
+    {
+      "id": "MonoDetour-MonoDetour_BepInEx_5-0.6.7",
+      "url": "https://thunderstore.io/package/download/MonoDetour/MonoDetour_BepInEx_5/0.6.7/",
+      "sha256": "43d6e123dad81f74c603799ec2090bf24abc4c8a8a5cb2c6200ceaa842a7d169",
+      "size": 19819,
+      "reason": "dependency of PEAKModding-PEAKLib_Core"
+    },
+    {
+      "id": "PEAKModding-PEAKLib_Core-1.7.2",
+      "url": "https://thunderstore.io/package/download/PEAKModding/PEAKLib_Core/1.7.2/",
+      "sha256": "6c653bd788c18c6265bfcd32b9aab1e048e2edd865098ff4646e2d34160f6d59",
+      "size": 118064,
+      "reason": "requested",
+      "tags": [
+        "Client Side"
+      ]
+    },
+    {
+      "id": "PEAKModding-SoftDependencyFix-1.0.0",
+      "url": "https://thunderstore.io/package/download/PEAKModding/SoftDependencyFix/1.0.0/",
+      "sha256": "24700c6c986846899731f4b68f9bcff06dba09bca3203fe5e47231f37d041abe",
+      "size": 42955,
+      "reason": "dependency of PEAKModding-PEAKLib_Core"
+    },
+    {
+      "id": "Sapphire009-InfiniteJetpack-1.0.1",
+      "url": "https://thunderstore.io/package/download/Sapphire009/InfiniteJetpack/1.0.1/",
+      "sha256": "20e5b5397414a15520d36d598518a5b9738929e42e2eab5b9fccc6b016af8e13",
+      "size": 139016,
+      "reason": "requested",
+      "tags": [
+        "Client Side"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "id": "Joshua-HeliPilot",
+      "version": "0.1.0",
+      "path": "plugins/Joshua-HeliPilot/HeliPilot.dll",
+      "url": "Joshua-HeliPilot-c62ea57d-HeliPilot.dll",
+      "sha256": "c62ea57ddc7d6a216672701498effe8cef9a5c5e06b7f1f47b941214496d60aa",
+      "size": 19,
+      "overwrite": "always"
+    },
+    {
+      "id": "Joshua-HeliPilot",
+      "version": "0.1.0",
+      "path": "config/HeliPilot.cfg",
+      "url": "Joshua-HeliPilot-c76270cd-HeliPilot.cfg",
+      "sha256": "c76270cdd2df520f86da11c9cc1dd9bebfe508a0e7721b3f367b47b6bf04d18f",
+      "size": 29,
+      "overwrite": "ifMissing"
+    }
+  ],
+  "modsRequiredToJoin": true,
+  "hostOnly": [
+    "glarmer-PEAK_Unlimited"
+  ]
+}

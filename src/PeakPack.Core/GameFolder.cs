@@ -19,6 +19,12 @@ public static class GameFolder
     public const string DoorstopIni = "doorstop_config.ini";
     static readonly string[] ForeignLoaderItems = [ProxyDll, DoorstopIni, ".doorstop_version", "BepInEx"];
 
+    /// <summary>First line of PEAK's version.txt (e.g. "2.6.b"), or null.</summary>
+    public static string? GameVersion(string gameDir)
+    {
+        try { return File.ReadLines(Path.Combine(gameDir, "version.txt")).FirstOrDefault()?.Trim(); } catch { return null; }
+    }
+
     public static bool LooksLikePeak(string? dir) =>
         dir is not null && File.Exists(Path.Combine(dir, "PEAK.exe")) && Directory.Exists(Path.Combine(dir, "PEAK_Data"));
 

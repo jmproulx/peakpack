@@ -24,6 +24,8 @@ public sealed class PublishConfig
     public string? GameDir { get; set; }
     /// <summary>Optional: path to the PEM private key from `keygen`. Keep it OUT of any repo.</summary>
     public string? SigningKey { get; set; }
+    /// <summary>Override for manifest.modsRequiredToJoin; null = auto (any "All Clients" mod or any custom DLL).</summary>
+    public bool? ModsRequiredToJoin { get; set; }
     /// <summary>Optional: friend app release to advertise for self-update.</summary>
     public AppSource? App { get; set; }
 
@@ -73,7 +75,8 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
         {
             log($"  hashing {v.FullName} ...");
             var (_, sha, size) = await downloader.GetVerifiedAsync(v.DownloadUrl, null, null, ct);
-            return new PackageEntry { Id = v.FullName, Url = v.DownloadUrl, Sha256 = sha, Size = size, Reason = reason };
+            var cats = index.Find(PackageId.Parse(v.FullName).FullName)?.Categories.Where(c => c is "All Clients" or "Client Side" or "Host Only").ToList();
+            return new PackageEntry { Id = v.FullName, Url = v.DownloadUrl, Sha256 = sha, Size = size, Reason = reason, Tags = cats is { Count: > 0 } ? cats : null };
         }
         m.Loader = await Pin(resolved.Loader, "loader");
         foreach (var (pkg, reason) in resolved.Packages)
@@ -109,6 +112,8 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
                 Url = string.IsNullOrEmpty(baseUrl) ? name : baseUrl.TrimEnd('/') + "/" + name };
         }
 
+        m.ModsRequiredToJoin = cfg.ModsRequiredToJoin
+            ?? (m.Packages.Any(p => p.Tags?.Contains("All Clients") == true) || m.Files.Any(f => f.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)));
         m.Validate();
         var bytes = new UTF8Encoding(false).GetBytes(m.ToJson());
         await File.WriteAllBytesAsync(Path.Combine(outDir, "manifest.json"), bytes, ct);

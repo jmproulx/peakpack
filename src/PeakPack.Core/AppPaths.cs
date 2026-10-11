@@ -55,6 +55,9 @@ public sealed class InstallState
     public string? ManifestUrl { get; set; }
     public int InstalledRevision { get; set; }
     public string? PackName { get; set; }
+    public bool ModsRequiredToJoin { get; set; }
+    /// <summary>PEAK build the host published this pack with (manifest.gameVersion).</summary>
+    public string? PackGameVersion { get; set; }
     public string? LoaderId { get; set; }
     /// <summary>BepInEx core files written by the loader, relative to BepInEx/.</summary>
     public List<string> LoaderFiles { get; set; } = new();

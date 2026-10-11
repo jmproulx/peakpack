@@ -115,7 +115,10 @@ public sealed class MainForm : Form
         var last = st.LastLaunchMode is null ? "never launched from here"
             : $"last launched {(st.LastLaunchMode == LaunchMode.Modded ? "WITH mods" : "as normal PEAK")} {Ago(st.LastLaunchTime!.Value)}";
         var steamMode = _gameDir is not null && GameFolder.Inspect(_gameDir, st).SteamLaunchIsModded ? "WITH mods (unexpected - click Check for updates to fix)" : "normal PEAK";
-        _modeInfo.Text = $"Starting PEAK from Steam = {steamMode}.  Using the \"{_s.Config.ShortcutName}\" shortcut or Play Modded = with mods.  You {last}.";
+        _modeInfo.Text = $"Starting PEAK from Steam = {steamMode}.  Using the \"{_s.Config.ShortcutName}\" shortcut or Play Modded = with mods.  You {last}."
+            + (_gameDir is not null && st.PackGameVersion is { } pv && GameFolder.GameVersion(_gameDir) is { } gv && gv != pv
+                ? $"\nPEAK has updated (you have {gv}, the pack was made for {pv}). If modded PEAK misbehaves, play normal PEAK until {_s.Config.HostName} updates the pack." : "")
+            + (st.ModsRequiredToJoin ? $"\nTo join {_s.Config.HostName}'s games, use Play Modded - normal PEAK can't join a lobby running these mods properly." : "");
     }
 
     static string Ago(DateTimeOffset t)

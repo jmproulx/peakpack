@@ -152,6 +152,8 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         state.ManifestUrl = lm.Location;
         state.InstalledRevision = m.Revision;
         state.PackName = m.PackName;
+        state.ModsRequiredToJoin = m.ModsRequiredToJoin;
+        state.PackGameVersion = m.GameVersion;
         state.LastSyncTime = DateTimeOffset.Now;
         state.Save(paths);
         progress?.Report(new SyncProgress(result.Changed ? $"Updated to revision {m.Revision}." : "Mods are up to date.", 1));
