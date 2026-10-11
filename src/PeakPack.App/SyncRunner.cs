@@ -24,16 +24,53 @@ public static class SyncRunner
 
         try
         {
-            var res = await Task.Run(() => inst.SyncAsync(lm, gameDir, false, progress, ct), ct);
+            var res = await Task.Run(() => inst.SyncAsync(lm, gameDir, false, progress, ct, Options(s)), ct);
             return new Outcome(res, lm.Manifest, false);
         }
         catch (ForeignLoaderException fe)
         {
             if (!askAdopt(fe.GameDir)) throw new OperationCanceledException("Setup was cancelled. Nothing was changed.");
-            var res = await Task.Run(() => inst.SyncAsync(lm, gameDir, true, progress, ct), ct);
+            var res = await Task.Run(() => inst.SyncAsync(lm, gameDir, true, progress, ct, Options(s)), ct);
             return new Outcome(res, lm.Manifest, false);
         }
     }
+
+    static SyncOptions Options(AppSession s) => new(ShortcutName: s.Config.ShortcutName);
+
+    public sealed record Check(PackManifest Manifest, List<PackDiff.Change> Changes, bool IsNewRevision);
+
+    /// <summary>Downloads and verifies the manifest only, and works out what an update would change. Changes nothing.</summary>
+    public static async Task<Check> CheckAsync(AppSession s, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(s.ManifestLocation))
+            throw new InvalidOperationException("This copy of PeakPack has no mod list address built in. Ask the host for a new copy.");
+        using var dl = s.NewDownloader();
+        var inst = new Installer(s.Paths, dl);
+        var lm = await Task.Run(() => inst.LoadManifestAsync(s.ManifestLocation, s.PublicKey, ct), ct);
+        var changes = inst.PendingChanges(lm.Manifest);
+        return new Check(lm.Manifest, changes, lm.Manifest.Revision != s.LoadState().InstalledRevision);
+    }
+
+    /// <summary>"Something went wrong, here's what to do": a heading, plain advice, and technical details for the host.</summary>
+    public sealed record Problem(string Heading, string Advice, string Details);
+
+    public static Problem Describe(Exception ex, string host) => ex switch
+    {
+        HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound } or FileNotFoundException
+            or HttpRequestException when ex.Message.Contains("(404)") =>
+            new("The mod list isn't available", $"{host} may not have published the pack yet, or the link changed. Ask {host} for the latest PeakPack link. Normal PEAK still works.", ex.Message),
+        HttpRequestException or TaskCanceledException { InnerException: TimeoutException } or System.Net.Sockets.SocketException =>
+            new("Can't reach the internet", "PeakPack couldn't check for mod updates. Check your connection and try again. Normal PEAK still works.", ex.Message),
+        Core.SecurityException =>
+            new("A download didn't pass the safety check", $"Nothing was installed or changed. Tell {host}: the pack may need to be published again.", ex.Message),
+        DirectoryNotFoundException =>
+            new("PEAK wasn't found", "Make sure PEAK is installed in Steam, then try again. PeakPack will ask for the folder if it still can't find it.", ex.Message),
+        UnauthorizedAccessException or IOException =>
+            new("Couldn't write a file", "Close PEAK if it's running, then try again. If it keeps happening, restart your PC.", ex.Message),
+        InvalidDataException when ex.Message.Contains("newer version of the app") =>
+            new("This copy of PeakPack is too old", $"Download PeakPack again from {host}'s link and run it once.", ex.Message),
+        _ => new("Something went wrong", $"Try again. If it keeps happening, click \"Copy details\" and send them to {host}.", ex.Message),
+    };
 
     public static string Friendly(Exception ex) => ex switch
     {

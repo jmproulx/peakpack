@@ -12,7 +12,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PeakPack</AssemblyName>
     <RootNamespace>PeakPack.App</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.3.0</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Company>PeakPack</Company>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Product>PeakPack</Product>
     <Description>One-click PEAK mods from your host</Description>
@@ -31,6 +33,7 @@
   <ItemGroup>
     <!-- Joshua edits this once (manifest URL, public key) before building the copy he shares. -->
     <EmbeddedResource Include="pack.config.json" LogicalName="PeakPack.App.pack.config.json" />
+    <EmbeddedResource Include="app-256.png" LogicalName="PeakPack.App.app-256.png" />
   </ItemGroup>
 
 </Project>

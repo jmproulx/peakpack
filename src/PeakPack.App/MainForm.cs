@@ -4,122 +4,357 @@ using PeakPack.Core;
 namespace PeakPack.App;
 
 /// <summary>
-/// The PeakPack window. First run: one "Install" button. After that: big "Play Modded" and
-/// "Play normal PEAK" buttons, the mod list, and "Remove everything".
+/// The PeakPack window, laid out like a classic Windows installer: header band, a status line in the style of
+/// Windows Update ("Ready to play", "Update available: 2 mods changed", "Not installed yet", "Something went
+/// wrong"), the main actions as native command links, what's in the pack and why, and a bottom button bar.
+/// Pages: Welcome (first run) -> Done ("your desktop now has a PEAK (Modded) icon") -> Main (every later open).
 /// </summary>
 public sealed class MainForm : Form
 {
-    static readonly Color Accent = Color.FromArgb(0xE0, 0x6A, 0x1B);   // PEAK-ish orange
-    static readonly Color Muted = Color.FromArgb(0x5F, 0x63, 0x68);
+    enum Page { Welcome, Done, Main }
 
+    const int ContentWidth = 540;
     readonly AppSession _s;
-    readonly Label _title = new() { AutoSize = true, Font = new Font("Segoe UI Semibold", 16f), Margin = new Padding(0, 0, 0, 2) };
-    readonly Label _subtitle = new() { AutoSize = true, ForeColor = Muted, MaximumSize = new Size(520, 0), Margin = new Padding(0, 0, 0, 12) };
-    readonly Button _primary = MakeButton("Play Modded", primary: true);
-    readonly Button _vanilla = MakeButton("Play normal PEAK", primary: false);
-    readonly ProgressBar _bar = new() { Width = 520, Height = 8, Style = ProgressBarStyle.Continuous, Visible = false, Margin = new Padding(0, 10, 0, 0) };
-    readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(0, 8, 0, 0) };
-    readonly Label _modsHeader = new() { AutoSize = true, Text = "Mods in this pack", Font = new Font("Segoe UI Semibold", 10f), Margin = new Padding(0, 16, 0, 4) };
-    readonly ListBox _mods = new() { Width = 520, Height = 150, BorderStyle = BorderStyle.FixedSingle, IntegralHeight = false, SelectionMode = SelectionMode.None };
-    readonly Label _modeInfo = new() { AutoSize = true, ForeColor = Muted, MaximumSize = new Size(520, 0), Margin = new Padding(0, 8, 0, 0) };
-    readonly LinkLabel _checkLink = new() { AutoSize = true, Text = "Check for updates" };
-    readonly LinkLabel _folderLink = new() { AutoSize = true, Text = "Open mods folder" };
-    readonly LinkLabel _removeLink = new() { AutoSize = true, Text = "Remove everything..." };
-    readonly FlowLayoutPanel _root;
-    readonly Control[] _order;
+    Ui _ui;
+    Page _page;
     string? _gameDir;
     bool _busy;
+    PackManifest? _latest;                   // manifest fetched from the host (welcome preview / update check)
+    List<PackDiff.Change>? _pending;         // what an update would change
+    SyncRunner.Problem? _problem;
+    string? _note;                           // extra line under the status (e.g. "Updated to revision 8")
+
+    // Controls (rebuilt when the DPI changes)
+    HeaderBand _header = null!;
+    StatusRow _status = null!;
+    ProgressBar _bar = null!;
+    FlowLayoutPanel _actions = null!;
+    CommandLink _playModded = null!, _playVanilla = null!;
+    Label _welcomeText = null!, _modsHeader = null!, _whatsNew = null!, _modeInfo = null!;
+    TableLayoutPanel _doneRow = null!;
+    ListView _mods = null!;
+    LinkLabel _checkLink = null!, _folderLink = null!, _removeLink = null!, _copyLink = null!;
+    Button _okButton = null!, _cancelButton = null!;
+    TableLayoutPanel _body = null!;
+    Panel _footer = null!;
 
     public MainForm(AppSession s)
     {
         _s = s;
-        Text = "PeakPack - " + s.Config.PackName;
-        Font = new Font("Segoe UI", 10f);
-        BackColor = Color.White;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
+        _ui = new Ui(Ui.ScaleFor(s.RawArgs, DeviceDpi));
+        Text = "PeakPack";
+        AutoScaleMode = AutoScaleMode.None;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        Padding = new Padding(24, 20, 24, 16);
+        BackColor = Theme.Face;
         try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
-
-        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0), WrapContents = false };
-        buttons.Controls.AddRange([_primary, _vanilla]);
-        var links = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 12, 0, 0), WrapContents = false };
-        foreach (var l in new[] { _checkLink, _folderLink, _removeLink }) { l.LinkColor = Muted; l.Margin = new Padding(0, 0, 18, 0); links.Controls.Add(l); }
-
-        _root = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill };
-        _order = [_title, _subtitle, buttons, _bar, _status, _modsHeader, _mods, _modeInfo, links];
-        foreach (var c in _order) _root.Controls.Add(c);
-        Controls.Add(_root);
-
-        _primary.Click += async (_, _) => { if (_s.IsInstalled) await PlayAsync(LaunchMode.Modded); else await InstallAsync(); };
-        _vanilla.Click += async (_, _) => await PlayAsync(LaunchMode.Vanilla);
-        _checkLink.LinkClicked += async (_, _) => await SyncAsync(showUpToDate: true);
-        _folderLink.LinkClicked += (_, _) => { if (Directory.Exists(_s.Paths.BepInExDir)) Process.Start("explorer.exe", _s.Paths.BepInExDir); };
-        _removeLink.LinkClicked += (_, _) => RemoveEverything();
+        _page = s.IsInstalled ? Page.Main : Page.Welcome;
+        BuildLayout();
+        Render();
         Shown += async (_, _) => await OnShownAsync();
-        Refresh_();
-    }
-
-    static Button MakeButton(string text, bool primary)
-    {
-        var b = new Button
+        DpiChanged += (_, e) =>
         {
-            Text = text, AutoSize = false, Size = new Size(primary ? 250 : 200, 52), FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI Semibold", primary ? 12.5f : 11f), Cursor = Cursors.Hand, Margin = new Padding(0, 0, 12, 0),
-            BackColor = primary ? Accent : Color.FromArgb(0xF1, 0xF3, 0xF4), ForeColor = primary ? Color.White : Color.FromArgb(0x20, 0x21, 0x24),
+            if (AppSession.Get(_s.RawArgs, "--ui-scale") is not null) return;
+            _ui = new Ui(Math.Max(1f, e.DeviceDpiNew / 96f));
+            BuildLayout();
+            Render();
         };
-        b.FlatAppearance.BorderSize = 0;
-        return b;
     }
 
-    /// <summary>Redraws everything from state on disk.</summary>
-    void Refresh_()
+    // ------------------------------------------------------------------ layout
+
+    void BuildLayout()
     {
+        SuspendLayout();
+        foreach (Control c in Controls.Cast<Control>().ToList()) { Controls.Remove(c); c.Dispose(); }
+        int w = _ui.Px(ContentWidth);
+        Font = _ui.Body;
+
+        _header = new HeaderBand(_ui) { Picture = LoadHeaderPicture() };
+
+        _status = new StatusRow(_ui, w) { Margin = _ui.Pad(0, 0, 0, 10) };
+        _bar = new ProgressBar { Size = new Size(w, _ui.Px(6)), Margin = _ui.Pad(0, 0, 0, 10), Style = ProgressBarStyle.Continuous, Visible = false };
+
+        _playModded = new CommandLink { Size = new Size(w, _ui.Px(58)), Margin = _ui.Pad(0, 0, 0, 2), Font = _ui.Font(11f), NoteFont = _ui.Body, LayoutScale = _ui.Scale };
+        _playVanilla = new CommandLink { Size = new Size(w, _ui.Px(58)), Margin = _ui.Pad(0), Font = _ui.Font(11f), NoteFont = _ui.Body, LayoutScale = _ui.Scale };
+        _playModded.Click += async (_, _) => await PlayAsync(LaunchMode.Modded);
+        _playVanilla.Click += async (_, _) => await PlayAsync(LaunchMode.Vanilla);
+
+        _welcomeText = new Label { AutoSize = true, MaximumSize = new Size(w, 0), Margin = _ui.Pad(0) };
+
+        _doneRow = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, RowCount = 2, Margin = _ui.Pad(0, 2, 0, 0) };
+        _doneRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, _ui.Px(64)));
+        _doneRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var icon = new PictureBox { Size = _ui.Sz(48, 48), SizeMode = PictureBoxSizeMode.Zoom, Margin = _ui.Pad(4, 0, 12, 0), Name = "icon" };
+        var iconName = new Label { AutoSize = true, Font = _ui.Strong, Margin = _ui.Pad(0, 4, 0, 2), Name = "name" };
+        var iconText = new Label { AutoSize = true, MaximumSize = new Size(w - _ui.Px(64), 0), Margin = _ui.Pad(0), Name = "text" };
+        _doneRow.Controls.Add(icon, 0, 0);
+        _doneRow.SetRowSpan(icon, 2);
+        _doneRow.Controls.Add(iconName, 1, 0);
+        _doneRow.Controls.Add(iconText, 1, 1);
+
+        _actions = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = _ui.Pad(0, 0, 0, 12) };
+        _actions.Controls.AddRange([_playModded, _playVanilla, _welcomeText, _doneRow]);
+
+        _modsHeader = new Label { AutoSize = true, Font = _ui.Strong, Margin = _ui.Pad(0, 0, 0, 4) };
+        _mods = new ListView
+        {
+            View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, ShowItemToolTips = true,
+            Size = new Size(w, _ui.Px(150)), Margin = _ui.Pad(0, 0, 0, 6), MultiSelect = false, ShowGroups = true, Font = _ui.Body,
+        };
+        _mods.Columns.Add("Mod", _ui.Px(160));
+        _mods.Columns.Add("What it does", w - _ui.Px(160) - SystemInformation.VerticalScrollBarWidth - _ui.Px(6));
+
+        _whatsNew = new Label { AutoSize = true, MaximumSize = new Size(w, 0), Margin = _ui.Pad(0, 0, 0, 4) };
+        _modeInfo = new Label { AutoSize = true, MaximumSize = new Size(w, 0), ForeColor = Theme.Muted, Margin = _ui.Pad(0) };
+
+        _body = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = false, Padding = _ui.Pad(20, 16, 20, 10), BackColor = Theme.Face,
+        };
+        foreach (var c in new Control[] { _status, _bar, _actions, _modsHeader, _mods, _whatsNew, _modeInfo })
+        {
+            _body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _body.Controls.Add(c);
+        }
+
+        // Bottom bar: links on the left, standard buttons on the right (installer style).
+        _footer = new Panel { Dock = DockStyle.Bottom, Height = _ui.Px(50), BackColor = Theme.Face };
+        _footer.Paint += (_, e) => { using var p = new Pen(Theme.Line); e.Graphics.DrawLine(p, 0, 0, _footer.Width, 0); };
+        _checkLink = MakeLink("Check for updates", async () => await UpdateNowAsync());
+        _folderLink = MakeLink("Open mods folder", () => { if (Directory.Exists(_s.Paths.BepInExDir)) Process.Start("explorer.exe", _s.Paths.BepInExDir); return Task.CompletedTask; });
+        _removeLink = MakeLink("Remove PeakPack...", () => { RemoveEverything(); return Task.CompletedTask; });
+        _copyLink = MakeLink("Copy details", () => { CopyDetails(); return Task.CompletedTask; });
+        var links = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(_ui.Px(20), _ui.Px(17)), BackColor = Theme.Face };
+        links.Controls.AddRange([_checkLink, _folderLink, _removeLink, _copyLink]);
+        _okButton = new Button { FlatStyle = FlatStyle.System, Size = _ui.Sz(96, 28), Font = _ui.Body };
+        _cancelButton = new Button { FlatStyle = FlatStyle.System, Size = _ui.Sz(96, 28), Font = _ui.Body };
+        _okButton.Click += async (_, _) => await OnOkAsync();
+        _cancelButton.Click += (_, _) => Close();
+        _footer.Controls.AddRange([links, _okButton, _cancelButton]);
+        _footer.Resize += (_, _) => PlaceFooterButtons();
+
+        Controls.Add(_body);
+        Controls.Add(_footer);
+        Controls.Add(_header);
+        ResumeLayout(true);
+    }
+
+    LinkLabel MakeLink(string text, Func<Task> onClick)
+    {
+        var l = new LinkLabel { Text = text, AutoSize = true, Margin = _ui.Pad(0, 0, 16, 0), LinkBehavior = LinkBehavior.HoverUnderline, Font = _ui.Body };
+        l.LinkClicked += async (_, _) => { if (!_busy) await onClick(); };
+        return l;
+    }
+
+    void PlaceFooterButtons()
+    {
+        int right = _footer.Width - _ui.Px(20), y = (_footer.Height - _okButton.Height) / 2;
+        if (_cancelButton.Visible) { _cancelButton.Location = new Point(right - _cancelButton.Width, y); right = _cancelButton.Left - _ui.Px(8); }
+        _okButton.Location = new Point(right - _okButton.Width, y);
+    }
+
+    Image? LoadHeaderPicture()
+    {
+        try
+        {
+            using var st = typeof(MainForm).Assembly.GetManifestResourceStream("PeakPack.App.app-256.png");
+            return st is null ? null : new Bitmap(st);
+        }
+        catch { return null; }
+    }
+
+    void SizeToContent()
+    {
+        var pref = _body.GetPreferredSize(new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, 0));
+        ClientSize = new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, _header.Height + pref.Height + _footer.Height);
+        PlaceFooterButtons();
+    }
+
+    // ------------------------------------------------------------------ rendering
+
+    string Host => _s.Config.HostName;
+    string Shortcut => _s.Config.ShortcutName;
+
+    void Render()
+    {
+        SuspendLayout();
         var st = _s.LoadState();
         _gameDir ??= _s.FindGameDir();
-        _title.Text = _s.Config.PackName;
-        bool installed = _s.IsInstalled;
-
-        if (!installed)
+        _header.SetText(_s.Config.PackName, _page switch
         {
-            _subtitle.Text = $"This sets up {_s.Config.HostName}'s PEAK mods so you can play together. " +
-                             "Your normal PEAK stays exactly as it is: starting PEAK from Steam is still the normal game. " +
-                             $"You'll get a \"{_s.Config.ShortcutName}\" shortcut on your desktop for playing with mods.";
-            _primary.Text = "Install";
-            _vanilla.Visible = false;
-            _modsHeader.Visible = _mods.Visible = _modeInfo.Visible = false;
-            _checkLink.Visible = _folderLink.Visible = _removeLink.Visible = false;
-            _status.Text = _gameDir is null ? "PEAK wasn't found automatically - you'll be asked where it is." : $"PEAK found: {_gameDir}";
-            return;
-        }
+            Page.Welcome => $"Set up {Host}'s mods for PEAK",
+            Page.Done => "Setup complete",
+            _ => $"Pack revision {st.InstalledRevision}" + (st.LastLaunchMode is { } lm && st.LastLaunchTime is { } lt
+                ? $"   ·   last played {(lm == LaunchMode.Modded ? "with mods" : "normal PEAK")} {Ago(lt)}" : ""),
+        });
 
-        _subtitle.Text = $"Pack revision {st.InstalledRevision}" + (st.LastSyncTime is { } t ? $" - checked {Ago(t)}" : "");
-        _primary.Text = "Play Modded";
-        _vanilla.Visible = true;
-        _modsHeader.Visible = _mods.Visible = _modeInfo.Visible = true;
-        for (int i = 0; i < _order.Length; i++) _root.Controls.SetChildIndex(_order[i], i); // toggling Visible can shuffle FlowLayoutPanel order
-        _checkLink.Visible = _folderLink.Visible = _removeLink.Visible = true;
+        _playModded.Visible = _playVanilla.Visible = _page == Page.Main;
+        _welcomeText.Visible = _page == Page.Welcome;
+        _doneRow.Visible = _page == Page.Done;
+        _copyLink.Visible = _problem is not null;
+        _checkLink.Visible = _folderLink.Visible = _removeLink.Visible = _page == Page.Main; // keep the Welcome/Done bars uncluttered
+        // Hiding controls in a FlowLayoutPanel can reorder them; pin the order.
+        Control[] order = [_playModded, _playVanilla, _welcomeText, _doneRow];
+        for (int i = 0; i < order.Length; i++) _actions.Controls.SetChildIndex(order[i], i);
 
-        _mods.Items.Clear();
-        foreach (var p in st.Packages.Keys.Order(StringComparer.OrdinalIgnoreCase))
+        switch (_page)
         {
-            var id = PackageId.Parse(p);
-            _mods.Items.Add($"{id.Name.Replace('_', ' ')}  {id.Version?.ToString(3)}   (by {id.Namespace})");
+            case Page.Welcome: RenderWelcome(); break;
+            case Page.Done: RenderDone(); break;
+            default: RenderMain(st); break;
         }
-        foreach (var f in st.Files.Keys.Where(k => k.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Order())
-            _mods.Items.Add($"{Path.GetFileNameWithoutExtension(f)}   (from {_s.Config.HostName})");
-
-        var last = st.LastLaunchMode is null ? "never launched from here"
-            : $"last launched {(st.LastLaunchMode == LaunchMode.Modded ? "WITH mods" : "as normal PEAK")} {Ago(st.LastLaunchTime!.Value)}";
-        var steamMode = _gameDir is not null && GameFolder.Inspect(_gameDir, st).SteamLaunchIsModded ? "WITH mods (unexpected - click Check for updates to fix)" : "normal PEAK";
-        _modeInfo.Text = $"Starting PEAK from Steam = {steamMode}.  Using the \"{_s.Config.ShortcutName}\" shortcut or Play Modded = with mods.  You {last}."
-            + (_gameDir is not null && st.PackGameVersion is { } pv && GameFolder.GameVersion(_gameDir) is { } gv && gv != pv
-                ? $"\nPEAK has updated (you have {gv}, the pack was made for {pv}). If modded PEAK misbehaves, play normal PEAK until {_s.Config.HostName} updates the pack." : "")
-            + (st.ModsRequiredToJoin ? $"\nTo join {_s.Config.HostName}'s games, use Play Modded - normal PEAK can't join a lobby running these mods properly." : "");
+        if (_problem is { } p) _status.Set(StatusKind.Bad, p.Heading, p.Advice + (_page == Page.Main ? $" You can still play with the mods you have (revision {st.InstalledRevision})." : ""));
+        FillModList(st);
+        ResumeLayout(true);
+        SizeToContent();
     }
+
+    void RenderWelcome()
+    {
+        var m = _latest;
+        int mods = m is null ? 0 : m.Packages.Count(p => !p.IsHelper) + m.Files.Where(f => f.Id != PublishConfig.CompanionId).Select(f => f.Id).Distinct().Count();
+        long bytes = m is null ? 0 : m.Loader.Size + m.Packages.Sum(p => p.Size) + m.Files.Sum(f => f.Size);
+        if (!_busy && _problem is null)
+            _status.Set(StatusKind.Info, "Not installed yet",
+                m is null ? "Click Install to set up the mods." : $"Click Install to download {mods} mod{(mods == 1 ? "" : "s")} ({FormatSize(bytes)}). It takes about a minute.");
+        _welcomeText.Text =
+            "When you click Install, PeakPack will:\n" +
+            $"  •  download the mods from Thunderstore (the PEAK mod site) and {Host}'s own mods\n" +
+            $"  •  put a \"{Shortcut}\" icon on your desktop for playing with {Host}\n" +
+            "  •  leave your normal PEAK alone: Steam's Play button still starts the game without mods" +
+            (_gameDir is null ? "\n\nPEAK wasn't found automatically, so you'll be asked where it is." : "");
+        _okButton.Text = "Install";
+        _cancelButton.Text = "Cancel";
+        _okButton.Visible = _cancelButton.Visible = true;
+        _okButton.Enabled = !_busy;
+        AcceptButton = _okButton;
+        _modsHeader.Text = "What's in this pack";
+        _whatsNew.Visible = false;
+        _modeInfo.Text = "";
+        _modeInfo.Visible = false;
+    }
+
+    void RenderDone()
+    {
+        if (_problem is null)
+            _status.Set(StatusKind.Good, "All set", $"Your desktop now has a \"{Shortcut}\" icon.");
+        var icon = (PictureBox)_doneRow.Controls["icon"]!;
+        icon.Image ??= _gameDir is null ? LoadHeaderPicture() : Ui.IconImage(Path.Combine(_gameDir, "PEAK.exe"), _ui.Px(48));
+        _doneRow.Controls["name"]!.Text = Shortcut;
+        _doneRow.Controls["text"]!.Text = $"Double-click it whenever you play with {Host}. It updates the mods first, then starts PEAK with them. " +
+                                         "Starting PEAK from Steam is still the normal game.";
+        _okButton.Text = "Play now";
+        _cancelButton.Text = "Close";
+        _okButton.Visible = _cancelButton.Visible = true;
+        _okButton.Enabled = !_busy;
+        AcceptButton = _okButton;
+        _modsHeader.Text = "What's in this pack";
+        _whatsNew.Visible = false;
+        _modeInfo.Visible = false;
+    }
+
+    void RenderMain(InstallState st)
+    {
+        bool updating = _pending is { Count: > 0 } || (_latest is not null && _latest.Revision != st.InstalledRevision);
+        _playModded.Text = updating ? "Update and play with mods" : "Play with mods";
+        _playModded.Note = $"Starts PEAK with {Host}'s mods{(updating ? " after updating them" : "")}. Same as the \"{Shortcut}\" icon on your desktop.";
+        _playVanilla.Text = "Play normal PEAK";
+        _playVanilla.Note = "No mods. Same as pressing Play in Steam.";
+        _playModded.Height = _playModded.PreferredHeightFor(_playModded.Width);
+        _playVanilla.Height = _playVanilla.PreferredHeightFor(_playVanilla.Width);
+        _playModded.Enabled = _playVanilla.Enabled = !_busy;
+        _checkLink.Text = updating ? "Update now" : "Check for updates";
+        _okButton.Text = "Close";
+        _okButton.Visible = true;
+        _cancelButton.Visible = false;
+        _okButton.Enabled = true;
+        AcceptButton = null;
+        CancelButton = _okButton;
+
+        if (!_busy && _problem is null)
+        {
+            var insp = _gameDir is null ? null : GameFolder.Inspect(_gameDir, st);
+            var gv = _gameDir is null ? null : GameFolder.GameVersion(_gameDir);
+            if (_gameDir is not null && GameFolder.IsGameRunning(_gameDir))
+                _status.Set(StatusKind.Info, "PEAK is running", "Close PEAK to update the mods or to switch between modded and normal PEAK.");
+            else if (updating)
+                _status.Set(StatusKind.Warn, "Update available: " + (_pending is { Count: > 0 } ? PackDiff.Summary(_pending) : "new pack revision"),
+                    (_pending is { Count: > 0 } ? string.Join(" · ", _pending.Where(c => !c.IsHelper).Select(c => c.Friendly).DefaultIfEmpty("Helper libraries updated").Take(4)) + ". " : "") +
+                    "Play with mods updates automatically, or click Update now.");
+            else if (insp is { SteamLaunchIsModded: true })
+                _status.Set(StatusKind.Warn, "Steam would start PEAK with mods", "Something changed your PEAK folder. Click Check for updates to put it back.");
+            else if (gv is not null && st.PackGameVersion is { } pv && gv != pv)
+                _status.Set(StatusKind.Warn, "PEAK has updated since this pack was made",
+                    $"PEAK is now {gv}; the pack was made for {pv}. If modded PEAK misbehaves, play normal PEAK until {Host} updates the pack.");
+            else
+                _status.Set(StatusKind.Good, "Ready to play",
+                    $"You have {Host}'s mods, pack revision {st.InstalledRevision}" + (st.LastSyncTime is { } t ? $", checked {Ago(t)}." : ".") + (_note is null ? "" : " " + _note));
+        }
+
+        var shown = _latest ?? Installer.LoadInstalledManifest(_s.Paths);
+        var latestNote = shown?.Changelog.FirstOrDefault(c => c.Revision == shown.Revision)?.Notes ?? (shown?.Revision == st.InstalledRevision ? shown?.Notes : null);
+        _whatsNew.Text = latestNote is { Length: > 0 } ? $"What's new in revision {shown!.Revision}: {latestNote}" : "";
+        _whatsNew.Visible = _whatsNew.Text.Length > 0;
+        _modsHeader.Text = "What's in this pack";
+        _modeInfo.Visible = true;
+        _modeInfo.Text = $"Mods only load when you use Play with mods or the \"{Shortcut}\" icon. Starting PEAK from Steam is always normal PEAK." +
+                         (st.ModsRequiredToJoin ? $" To join {Host}'s games, play with mods." : "");
+    }
+
+    void FillModList(InstallState st)
+    {
+        var m = _page == Page.Welcome ? _latest : Installer.LoadInstalledManifest(_s.Paths) ?? _latest;
+        _mods.BeginUpdate();
+        _mods.Items.Clear();
+        _mods.Groups.Clear();
+        var gMods = new ListViewGroup("Mods");
+        var gOwn = new ListViewGroup($"Made by {Host}");
+        var gHelp = new ListViewGroup("Helpers (needed by the mods above)") { CollapsedState = ListViewGroupCollapsedState.Collapsed };
+        _mods.Groups.AddRange([gMods, gOwn, gHelp]);
+        if (m is not null)
+        {
+            foreach (var p in m.Packages.OrderBy(p => p.IsHelper).ThenBy(p => p.Title ?? p.Id, StringComparer.OrdinalIgnoreCase))
+            {
+                var id = PackageId.Parse(p.Id);
+                var it = new ListViewItem([p.Title ?? ThunderstoreIndex.Friendly(id.Name), OneLine(p.Description) ?? ""], p.IsHelper ? gHelp : gMods)
+                {
+                    ToolTipText = $"{id.FullName} {id.Version?.ToString(3)} from Thunderstore" + (p.Description is { } d ? "\n" + d : ""),
+                };
+                if (p.IsHelper) it.ForeColor = Theme.Muted;
+                _mods.Items.Add(it);
+            }
+            foreach (var g in m.Files.GroupBy(f => f.Id))
+            {
+                var f = g.First();
+                bool companion = f.Id == PublishConfig.CompanionId;
+                var it = new ListViewItem([f.Title ?? PackDiff.FriendlyFileTitle(f.Id), OneLine(f.Description) ?? (companion ? "" : $"{Host}'s own mod")], companion ? gHelp : gOwn)
+                {
+                    ToolTipText = $"{f.Id} {f.Version}",
+                };
+                if (companion) it.ForeColor = Theme.Muted;
+                _mods.Items.Add(it);
+            }
+        }
+        else
+        {
+            foreach (var p in st.Packages.Keys.Order(StringComparer.OrdinalIgnoreCase))
+                _mods.Items.Add(new ListViewItem([ThunderstoreIndex.Friendly(PackageId.Parse(p).Name), ""], gMods));
+        }
+        gHelp.Header = $"Helpers ({gHelp.Items.Count}, needed by the mods above)";
+        _mods.EndUpdate();
+        _modsHeader.Visible = _mods.Visible = _mods.Items.Count > 0;
+    }
+
+    static string? OneLine(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return s.Length > 110 ? s[..107].TrimEnd() + "..." : s;
+    }
+
+    static string FormatSize(long bytes) => bytes < 1024 * 1024 ? $"{Math.Max(1, bytes / 1024)} KB" : $"{bytes / 1024d / 1024d:0.#} MB";
 
     static string Ago(DateTimeOffset t)
     {
@@ -127,17 +362,61 @@ public sealed class MainForm : Form
         return d.TotalMinutes < 1 ? "just now" : d.TotalHours < 1 ? $"{(int)d.TotalMinutes} min ago" : d.TotalDays < 1 ? $"{(int)d.TotalHours} h ago" : t.LocalDateTime.ToString("d MMM");
     }
 
-    async Task OnShownAsync()
+    // ------------------------------------------------------------------ actions
+
+    async Task OnShownAsync() => await CheckAsync();
+
+    /// <summary>Fetch the host's manifest and work out what an update would change. Changes nothing on disk.</summary>
+    async Task CheckAsync()
     {
-        if (_s.IsInstalled) await SyncAsync(showUpToDate: false); // quietly check for updates on open
+        if (_busy) return;
+        SetBusy(true, _page == Page.Welcome ? "Getting the mod list..." : "Checking for updates...");
+        try
+        {
+            var c = await SyncRunner.CheckAsync(_s);
+            _latest = c.Manifest;
+            _pending = _page == Page.Main ? c.Changes : null;
+            _problem = null;
+        }
+        catch (Exception ex)
+        {
+            _s.Paths.Log("Check failed: " + ex);
+            _problem = SyncRunner.Describe(ex, Host);
+        }
+        SetBusy(false);
     }
+
+    async Task OnOkAsync()
+    {
+        if (_page == Page.Welcome) await InstallAsync();
+        else if (_page == Page.Done) { _page = Page.Main; Render(); await PlayAsync(LaunchMode.Modded); }
+        else Close();
+    }
+
+    void SetBusy(bool busy, string? heading = null)
+    {
+        _busy = busy;
+        UseWaitCursor = busy;
+        _bar.Visible = busy;
+        if (busy) { _bar.Value = 0; _problem = null; _note = null; _status.Set(StatusKind.Busy, heading ?? "Working...", ""); }
+        Render();
+    }
+
+    Progress<SyncProgress> MakeProgress(string heading) => new(p =>
+    {
+        _status.Set(StatusKind.Busy, heading, p.Message);
+        if (p.Fraction is { } f) _bar.Value = Math.Clamp((int)(f * 100), 0, 100);
+    });
 
     bool EnsureGameDir()
     {
         _gameDir ??= _s.FindGameDir();
         if (_gameDir is not null) return true;
-        MessageBox.Show(this, "PeakPack couldn't find PEAK automatically.\n\nPlease pick your PEAK folder - the one that contains PEAK.exe " +
-                              "(usually Steam\\steamapps\\common\\PEAK).", "Where is PEAK?", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        TaskDialog.ShowDialog(this, new TaskDialogPage
+        {
+            Caption = "PeakPack", Heading = "Where is PEAK?", Icon = TaskDialogIcon.Information,
+            Text = "PeakPack couldn't find PEAK automatically. Please pick your PEAK folder: the one that contains PEAK.exe (usually Steam\\steamapps\\common\\PEAK).",
+        });
         using var dlg = new FolderBrowserDialog { Description = "Select the PEAK folder (contains PEAK.exe)", UseDescriptionForTitle = true };
         while (dlg.ShowDialog(this) == DialogResult.OK)
         {
@@ -147,126 +426,164 @@ public sealed class MainForm : Form
         return false;
     }
 
-    bool AskAdopt(string gameDir) => MessageBox.Show(this,
-        "Your PEAK folder already has mods installed some other way (a BepInEx mod loader).\n\n" +
-        "PeakPack will move those files into a backup folder (nothing is deleted), so that starting PEAK from Steam " +
-        "is really the normal game, and mods only load from the PeakPack shortcut.\n\nContinue?",
-        "Existing mods found", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
-
-    void SetBusy(bool busy, string? msg = null)
+    bool AskAdopt(string gameDir)
     {
-        _busy = busy;
-        _primary.Enabled = _vanilla.Enabled = !busy;
-        _checkLink.Enabled = _removeLink.Enabled = !busy;
-        _bar.Visible = busy;
-        UseWaitCursor = busy;
-        if (msg is not null) _status.Text = msg;
+        if (AppSession.Has(_s.RawArgs, "--selftest")) return true;
+        var yes = new TaskDialogButton("Move them and continue");
+        var page = new TaskDialogPage
+        {
+            Caption = "PeakPack", Heading = "Your PEAK folder already has mods", Icon = TaskDialogIcon.Warning,
+            Text = "They were installed some other way (a BepInEx mod loader). PeakPack will move them into a backup folder (nothing is deleted), " +
+                   "so that Steam's Play button starts normal PEAK and mods only load from PeakPack.",
+            Buttons = { yes, TaskDialogButton.Cancel },
+        };
+        return TaskDialog.ShowDialog(this, page) == yes;
     }
 
-    Progress<SyncProgress> MakeProgress() => new(p =>
+    /// <summary>Applies the host's pack. Returns false (with _problem set) on failure.</summary>
+    async Task<bool> SyncAsync(string heading)
     {
-        _status.Text = p.Message;
-        if (p.Fraction is { } f) _bar.Value = Math.Clamp((int)(f * 100), 0, 100);
-    });
-
-    async Task<bool> SyncAsync(bool showUpToDate)
-    {
-        if (_busy || !EnsureGameDir()) return false;
-        SetBusy(true);
+        if (!EnsureGameDir()) return false;
+        SetBusy(true, heading);
         try
         {
-            var o = await SyncRunner.RunAsync(_s, _gameDir!, AskAdopt, MakeProgress(), _s.PassThroughArgs());
+            var o = await SyncRunner.RunAsync(_s, _gameDir!, AskAdopt, MakeProgress(heading), _s.PassThroughArgs());
             if (o.RestartingForAppUpdate) { Close(); return false; }
-            SetBusy(false, o.Result.Changed ? $"Updated to revision {o.Result.Revision}: {o.Result.Installed.Count} added/updated, {o.Result.Removed.Count} removed."
-                                            : showUpToDate ? "Everything is up to date." : "");
-            if (o.Manifest.Notes is { Length: > 0 } n && o.Result.Changed) _status.Text += "\nNote from " + _s.Config.HostName + ": " + n;
-            Refresh_();
+            _latest = o.Manifest;
+            _pending = null;
+            _problem = null;
+            _note = o.Result.Changed && _page == Page.Main ? $"Just updated: {o.Result.Installed.Count} added or updated, {o.Result.Removed.Count} removed." : null;
+            SetBusy(false);
             return true;
         }
-        catch (OperationCanceledException oce) { SetBusy(false, oce.Message); return false; }
+        catch (OperationCanceledException) { SetBusy(false); return false; }
         catch (Exception ex)
         {
             _s.Paths.Log("Sync failed: " + ex);
-            SetBusy(false, "Update failed: " + SyncRunner.Friendly(ex));
-            Refresh_();
+            _problem = SyncRunner.Describe(ex, Host);
+            SetBusy(false);
             return false;
         }
     }
 
     async Task InstallAsync()
     {
-        if (!EnsureGameDir()) return;
-        if (!await SyncAsync(false) || !_s.IsInstalled) return;
-        try
-        {
-            var extra = string.Join(' ', _s.PassThroughArgs().Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-            Setup.InstallApp(_s.Paths, _gameDir!, _s.SetupOptions, extraArgs: extra);
-        }
-        catch (Exception ex) { _s.Paths.Log("Shortcut creation failed: " + ex); _status.Text = "Mods installed, but the desktop shortcut couldn't be created: " + ex.Message; }
-        Refresh_();
-        _status.Text = $"All set! Use \"{_s.Config.ShortcutName}\" on your desktop (or the button above) to play with mods. Starting PEAK from Steam is still normal PEAK.";
+        if (!await SyncAsync("Installing...") || !_s.IsInstalled) return;
+        try { FirstRun.RefreshShortcuts(_s, _gameDir!); }
+        catch (Exception ex) { _s.Paths.Log("Shortcut refresh failed: " + ex); }
+        _page = Page.Done;
+        Render();
+    }
+
+    async Task UpdateNowAsync()
+    {
+        if (_gameDir is not null && GameFolder.IsGameRunning(_gameDir)) { Render(); return; }
+        await SyncAsync("Updating...");
     }
 
     async Task PlayAsync(LaunchMode mode)
     {
-        if (!EnsureGameDir()) return;
+        if (_busy || !EnsureGameDir()) return;
         if (GameFolder.IsGameRunning(_gameDir!))
         {
-            _status.Text = "PEAK is already running. Close it first, then press Play again.";
+            _status.Set(StatusKind.Info, "PEAK is already running", "Close it first, then press Play again.");
             _s.Paths.Log("Play blocked: PEAK already running");
             return;
         }
-        if (mode == LaunchMode.Modded && !await SyncAsync(false))
+        if (mode == LaunchMode.Modded && !await SyncAsync("Checking for updates..."))
         {
-            var r = MessageBox.Show(this, "Couldn't update the mods (see the message in the window).\n\nPlay with the mods you already have?",
-                "Update failed", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-            if (r != DialogResult.Yes) return;
+            if (_problem is null) return; // cancelled
+            var withMods = new TaskDialogButton("Play with the mods I have") { };
+            var page = new TaskDialogPage
+            {
+                Caption = "PeakPack", Heading = _problem.Heading, Icon = TaskDialogIcon.Warning,
+                Text = _problem.Advice + $"\n\nYou can still play with the mods you already have, but you might not match {Host}.",
+                Buttons = { withMods, TaskDialogButton.Cancel },
+            };
+            if (!AppSession.Has(_s.RawArgs, "--selftest") && TaskDialog.ShowDialog(this, page) != withMods) return;
         }
         try
         {
             var st = _s.LoadState();
             if (mode == LaunchMode.Modded) { GameFolder.ApplyProxy(_gameDir!, _s.Paths, st); st.Save(_s.Paths); }
             var cmd = Launcher.Launch(mode, _s.Paths, st, _gameDir!, _s.LaunchMethod);
-            _status.Text = mode == LaunchMode.Modded ? "Starting PEAK with mods..." : "Starting normal PEAK...";
-            if (_s.LaunchMethod == Launcher.Method.DryRun) _status.Text += "\n(dry run) " + cmd;
-            Refresh_();
+            _problem = null;
+            Render();
+            _status.Set(StatusKind.Good, mode == LaunchMode.Modded ? "Starting PEAK with mods" : "Starting normal PEAK",
+                mode == LaunchMode.Modded ? "Steam is starting PEAK. Have fun." : "Steam is starting PEAK without mods." +
+                (_s.LaunchMethod == Launcher.Method.DryRun ? "\n(dry run) " + cmd : ""));
         }
-        catch (Exception ex) { _s.Paths.Log("Launch failed: " + ex); _status.Text = "Couldn't start PEAK: " + ex.Message; }
+        catch (Exception ex)
+        {
+            _s.Paths.Log("Launch failed: " + ex);
+            _problem = SyncRunner.Describe(ex, Host);
+            Render();
+        }
     }
 
     void RemoveEverything()
     {
-        if (MessageBox.Show(this,
-                "This removes PeakPack and all of its mods, and puts your PEAK folder back exactly the way Steam installed it.\n\n" +
-                "Your normal PEAK and your saves are not affected. Continue?",
-                "Remove everything", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        var remove = new TaskDialogButton("Remove PeakPack");
+        var page = new TaskDialogPage
+        {
+            Caption = "PeakPack", Heading = "Remove PeakPack and its mods?", Icon = TaskDialogIcon.Warning,
+            Text = "Your PEAK folder goes back to exactly how Steam installed it, and the PeakPack icons are removed. Your normal PEAK and your saves are not affected.",
+            Buttons = { remove, TaskDialogButton.Cancel },
+        };
+        if (TaskDialog.ShowDialog(this, page) != remove) return;
         if (_gameDir is not null && GameFolder.IsGameRunning(_gameDir)) { MessageBox.Show(this, "Close PEAK first.", "PEAK is running"); return; }
         var rep = Setup.Uninstall(_s.Paths, _s.SetupOptions, _gameDir);
-        var msg = "PeakPack has been removed. PEAK is back to normal.";
+        var msg = "PEAK is back to normal.";
         if (rep.LeftBehind.Count > 0) msg += "\n\nThese files were changed by something else, so they were left alone:\n" + string.Join("\n", rep.LeftBehind);
         if (rep.BackupDir is not null) msg += $"\n\nThe mods you had before PeakPack are still backed up in:\n{rep.BackupDir}";
-        MessageBox.Show(this, msg, "Removed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        TaskDialog.ShowDialog(this, new TaskDialogPage { Caption = "PeakPack", Heading = "PeakPack has been removed", Text = msg, Icon = TaskDialogIcon.Information });
         Close();
     }
 
-    /// <summary>Dev/test aid (--selftest DIR): drives the real button handlers - Install, then Play Modded,
-    /// then Play normal - and saves a screenshot after each step. Only meaningful with sandbox overrides.</summary>
+    void CopyDetails()
+    {
+        var log = File.Exists(_s.Paths.LogPath) ? string.Join(Environment.NewLine, File.ReadLines(_s.Paths.LogPath).TakeLast(40)) : "";
+        var text = $"PeakPack {SelfUpdate.CurrentVersion}, revision {_s.LoadState().InstalledRevision}\n{_problem?.Heading}\n{_problem?.Details}\n\n{log}";
+        try { Clipboard.SetText(text); _copyLink.Text = "Copied"; } catch { }
+    }
+
+    // ------------------------------------------------------------------ test aids
+
+    /// <summary>--selftest DIR: drives the real handlers (welcome, Install, Done, Play with mods, Play normal) and
+    /// saves a screenshot after each step. Only meaningful with sandbox overrides.</summary>
     public async Task RunSelfTestAsync(string dir)
     {
         Directory.CreateDirectory(dir);
-        SaveScreenshot(Path.Combine(dir, "1-first-run.png"));
+        await CheckAsync();
+        SaveScreenshot(Path.Combine(dir, "1-welcome.png"));
         await InstallAsync();
-        SaveScreenshot(Path.Combine(dir, "2-after-install.png"));
+        SaveScreenshot(Path.Combine(dir, "2-done.png"));
+        _page = Page.Main;
+        await CheckAsync();
+        SaveScreenshot(Path.Combine(dir, "3-ready.png"));
+        WriteStatus(Path.Combine(dir, "3-ready.txt"));
         await PlayAsync(LaunchMode.Modded);
-        SaveScreenshot(Path.Combine(dir, "3-after-play-modded.png"));
+        SaveScreenshot(Path.Combine(dir, "4-after-play-modded.png"));
         for (int i = 0; i < 50 && GameFolder.IsGameRunning(_gameDir!); i++) await Task.Delay(200); // fake PEAK.exe exits by itself
         await PlayAsync(LaunchMode.Vanilla);
-        SaveScreenshot(Path.Combine(dir, "4-after-play-vanilla.png"));
-        File.WriteAllText(Path.Combine(dir, "status.txt"), _status.Text + Environment.NewLine + _modeInfo.Text + Environment.NewLine +
-            string.Join(Environment.NewLine, Controls[0].Controls.Cast<Control>().Select(c => $"{c.GetType().Name} '{c.Text.Split('\n')[0]}' top={c.Top} visible={c.Visible}")));
+        WriteStatus(Path.Combine(dir, "status.txt"));
     }
 
-    /// <summary>Debug aid: render the window to a PNG (used to check the layout without a screen).</summary>
+    /// <summary>--selftest-open DIR NAME: open as on a later day, run the update check, screenshot (update available / error states).</summary>
+    public async Task RunOpenSelfTestAsync(string dir, string name)
+    {
+        Directory.CreateDirectory(dir);
+        await CheckAsync();
+        SaveScreenshot(Path.Combine(dir, name + ".png"));
+        WriteStatus(Path.Combine(dir, name + ".txt"));
+    }
+
+    void WriteStatus(string path) => File.WriteAllText(path,
+        $"page={_page}\nstatus={_status.Kind}: {_status.Heading.Text}\n{_status.Detail.Text}\nwhatsNew={_whatsNew.Text}\nmode={_modeInfo.Text}\nmods={string.Join(" | ", _mods.Items.Cast<ListViewItem>().Select(i => i.Text))}\n" +
+        $"size={ClientSize.Width}x{ClientSize.Height}\n" +
+        string.Join("\n", _body.Controls.Cast<Control>().Where(c => c.Visible).Select(c => $"{c.GetType().Name} bounds={c.Bounds}")));
+
+    /// <summary>Render the window to a PNG (layout checks without a screen).</summary>
     public void SaveScreenshot(string path)
     {
         using var bmp = new Bitmap(Width, Height);

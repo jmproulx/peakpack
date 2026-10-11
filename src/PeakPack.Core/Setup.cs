@@ -37,6 +37,11 @@ public static class Setup
             return new SelfInstallResult(exe, false, false);
         if (File.Exists(exe) && FileVersion(exe) is { } inst && FileVersion(runningExe) is { } run && inst > run)
             return new SelfInstallResult(exe, false, true);
+        // Same file already installed (the friend opened the download again): nothing to do. This also avoids
+        // failing when the installed copy is running right now.
+        if (File.Exists(exe) && new FileInfo(exe).Length == new FileInfo(runningExe).Length
+            && Downloader.Sha256OfFile(exe) == Downloader.Sha256OfFile(runningExe))
+            return new SelfInstallResult(exe, false, false);
 
         var tmp = exe + ".new";
         CopyBytesOnly(runningExe, tmp);

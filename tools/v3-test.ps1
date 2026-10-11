@@ -61,7 +61,7 @@ Write-Config @('Sapphire009-InfiniteJetpack-1.0.1') 'JETPACKBOOST v1' 'First pac
 $o = PP publish --config (Join-Path $v3 'publish.json') --out $out --work (Join-Path $v3 'work')
 Check ($o -match 'Published revision 1') 'published revision 1'
 $m = Get-Content $manifest -Raw | ConvertFrom-Json
-Check ($m.hostName -eq 'Joshua' -and $m.packId -eq 'joshua-s-peak-mods-v3-test') "hostName + packId ($($m.packId))"
+Check ($m.hostName -eq 'Joshua' -and $m.packId -eq 'joshuas-peak-mods-v3-test') "hostName + packId ($($m.packId))"
 $ij = $m.packages | Where-Object id -like 'Sapphire009-InfiniteJetpack-*'
 Check ($ij.title -eq 'Infinite Jetpack' -and $ij.description -eq 'The jetpack never runs out of fuel.') 'modInfo title/description override'
 Check ($m.changelog[0].revision -eq 1 -and $m.changelog[0].notes -match 'First pack') 'changelog entry for revision 1'
@@ -82,7 +82,7 @@ Check ($o -match 'Not installed') 'check: not installed'
 $o = PP install --manifest $manifest @common
 Check ($o -match 'Now on revision 1') 'installed revision 1'
 $info = Get-Content (Join-Path $data 'profile\BepInEx\PeakPack\pack-info.json') -Raw | ConvertFrom-Json
-Check ($info.revision -eq 1 -and $info.packId -eq 'joshua-s-peak-mods-v3-test' -and $info.hostName -eq 'Joshua') 'pack-info.json written for the companion'
+Check ($info.revision -eq 1 -and $info.packId -eq 'joshuas-peak-mods-v3-test' -and $info.hostName -eq 'Joshua') 'pack-info.json written for the companion'
 Check ($info.liveSettings[0] -eq 'com.joshua.jetpackboost|Boost|ThrustMultiplier' -and $info.mismatchPolicy -eq 'warn') 'pack-info lists live settings + policy'
 Check (Test-Path (Join-Path $data 'installed-manifest.json')) 'installed-manifest.json saved'
 $o = PP check --manifest $manifest @common

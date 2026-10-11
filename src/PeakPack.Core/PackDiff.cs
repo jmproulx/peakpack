@@ -44,10 +44,14 @@ public static class PackDiff
             var first = g.First();
             // Content fingerprint: changes whenever any of the mod's always-enforced files changes.
             var fp = string.Join(",", g.Where(f => f.Overwrite == OverwriteMode.Always).OrderBy(f => f.Path).Select(f => f.Sha256[..8]));
-            list.Add(new Item("file:" + g.Key + "#" + fp, first.Title ?? g.Key, first.Version ?? "", false, true));
+            list.Add(new Item("file:" + g.Key + "#" + fp, first.Title ?? FriendlyFileTitle(g.Key), first.Version ?? "", false, true));
         }
         return list;
     }
+
+    /// <summary>"Joshua-HeliPilot" -> "Heli Pilot" (for own files published without a title).</summary>
+    public static string FriendlyFileTitle(string id) =>
+        ThunderstoreIndex.Friendly(id.Contains('-') ? id[(id.IndexOf('-') + 1)..] : id);
 
     public static List<Change> Compare(PackManifest? before, PackManifest after)
     {

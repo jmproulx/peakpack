@@ -36,6 +36,7 @@ $gameFilesBefore = (Get-ChildItem $game -Recurse -File | ForEach-Object { $_.Ful
 $key = Join-Path $pubDir 'test-signing-key.pem'
 Remove-Item $key -ErrorAction SilentlyContinue
 $pubKey = (PP keygen --out $key | Select-Object -Last 1).Trim()
+Set-Content -Path (Join-Path $pubDir 'test-public-key.txt') -Value $pubKey -Encoding ascii
 
 function Write-PublishJson($mods, $heliText) {
     [IO.File]::WriteAllBytes((Join-Path $custom 'HeliPilot.dll'), [Text.Encoding]::ASCII.GetBytes($heliText))

@@ -1,5 +1,4 @@
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 
 namespace PeakPack.App;
 
@@ -191,33 +190,95 @@ public sealed class StatusRow : TableLayoutPanel
     }
 }
 
-/// <summary>Native Windows command link button (BS_COMMANDLINK): green arrow, title and a note line underneath,
-/// as used in Windows' own dialogs. Falls back to a normal button where visual styles are off.</summary>
+/// <summary>
+/// A command link in the style of Windows' own (arrow, blue title, note underneath; a light outline on hover),
+/// drawn by hand so it scales with the rest of the window and renders identically in screenshots at any scale.
+/// (The native BS_COMMANDLINK draws its text at the system DPI, which can't be checked at simulated scales.)
+/// Keyboard: Tab focus, Space/Enter click (Button behaviour); accessible as a push button.
+/// </summary>
 public sealed class CommandLink : Button
 {
-    const int BS_COMMANDLINK = 0x0000000E, BCM_SETNOTE = 0x1609, BCM_SETSHIELD = 0x160C;
+    static readonly Color Ink = Color.FromArgb(0x1A, 0x5F, 0xB4);
+    static readonly Color HoverFill = Color.FromArgb(0xE8, 0xF1, 0xFB);
+    static readonly Color HoverLine = Color.FromArgb(0xB9, 0xD4, 0xF1);
+    static readonly Color DownFill = Color.FromArgb(0xD5, 0xE6, 0xF8);
+    bool _hover, _down;
     string _note = "";
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
-
-    public CommandLink() { FlatStyle = FlatStyle.System; }
-
-    protected override CreateParams CreateParams
+    public CommandLink()
     {
-        get { var cp = base.CreateParams; cp.Style |= BS_COMMANDLINK; return cp; }
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        Cursor = Cursors.Hand;
+        AccessibleRole = AccessibleRole.PushButton;
     }
+
+    /// <summary>Layout scale (Ui.Scale); fonts come from <see cref="Control.Font"/> (title) and <see cref="NoteFont"/>.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public float LayoutScale { get; set; } = 1f;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Font? NoteFont { get; set; }
 
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public string Note
     {
         get => _note;
-        set { _note = value; if (IsHandleCreated) SendMessage(Handle, BCM_SETNOTE, IntPtr.Zero, value); }
+        set { _note = value; AccessibleDescription = value; Invalidate(); }
     }
 
-    protected override void OnHandleCreated(EventArgs e)
+    int Px(float v) => (int)Math.Round(v * LayoutScale);
+    int TextLeft => Px(40);
+    const TextFormatFlags Wrap = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.TextBoxControl;
+
+    /// <summary>Height needed to show the title and the (wrapped) note at this width.</summary>
+    public int PreferredHeightFor(int width)
     {
-        base.OnHandleCreated(e);
-        SendMessage(Handle, BCM_SETNOTE, IntPtr.Zero, _note);
+        int textW = Math.Max(10, width - TextLeft - Px(12));
+        var title = TextRenderer.MeasureText(Text, Font, new Size(textW, int.MaxValue), Wrap);
+        var note = _note.Length == 0 ? Size.Empty : TextRenderer.MeasureText(_note, NoteFont ?? Font, new Size(textW, int.MaxValue), Wrap);
+        return Px(9) + title.Height + (note.Height > 0 ? Px(1) + note.Height : 0) + Px(10);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hover = _down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { _down = true; Invalidate(); } base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { _down = false; Invalidate(); base.OnMouseUp(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Parent?.BackColor ?? Theme.Face);
+        var box = new Rectangle(0, 0, Width - 1, Height - 1);
+        if (Enabled && (_hover || _down))
+        {
+            using var fill = new SolidBrush(_down ? DownFill : HoverFill);
+            using var line = new Pen(HoverLine);
+            g.FillRectangle(fill, box);
+            g.DrawRectangle(line, box);
+        }
+        var ink = Enabled ? Ink : Theme.Muted;
+        int textW = Width - TextLeft - Px(12);
+        var titleSize = TextRenderer.MeasureText(Text, Font, new Size(textW, int.MaxValue), Wrap);
+
+        // Arrow, vertically centred on the first title line.
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float cy = Px(9) + Font.Height / 2f, x0 = Px(13), x1 = Px(29);
+        using (var pen = new Pen(ink, Math.Max(1.5f, 1.6f * LayoutScale)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+        {
+            g.DrawLine(pen, x0, cy, x1, cy);
+            g.DrawLines(pen, [new PointF(x1 - Px(6), cy - Px(6)), new PointF(x1, cy), new PointF(x1 - Px(6), cy + Px(6))]);
+        }
+        g.SmoothingMode = SmoothingMode.None;
+
+        TextRenderer.DrawText(g, Text, Font, new Rectangle(TextLeft, Px(9), textW, titleSize.Height), ink, Wrap);
+        if (_note.Length > 0)
+            TextRenderer.DrawText(g, _note, NoteFont ?? Font, new Rectangle(TextLeft, Px(9) + titleSize.Height + Px(1), textW, Height), ink, Wrap);
+        if (Focused && ShowFocusCues)
+            ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(box, -Px(2), -Px(2)));
     }
 }

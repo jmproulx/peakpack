@@ -112,7 +112,7 @@ public sealed class PackManifest
     /// <summary>"Joshua's PEAK mods" -> "joshuas-peak-mods"</summary>
     public static string Slug(string s)
     {
-        var chars = s.ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-').ToArray();
+        var chars = s.Replace("'", "").Replace("’", "").ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-').ToArray();
         var slug = string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
         return slug.Length == 0 ? "pack" : slug.Length > 40 ? slug[..40] : slug;
     }

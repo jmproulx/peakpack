@@ -11,23 +11,27 @@ public sealed class QuickLaunchContext : ApplicationContext
 {
     readonly AppSession _s;
     readonly Form _win;
-    readonly Label _msg = new() { AutoSize = false, Width = 340, Height = 40, TextAlign = ContentAlignment.MiddleLeft };
-    readonly ProgressBar _bar = new() { Width = 340, Height = 10, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30 };
+    readonly Label _msg = new() { AutoSize = false, TextAlign = ContentAlignment.MiddleLeft };
+    readonly ProgressBar _bar = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30 };
     readonly System.Windows.Forms.Timer _showTimer = new() { Interval = 900 };
 
     public QuickLaunchContext(AppSession s)
     {
         _s = s;
+        // Small native progress window (only shown if something takes a moment), sized by hand for the DPI.
         _win = new Form
         {
             Text = s.Config.ShortcutName, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false,
-            StartPosition = FormStartPosition.CenterScreen, ClientSize = new Size(380, 100), Font = new Font("Segoe UI", 10f), BackColor = Color.White,
-            ShowInTaskbar = true,
+            StartPosition = FormStartPosition.CenterScreen, AutoScaleMode = AutoScaleMode.None, BackColor = Theme.Face, ShowInTaskbar = true,
         };
+        var ui = new Ui(Ui.ScaleFor(s.RawArgs, _win.DeviceDpi));
+        _win.ClientSize = ui.Sz(400, 96);
+        _win.Font = ui.Body;
         try { _win.Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
-        _msg.Location = new Point(20, 14);
-        _bar.Location = new Point(20, 62);
-        _win.Controls.AddRange([_msg, _bar]);
+        var glyph = new PictureBox { Image = Ui.StatusGlyph(StatusKind.Busy, ui.Px(32) * 2), SizeMode = PictureBoxSizeMode.Zoom, Bounds = new Rectangle(ui.Px(18), ui.Px(18), ui.Px(32), ui.Px(32)) };
+        _msg.Bounds = new Rectangle(ui.Px(62), ui.Px(14), ui.Px(320), ui.Px(40));
+        _bar.Bounds = new Rectangle(ui.Px(62), ui.Px(62), ui.Px(318), ui.Px(8));
+        _win.Controls.AddRange([glyph, _msg, _bar]);
         _msg.Text = "Checking for mod updates...";
         _showTimer.Tick += (_, _) => { _showTimer.Stop(); ShowWindow(); };
         _ = RunAsync();
@@ -73,13 +77,18 @@ public sealed class QuickLaunchContext : ApplicationContext
                 _showTimer.Stop();
                 ShowWindow();
                 _bar.Style = ProgressBarStyle.Continuous;
-                var choice = MessageBox.Show(_win,
-                    SyncRunner.Friendly(ex) + "\n\n" +
-                    "Yes = play with the mods you already have (you might not match the host)\n" +
-                    "No = play normal PEAK\nCancel = don't start PEAK",
-                    "Couldn't update the mods", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
-                if (choice == DialogResult.Cancel) { ExitThread(); return; }
-                if (choice == DialogResult.No) { Launch(LaunchMode.Vanilla, gameDir); return; }
+                var p = SyncRunner.Describe(ex, _s.Config.HostName);
+                var withMods = new TaskDialogCommandLinkButton("Play with the mods I have", $"You might not match {_s.Config.HostName}'s game.");
+                var normal = new TaskDialogCommandLinkButton("Play normal PEAK", "No mods.");
+                var page = new TaskDialogPage
+                {
+                    Caption = _s.Config.ShortcutName, Heading = "Couldn't update the mods", Text = p.Heading + ". " + p.Advice,
+                    Icon = TaskDialogIcon.Warning, Buttons = { withMods, normal, TaskDialogButton.Cancel },
+                    Expander = new TaskDialogExpander(p.Details) { CollapsedButtonText = "Details" },
+                };
+                var choice = TaskDialog.ShowDialog(_win, page);
+                if (choice == normal) { Launch(LaunchMode.Vanilla, gameDir); return; }
+                if (choice != withMods) { ExitThread(); return; }
             }
             Launch(LaunchMode.Modded, gameDir);
         }

@@ -5,11 +5,15 @@ namespace PeakPack.App;
 static class Program
 {
     /// <summary>
-    /// PeakPack.exe                 open the window (first run: Install button)
+    /// PeakPack.exe                 open the window. The FIRST time (the downloaded file): install the app to
+    ///                              %LOCALAPPDATA%\PeakPack, create the "PEAK (Modded)" desktop + Start Menu icons,
+    ///                              then continue from the installed copy.
     /// PeakPack.exe --launch        what the "PEAK (Modded)" shortcut runs: update + start modded, no questions
-    /// PeakPack.exe --uninstall     "Remove everything" (also used by Windows' Installed Apps list)
-    /// Test-only overrides: --game-dir, --data-dir, --manifest, --public-key, --allow-local,
-    ///   --shortcut-dir, --launch-method steam|direct|dry, --screenshot out.png
+    /// PeakPack.exe --uninstall     "Remove PeakPack" (also used by Windows' Installed Apps list)
+    /// PeakPack.exe --host          Joshua's Host / Publisher window
+    /// Test-only overrides: --game-dir, --data-dir, --manifest, --public-key, --allow-local, --shortcut-dir,
+    ///   --launch-method steam|direct|dry, --ui-scale 1.25, --no-self-install,
+    ///   --screenshot out.png, --selftest DIR, --selftest-open DIR NAME
     /// </summary>
     [STAThread]
     static void Main(string[] args)
@@ -26,7 +30,7 @@ static class Program
 
         if (AppSession.Get(args, "--screenshot") is { } shot)
         {
-            using var f = new MainForm(s) { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, -3000), ShowInTaskbar = false };
+            using var f = OffScreen(new MainForm(s));
             f.Show();
             Application.DoEvents();
             f.SaveScreenshot(shot);
@@ -35,19 +39,39 @@ static class Program
 
         if (AppSession.Get(args, "--selftest") is { } testDir)
         {
-            var f = new MainForm(s) { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, -3000), ShowInTaskbar = false };
-            f.Load += async (_, _) => { await f.RunSelfTestAsync(testDir); f.Close(); };
+            // Same first-run install as a real first open, but without restarting (the test drives this process).
+            if (FirstRun.ShouldInstall(s)) FirstRun.Install(s);
+            var f = OffScreen(new MainForm(s));
+            f.Load += async (_, _) => { await Task.Yield(); await f.RunSelfTestAsync(testDir); f.Close(); };
+            Application.Run(f);
+            return;
+        }
+
+        if (AppSession.Get(args, "--selftest-open") is { } openDir)
+        {
+            var name = args.SkipWhile(a => !a.Equals("--selftest-open", StringComparison.OrdinalIgnoreCase)).Skip(2).FirstOrDefault() ?? "open";
+            var f = OffScreen(new MainForm(s));
+            f.Load += async (_, _) => { await Task.Yield(); await f.RunOpenSelfTestAsync(openDir, name); f.Close(); };
             Application.Run(f);
             return;
         }
 
         if (AppSession.Has(args, "--uninstall"))
         {
-            if (MessageBox.Show("Remove PeakPack and all of its mods? Your PEAK folder will be put back exactly the way Steam installed it.",
-                    "Remove PeakPack", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            var remove = new TaskDialogButton("Remove PeakPack");
+            var page = new TaskDialogPage
+            {
+                Caption = "PeakPack", Heading = "Remove PeakPack and its mods?", Icon = TaskDialogIcon.Warning,
+                Text = "Your PEAK folder goes back to exactly how Steam installed it. Your normal PEAK and your saves are not affected.",
+                Buttons = { remove, TaskDialogButton.Cancel },
+            };
+            if (TaskDialog.ShowDialog(page) != remove) return;
             var rep = Setup.Uninstall(s.Paths, s.SetupOptions, s.FindGameDir());
-            MessageBox.Show("PeakPack has been removed. PEAK is back to normal." +
-                            (rep.BackupDir is null ? "" : $"\n\nYour earlier mods are backed up in {rep.BackupDir}"), "Removed");
+            TaskDialog.ShowDialog(new TaskDialogPage
+            {
+                Caption = "PeakPack", Heading = "PeakPack has been removed", Icon = TaskDialogIcon.Information,
+                Text = "PEAK is back to normal." + (rep.BackupDir is null ? "" : $"\n\nThe mods you had before PeakPack are backed up in {rep.BackupDir}"),
+            });
             return;
         }
 
@@ -57,6 +81,29 @@ static class Program
             return;
         }
 
+        if (FirstRun.ShouldInstall(s))
+        {
+            try
+            {
+                FirstRun.Install(s);
+                FirstRun.StartInstalledCopy(s);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Couldn't install (antivirus, disk...): keep going from the downloaded file; the window still works.
+                s.Paths.Log("First-run install failed, running from the download: " + ex);
+            }
+        }
+
         Application.Run(new MainForm(s));
+    }
+
+    static MainForm OffScreen(MainForm f)
+    {
+        f.StartPosition = FormStartPosition.Manual;
+        f.Location = new Point(-4000, -4000);
+        f.ShowInTaskbar = false;
+        return f;
     }
 }
