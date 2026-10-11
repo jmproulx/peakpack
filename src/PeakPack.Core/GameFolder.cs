@@ -22,7 +22,22 @@ public static class GameFolder
     public static bool LooksLikePeak(string? dir) =>
         dir is not null && File.Exists(Path.Combine(dir, "PEAK.exe")) && Directory.Exists(Path.Combine(dir, "PEAK_Data"));
 
-    public static bool IsGameRunning() => Process.GetProcessesByName("PEAK").Length > 0;
+    /// <summary>Is PEAK.exe from this game folder running? (Matched by path, so a sandbox test isn't
+    /// confused by the real game, and vice versa. If the path can't be read, assume it's the same game.)</summary>
+    public static bool IsGameRunning(string gameDir)
+    {
+        var exe = Path.GetFullPath(Path.Combine(gameDir, "PEAK.exe"));
+        foreach (var p in Process.GetProcessesByName("PEAK"))
+        {
+            using (p)
+            {
+                string? path = null;
+                try { path = p.MainModule?.FileName; } catch { }
+                if (path is null || path.Equals(exe, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        return false;
+    }
 
     public sealed record Inspection(bool HasProxy, bool ProxyIsOurs, bool HasIni, bool? IniEnabled, bool HasBepInExFolder)
     {

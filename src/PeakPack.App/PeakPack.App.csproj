@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\PeakPack.Core\PeakPack.Core.csproj" />
@@ -10,6 +10,27 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PeakPack</AssemblyName>
+    <RootNamespace>PeakPack.App</RootNamespace>
+    <Version>0.1.0</Version>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Product>PeakPack</Product>
+    <Description>One-click PEAK mods from your host</Description>
   </PropertyGroup>
+
+  <!-- Friends get ONE exe that needs nothing else installed (no .NET runtime). -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Joshua edits this once (manifest URL, public key) before building the copy he shares. -->
+    <EmbeddedResource Include="pack.config.json" LogicalName="PeakPack.App.pack.config.json" />
+  </ItemGroup>
 
 </Project>

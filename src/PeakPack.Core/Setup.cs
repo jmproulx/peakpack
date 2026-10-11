@@ -17,7 +17,7 @@ public static class Setup
 
     /// <summary>Copies the running exe into the data folder (so the downloaded file can be deleted) and
     /// creates the shortcuts. Returns the path of the installed exe.</summary>
-    public static string InstallApp(AppPaths paths, string gameDir, Options opt, string? runningExe = null)
+    public static string InstallApp(AppPaths paths, string gameDir, Options opt, string? runningExe = null, string? extraArgs = null)
     {
         runningExe ??= Environment.ProcessPath!;
         Directory.CreateDirectory(paths.DataDir);
@@ -27,7 +27,8 @@ public static class Setup
 
         var icon = Path.Combine(gameDir, "PEAK.exe");
         var lnkName = opt.ShortcutName + ".lnk";
-        var dataArg = paths.IsDefaultLocation ? "" : $" --data-dir \"{paths.DataDir}\"";
+        // Normal installs need no extra arguments; test installs pass their overrides (--data-dir etc.).
+        var dataArg = extraArgs is { Length: > 0 } ? " " + extraArgs : paths.IsDefaultLocation ? "" : $" --data-dir \"{paths.DataDir}\"";
         if (opt.DesktopDir is not null)
             ShortcutHelper.CreateShortcut(Path.Combine(opt.DesktopDir, lnkName), exe, "--launch" + dataArg, paths.DataDir, icon, 0,
                 "Updates the mods if needed, then starts PEAK with mods.");
