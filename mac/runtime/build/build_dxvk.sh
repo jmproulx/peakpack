@@ -23,7 +23,17 @@ x86_64-w64-mingw32-g++ -v 2>&1 | grep -q 'Thread model: posix' \
 
 out="$PP_STAGE/dxvk-install"
 rm -rf "$PP_BLD/dxvk64" "$out"
-(cd "$PP_SRC/dxvk" && meson setup "$PP_BLD/dxvk64"    --cross-file build-win64.txt --buildtype release --strip --prefix "$out"    --bindir x86_64-windows --libdir x86_64-windows    -Denable_tests=false -Denable_d3d9=false -Denable_d3d10=true -Denable_d3d11=true -Denable_dxgi=true)
+# DXVK 1.10.3 (2022) relies on <cstdint> arriving transitively through libstdc++ headers; GCC 13+
+# no longer does that (CI run 38301709070: util_matrix.cpp "'uint32_t' was not declared"), and
+# ~250 sources use fixed-width types without including it. Force-include it for all C++ instead
+# of patching CodeWeavers' sources. The CI job also pins an ubuntu:22.04 (GCC 10) container.
+mkdir -p "$PP_BLD"
+extra_cross="$PP_BLD/dxvk-extra-cross.txt"
+cat > "$extra_cross" <<'EOF'
+[built-in options]
+cpp_args = ['-include', 'cstdint']
+EOF
+(cd "$PP_SRC/dxvk" && meson setup "$PP_BLD/dxvk64"    --cross-file build-win64.txt --cross-file "$extra_cross" --buildtype release --strip --prefix "$out"    --bindir x86_64-windows --libdir x86_64-windows    -Denable_tests=false -Denable_d3d9=false -Denable_d3d10=true -Denable_d3d11=true -Denable_dxgi=true)
 ninja -C "$PP_BLD/dxvk64" install
 
 stage="$PP_STAGE/dxvk"

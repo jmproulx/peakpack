@@ -36,12 +36,19 @@ signed="$(find "$R/lib/wine/x86_64-unix" -name '*.so' -exec sh -c 'codesign -dv 
 # 3. DXMT prerequisites.
 nm -gU "$R/lib/wine/x86_64-unix/winemac.so" | grep -q ' _macdrv_functions$' && ok "winemac.so exports macdrv_functions" || bad "macdrv_functions not exported"
 [ -f "$R/lib/wine/x86_64-unix/winemetal.so" ] && [ -f "$R/lib/wine/x86_64-windows/winemetal.dll" ] && ok "winemetal present" || bad "winemetal missing"
-for b in dxmt dxvk; do
-  for f in d3d11.dll dxgi.dll d3d10core.dll; do
-    [ -f "$R/lib/peakpack/$b/x86_64-windows/$f" ] || bad "$b/$f missing"
-  done
+for f in d3d11.dll dxgi.dll d3d10core.dll; do
+  [ -f "$R/lib/peakpack/dxmt/x86_64-windows/$f" ] || bad "dxmt/$f missing"
 done
-ok "backend DLL sets present"
+ok "DXMT backend DLL set present"
+# DXVK is an optional fallback (its CI job may fail without blocking the runtime).
+if [ -d "$R/lib/peakpack/dxvk" ]; then
+  for f in d3d11.dll dxgi.dll d3d10core.dll; do
+    [ -f "$R/lib/peakpack/dxvk/x86_64-windows/$f" ] || bad "dxvk/$f missing"
+  done
+  ok "DXVK fallback DLL set present"
+else
+  ok "DXVK fallback not included in this build (optional)"
+fi
 
 # 4. msync, inotify, sonames.
 strings "$R/lib/wine/x86_64-unix/ntdll.so" | grep -q WINEMSYNC && ok "msync compiled in" || bad "WINEMSYNC not found in ntdll.so"

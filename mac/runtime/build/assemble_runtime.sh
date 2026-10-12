@@ -14,7 +14,10 @@ need otool install_name_tool codesign lipo file python3 tar xz
 W="$PP_STAGE/wine-dev"
 [ -x "$W/bin/wine" ] || die "missing $W (build_wine.sh)"
 [ -f "$PP_STAGE/dxmt/x86_64-windows/d3d11.dll" ] || die "missing DXMT stage (build_dxmt.sh)"
-[ -f "$PP_STAGE/dxvk/x86_64-windows/d3d11.dll" ] || die "missing DXVK stage (build_dxvk.sh artifact)"
+# DXVK is only a fallback backend: build the runtime without it if its job failed.
+have_dxvk=0
+if [ -f "$PP_STAGE/dxvk/x86_64-windows/d3d11.dll" ]; then have_dxvk=1
+else log "WARNING: no DXVK stage (build_dxvk.sh artifact); the DXVK fallback backend is NOT included"; fi
 
 R="$PP_DIST/$RUNTIME_ID"
 rm -rf "$R" && mkdir -p "$R/bin" "$R/lib" "$R/share" "$R/LICENSES"
@@ -42,11 +45,14 @@ for f in "$PP_DEPS"/lib/*.dylib; do cp -P "$f" "$R/lib/"; done
 log "DXMT + DXVK"
 cp "$PP_STAGE/dxmt/x86_64-unix/winemetal.so"     "$R/lib/wine/x86_64-unix/winemetal.so"
 cp "$PP_STAGE/dxmt/x86_64-windows/winemetal.dll" "$R/lib/wine/x86_64-windows/winemetal.dll"
-mkdir -p "$R/lib/peakpack/dxmt/x86_64-windows" "$R/lib/peakpack/dxvk/x86_64-windows"
+mkdir -p "$R/lib/peakpack/dxmt/x86_64-windows"
 for f in d3d11.dll dxgi.dll d3d10core.dll; do
   cp "$PP_STAGE/dxmt/x86_64-windows/$f" "$R/lib/peakpack/dxmt/x86_64-windows/$f"
 done
-cp "$PP_STAGE"/dxvk/x86_64-windows/*.dll "$R/lib/peakpack/dxvk/x86_64-windows/"
+if [ "$have_dxvk" = 1 ]; then
+  mkdir -p "$R/lib/peakpack/dxvk/x86_64-windows"
+  cp "$PP_STAGE"/dxvk/x86_64-windows/*.dll "$R/lib/peakpack/dxvk/x86_64-windows/"
+fi
 
 # Steam bridge (optional; built in the same job against this exact Wine tree, INTERFACES.md 2.1 A).
 # $PP_STAGE/steam is the unpacked peakpack-steam-bridge-* package (binaries + licence texts only).
@@ -63,6 +69,14 @@ if [ -d "$PP_STAGE/steam" ]; then
   if find "$R" \( -name '*.cpp' -o -name '*.h' \) -ipath '*steam*' -print -quit | grep -q .; then
     die "source files from the Steam bridge in the runtime"
   fi
+else
+  # No (complete) bridge: drop the half Wine may have built in-tree, so nothing points at a missing unixlib.
+  for d in x86_64-windows i386-windows; do
+    if [ -f "$R/lib/wine/$d/lsteamclient.dll" ]; then
+      log "no Steam bridge stage: removing in-tree lib/wine/$d/lsteamclient.dll"
+      rm -f "$R/lib/wine/$d/lsteamclient.dll"
+    fi
+  done
 fi
 
 log "prefix scripts"

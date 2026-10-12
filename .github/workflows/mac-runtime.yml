@@ -50,28 +50,40 @@ jobs:
           echo "::error::publish=true cannot be combined with allow_unpinned=true"
           exit 1
 
+  # DXVK is only a FALLBACK backend: if this job fails, the mac job still builds the Wine/DXMT
+  # runtime and the Steam bridge, and the manifest records components.dxvk.present = false.
   dxvk:
     needs: guard
     runs-on: ubuntu-24.04
+    # Toolchain pinned to DXVK 1.10.3's era: Ubuntu 22.04 mingw-w64 (GCC 10), by digest.
+    # (Run 38301709070 failed with the runner's GCC 13: missing <cstdint>; build_dxvk.sh also
+    # force-includes <cstdint> now.)
+    container:
+      image: ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401  # ubuntu:22.04
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
     steps:
+      - name: Base packages (git for checkout; mingw-w64 GCC posix, ninja, glslang)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git xz-utils python3-pip \
+            mingw-w64 gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix ninja-build glslang-tools
+          update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          x86_64-w64-mingw32-g++ --version | head -n 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           sparse-checkout: mac/runtime
           persist-credentials: false
-      - name: Toolchain (mingw-w64 GCC posix, meson, glslang)
+      - name: meson (pinned)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mingw-w64 g++-mingw-w64-x86-64-posix \
-            ninja-build glslang-tools python3-pip
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
           . mac/runtime/build/pins.env
-          pip3 install --user --break-system-packages "meson==${MESON_VERSION}"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          pip3 install "meson==${MESON_VERSION}"
+          meson --version
       - name: Cache downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -88,7 +100,9 @@ jobs:
           retention-days: 7
 
   mac:
-    needs: dxvk
+    needs: [guard, dxvk]
+    # Runs even when the optional DXVK job failed (it only needs guard to have passed).
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 340
     outputs:
@@ -112,6 +126,7 @@ jobs:
           echo "runtime_id=pp${PP_REVISION}-cx${CX_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Xcode 16 (Metal toolchain for DXMT) and Rosetta
         run: |
+          # shellcheck disable=SC2012  # Xcode app names are plain; ls + sort -V picks the newest 16.x
           x="$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n 1)"
           [ -n "$x" ] || { echo "::error::no Xcode 16 on this runner"; exit 1; }
           sudo xcode-select -s "$x"
@@ -124,9 +139,11 @@ jobs:
           brew install autoconf automake libtool pkg-config bison flex cmake ccache xz gnu-tar
           . mac/runtime/build/pins.env
           python3 -m pip install --user --break-system-packages "meson==${MESON_VERSION}" "ninja==${NINJA_PIP_VERSION}"
-          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          {
+            echo "$(python3 -m site --user-base)/bin"
+            echo "$(brew --prefix bison)/bin"
+            echo "$(brew --prefix flex)/bin"
+          } >> "$GITHUB_PATH"
       - name: Cache downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -158,23 +175,46 @@ jobs:
             case "$p" in *[!A-Za-z0-9._-]*) echo "::error::bad patch name: $p"; exit 1 ;; esac
             args="$args --with-optional-patch $p"
           done
+          echo "PREP_ARGS_BASE=$args" >> "$GITHUB_ENV"   # for the Wine step's no-bridge retry
           if [ "$STEAM_BRIDGE" = 1 ]; then args="$args --extra-dll-dir $GITHUB_WORKSPACE/_work/steam/extra-dlls"; fi
           # shellcheck disable=SC2086
           mac/runtime/build/prepare_sources.sh $args
       - name: Dependencies (gmp, nettle, gnutls, freetype, libinotify, MoltenVK)
         run: mac/runtime/build/build_deps.sh
-      - name: Wine
-        run: mac/runtime/build/build_wine.sh --no-prepare
+      - name: Wine (retries once without the in-tree Steam bridge if that is what broke it)
+        env:
+          STEAM_BRIDGE: ${{ inputs.steam_bridge && '1' || '0' }}
+        run: |
+          set -uo pipefail
+          if mac/runtime/build/build_wine.sh --no-prepare; then exit 0; fi
+          [ "$STEAM_BRIDGE" = 1 ] || exit 1
+          echo "::warning::Wine build failed with the in-tree Steam bridge; rebuilding Wine without it"
+          echo "BRIDGE_DISABLED=1" >> "$GITHUB_ENV"
+          set -e
+          # shellcheck disable=SC2086
+          mac/runtime/build/prepare_sources.sh $PREP_ARGS_BASE
+          mac/runtime/build/build_wine.sh --no-prepare
       - name: DXMT
         run: mac/runtime/build/build_dxmt.sh
       - name: Steam bridge (lsteamclient.so via clang++, forwarder, launcher, probes; binaries only)
-        if: ${{ inputs.steam_bridge }}
+        id: bridge
+        if: ${{ inputs.steam_bridge && env.BRIDGE_DISABLED != '1' }}
+        # Optional piece: on failure the runtime is still built and published without the bridge.
+        continue-on-error: true
         env:
           PE_CC: x86_64-w64-mingw32-clang
           WINDRES: x86_64-w64-mingw32-windres
         run: |
           set -euo pipefail
           W="$GITHUB_WORKSPACE/_work"
+          cleanup_on_fail() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              rm -r -f "$W/stage/steam" "$W"/dist/peakpack-steam-*
+              echo "::warning::Steam bridge failed (rc=$rc); the runtime continues without it"
+            fi
+          }
+          trap cleanup_on_fail EXIT
           mac/runtime/steam/build/build_lsteamclient.sh unix collect --out "$W/steam/out"
           export PATH="$W/tools/llvm-mingw/bin:$PATH"
           pe="$W/steam/pe"; mkdir -p "$pe"
@@ -193,7 +233,10 @@ jobs:
           done
           mkdir -p "$W/stage/steam"
           tar -xJf "$W"/dist/peakpack-steam-bridge-*.tar.xz -C "$W/stage/steam" --strip-components=1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+      - name: DXVK fallback stage (only if the dxvk job succeeded)
+        if: ${{ needs.dxvk.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dxvk-stage
           path: _work/stage/dxvk
@@ -209,11 +252,31 @@ jobs:
         continue-on-error: true
         run: mac/runtime/build/verify_runtime.sh "_work/dist/${{ steps.id.outputs.runtime_id }}" --smoke
       - name: Collect
+        env:
+          RID: ${{ steps.id.outputs.runtime_id }}
+          DXVK_RESULT: ${{ needs.dxvk.result }}
+          BRIDGE_REQUESTED: ${{ inputs.steam_bridge && '1' || '0' }}
+          BRIDGE_OUTCOME: ${{ steps.bridge.outcome }}
         run: |
           mkdir -p out
           cp _work/dist/*.tar.xz _work/dist/*.sha256 _work/dist/manifest-*.json out/
           [ -f _work/UNPINNED.txt ] && cp _work/UNPINNED.txt out/ || true
-          (cd out && shasum -a 256 *.tar.xz manifest-*.json > SHA256SUMS)
+          if [ -d "_work/dist/$RID/lib/peakpack/dxvk" ]; then dxvk=included; else dxvk="missing (dxvk job: $DXVK_RESULT)"; fi
+          if [ "$BRIDGE_REQUESTED" != 1 ]; then bridge="not requested"
+          elif [ "${BRIDGE_DISABLED:-0}" = 1 ]; then bridge="failed (in-tree build broke Wine; Wine rebuilt without it)"
+          elif [ -f "_work/dist/$RID/lib/wine/x86_64-unix/lsteamclient.so" ]; then bridge=included
+          else bridge="failed (step outcome: ${BRIDGE_OUTCOME:-skipped})"; fi
+          {
+            echo "runtime_id=$RID"
+            echo "dxmt_runtime=built"
+            echo "dxvk_fallback=$dxvk"
+            echo "steam_bridge=$bridge"
+            echo "commit=$GITHUB_SHA"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > out/BUILD-STATUS.txt
+          cat out/BUILD-STATUS.txt
+          # shellcheck disable=SC2035  # our own artifact names; keep plain names in SHA256SUMS
+          (cd out && shasum -a 256 *.tar.xz manifest-*.json BUILD-STATUS.txt > SHA256SUMS)
           ls -l out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
@@ -224,7 +287,8 @@ jobs:
 
   release:
     needs: mac
-    if: ${{ inputs.publish }}
+    # Explicit result check: the optional dxvk job may have failed upstream of mac.
+    if: ${{ !cancelled() && inputs.publish && needs.mac.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -247,6 +311,7 @@ jobs:
           cat > notes.md <<EOF
           PeakPack for Mac runtime ${RID} (x86_64, runs under Rosetta 2). Not a PeakPack pack release.
           Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_SHA}.
+          See BUILD-STATUS.txt for which optional parts (DXVK fallback, Steam bridge) are included.
           Contents: runtime (includes the built Steam bridge when steam_bridge=true), Wine SDK, LGPL source bundle,
           Steam bridge package + Mac gate test kit (when built), manifest, SHA256SUMS.
           Steam bridge: built from Valve's lsteamclient (Proton, pinned commit) fetched at build time; binaries only,

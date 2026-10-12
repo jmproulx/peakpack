@@ -17,6 +17,13 @@ wine_dlls="$R/lib/wine/x86_64-windows"
 put_wine_builtin() { cp "$wine_dlls/$1" "$sys32/$1"; }   # restores Wine's builtin placeholder
 
 case "$B" in
+  dxvk|dxvk-nodxgi)
+    # DXVK is an optional fallback; a runtime built without it says so instead of half-switching.
+    [ -f "$R/lib/peakpack/dxvk/x86_64-windows/d3d11.dll" ] \
+      || { echo "pp-backend: this runtime has no DXVK fallback (see manifest.json components.dxvk.present)" >&2; exit 3; } ;;
+esac
+
+case "$B" in
   dxmt)
     for f in d3d11.dll dxgi.dll d3d10core.dll; do cp "$R/lib/peakpack/dxmt/x86_64-windows/$f" "$sys32/$f"; done
     cp "$wine_dlls/winemetal.dll" "$sys32/winemetal.dll"

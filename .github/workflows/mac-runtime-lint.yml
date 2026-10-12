@@ -6,10 +6,12 @@ on:
   push:
     paths:
       - "mac/runtime/**"
+      - "mac/testkit/**"
       - ".github/workflows/mac-runtime*.yml"
   pull_request:
     paths:
       - "mac/runtime/**"
+      - "mac/testkit/**"
       - ".github/workflows/mac-runtime*.yml"
   workflow_dispatch:
 
@@ -27,10 +29,10 @@ jobs:
       - name: bash -n + shellcheck
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2086
-          files="$(find mac/runtime -name '*.sh')"   # includes mac/runtime/steam (R5)
+          files="$(find mac/runtime mac/testkit -name '*.sh' 2>/dev/null)"   # includes mac/runtime/steam (R5) and the test kit
           for f in $files; do bash -n "$f"; done
-          # ShellCheck comes preinstalled on the ubuntu runner image
+          # ShellCheck comes preinstalled on the ubuntu runner image. Word splitting of $files is intended.
+          # shellcheck disable=SC2086
           shellcheck -x -S warning $files
       - name: yamllint
         run: |
