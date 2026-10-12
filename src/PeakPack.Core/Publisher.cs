@@ -71,6 +71,24 @@ public sealed class PublishConfig
         public OverwriteMode Overwrite { get; set; } = OverwriteMode.Always;
         public string? Title { get; set; }
         public string? Description { get; set; }
+        /// <summary>The mod supports AutoReload (OnDestroy cleans up everything, embedded PDB): new builds may be
+        /// applied live in a test lobby. Only for your own mods.</summary>
+        public bool ReloadSafe { get; set; }
+    }
+
+    /// <summary>Host ids for the manifest: lobby.hostIds if set, else the id the host's own companion recorded in
+    /// &lt;gameDir&gt;\BepInEx\PeakPack\host-id.txt the last time he hosted a lobby.</summary>
+    public List<string> EffectiveHostIds(Action<string>? log = null)
+    {
+        if (Lobby?.HostIds is { Count: > 0 } ids) return ids.ToList();
+        var file = GameDir is null ? null : Path.Combine(GameDir, "BepInEx", "PeakPack", "host-id.txt");
+        if (file is not null && File.Exists(file) && File.ReadAllText(file).Trim() is { Length: > 0 } id)
+        {
+            log?.Invoke($"  host id from {file}: {id}");
+            return [id];
+        }
+        log?.Invoke("  NOTE: no host id yet (host a lobby once with the companion installed, then publish again). Friends will only match the pack id.");
+        return [];
     }
 
     public const string CompanionId = "PeakPack-Companion";
@@ -117,10 +135,20 @@ public sealed class PublishConfig
 
 public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Action<string> log)
 {
+    public const string AutoReloadPackage = "Hamunii-AutoReload";
+
     public async Task<PackManifest> PublishAsync(PublishConfig cfg, string outDir, PackManifest? previous, CancellationToken ct = default)
     {
         Directory.CreateDirectory(outDir);
-        var resolved = Resolver.Resolve(index, cfg.Mods, cfg.Loader, cfg.LatestDependencies);
+        // Test lobby: AutoReload must be in the friends' pack, or live updates have nothing to load them.
+        var mods = cfg.Mods.ToList();
+        if (cfg.Lobby?.TestLobby == true && cfg.CustomFiles.Any(c => c.ReloadSafe)
+            && !mods.Any(x => PackageId.Parse(x).FullName.Equals(AutoReloadPackage, StringComparison.OrdinalIgnoreCase)))
+        {
+            mods.Add(AutoReloadPackage);
+            log($"  test lobby: adding {AutoReloadPackage} (loads live updates of your reload-safe mods)");
+        }
+        var resolved = Resolver.Resolve(index, mods, cfg.Loader, cfg.LatestDependencies);
         foreach (var w in resolved.Warnings) log("WARNING: " + w);
 
         var hostOnlyNames = cfg.HostOnly.Select(h => PackageId.Parse(h).FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -133,7 +161,11 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
             HostOnly = cfg.HostOnly.ToList(),
             HostName = cfg.HostName,
             PackId = cfg.EffectivePackId,
-            Lobby = cfg.Lobby,
+            Lobby = cfg.Lobby is null ? null : new LobbySettings
+            {
+                MismatchPolicy = cfg.Lobby.MismatchPolicy, LiveSettings = cfg.Lobby.LiveSettings, TestLobby = cfg.Lobby.TestLobby,
+                Diagnostics = cfg.Lobby.Diagnostics, HostIds = cfg.EffectiveHostIds(log),
+            },
         };
         m.Changelog = (previous?.Changelog ?? []).Take(19).ToList();
         if (!string.IsNullOrWhiteSpace(cfg.Notes)) m.Changelog.Insert(0, new ChangelogEntry { Revision = m.Revision, Date = m.Published, Notes = cfg.Notes.Trim() });
@@ -191,6 +223,7 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
             {
                 Id = cf.Id, Version = cf.Version, Path = cf.Dest, Overwrite = cf.Overwrite,
                 Title = cf.Title ?? finfo?.Title, Description = cf.Description ?? finfo?.Description,
+                HotReload = cf.ReloadSafe && cf.Dest.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && cf.Id != PublishConfig.CompanionId,
                 Url = string.IsNullOrEmpty(baseUrl) ? assetName : baseUrl.TrimEnd('/') + "/" + assetName,
                 Sha256 = sha, Size = new FileInfo(cf.Source).Length,
             });

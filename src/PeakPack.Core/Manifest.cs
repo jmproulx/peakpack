@@ -161,6 +161,14 @@ public sealed class LobbySettings
     /// <summary>BepInEx config entries the lobby host's values apply to everyone while in that lobby.
     /// Only entries listed here are ever accepted from the network.</summary>
     public List<LiveSetting> LiveSettings { get; set; } = new();
+    /// <summary>Test lobby: friends who opted in get new builds of Joshua's reload-safe mods applied live
+    /// (AutoReload is added to the pack). Off by default.</summary>
+    public bool TestLobby { get; set; }
+    /// <summary>The host wants friends' error logs relayed while they're in his lobby (each friend still decides).</summary>
+    public bool Diagnostics { get; set; } = true;
+    /// <summary>Photon user ids of the pack's host(s) (Joshua). Friends relay logs and accept live-update signals only
+    /// from a lobby host on this list. Empty = pack id match only (weaker; the publisher fills it from the host's game).</summary>
+    public List<string> HostIds { get; set; } = new();
 }
 
 public sealed class LiveSetting
@@ -193,6 +201,9 @@ public sealed class FileEntry
     public OverwriteMode Overwrite { get; set; } = OverwriteMode.Always;
     public string? Title { get; set; }
     public string? Description { get; set; }
+    /// <summary>Joshua's own mod that supports AutoReload (full OnDestroy cleanup, embedded PDB). In a test lobby,
+    /// friends who opted in get new builds of it applied live. Never set for third-party files.</summary>
+    public bool HotReload { get; set; }
 }
 
 public sealed class AppRelease

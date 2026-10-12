@@ -110,6 +110,86 @@ internal static class Program
         Eq(LobbyCheck.SafeName(new string('a', 40)), new string('a', 32), "40-char name is first 32 chars");
         Check(LobbyCheck.SafeName(new string('b', 32)).Length == 32, "exactly 32-char name kept at 32");
 
+        Console.WriteLine("Scrub");
+        const string profile = @"C:\Users\joshu";
+        string scrubbed = DiagLogic.Scrub(@"C:\Users\joshu\AppData\LocalLow\x", profile, "joshu", "DESKTOP-ABC");
+        Eq(scrubbed, @"%USERPROFILE%\AppData\LocalLow\x", "backslash profile path -> %USERPROFILE%");
+        Check(!scrubbed.Contains("joshu", StringComparison.OrdinalIgnoreCase), "user name gone from scrubbed path");
+        Eq(DiagLogic.Scrub("C:/Users/joshu/x", profile, "joshu", "DESKTOP-ABC"), "%USERPROFILE%/x", "forward-slash profile path -> %USERPROFILE%");
+        Eq(DiagLogic.Scrub(@"c:\users\JOSHU\x", profile, "joshu", "DESKTOP-ABC"), @"%USERPROFILE%\x", "profile match is case-insensitive");
+        Eq(DiagLogic.Scrub("Host DESKTOP-ABC here", profile, "joshu", "DESKTOP-ABC"), "Host <pc> here", "machine name -> <pc>");
+        Eq(DiagLogic.Scrub(@"E:\Users\joshu\x", null, "joshu", null), @"E:\Users\<user>\x", "user name alone -> <user> in \\Users\\ path");
+        Eq(DiagLogic.Scrub(@"D:\Users\jo\x", null, "jo", null), @"D:\Users\jo\x", "2-char user name not replaced");
+        Eq(DiagLogic.Scrub(null, profile, "joshu", "DESKTOP-ABC"), "", "null input -> empty string");
+        Eq(DiagLogic.Scrub("", profile, "joshu", "DESKTOP-ABC"), "", "empty input -> empty string");
+
+        Console.WriteLine("Chunk");
+        Check(DiagLogic.Chunk("").Count == 0, "empty -> 0 chunks");
+        Check(DiagLogic.Chunk(null).Count == 0, "null -> 0 chunks");
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < 100; i++) sb.Append((char)('a' + i % 26), 99).Append('\n');
+        string big = sb.ToString();
+        Eq(big.Length, 10000, "test input is 10,000 chars (100 lines of 100)");
+        var chunks = DiagLogic.Chunk(big, 3000);
+        Check(chunks.TrueForAll(ch => ch.Length <= 3000), "every chunk <= 3000 chars");
+        Check(chunks.TrueForAll(ch => ch.EndsWith('\n')), "every chunk ends at a line break");
+        Eq(chunks.Count, 4, "10,000 chars -> 4 chunks");
+        Eq(string.Concat(chunks), big, "chunks concatenate back to the input");
+        var oneLine = DiagLogic.Chunk(new string('x', 7000), 3000);
+        Eq(oneLine.Count, 3, "7000-char line with no newline -> 3 chunks");
+        Eq(string.Concat(oneLine), new string('x', 7000), "no-newline chunks concatenate back");
+
+        Console.WriteLine("KeepTail");
+        Eq(DiagLogic.KeepTail("short text", 100), "short text", "short text unchanged");
+        Eq(DiagLogic.KeepTail(big), big, "10,000 chars under the 60,000 default unchanged");
+        string tail = DiagLogic.KeepTail(big, 500);
+        Check(tail.Length <= 500 + 40, "long text capped near max (marker allowed)");
+        Check(tail.StartsWith("[... older lines dropped ...]", StringComparison.Ordinal), "starts with the drop marker");
+        Check(tail.EndsWith(big.Substring(big.Length - 50), StringComparison.Ordinal), "ends with the original ending");
+
+        Console.WriteLine("SafeFileName");
+        string sam = DiagLogic.SafeFileName("Sam <3", 5);
+        Check(!sam.Contains('<') && !sam.Contains(' '), "\"Sam <3\" has no '<' or space");
+        Eq(DiagLogic.SafeFileName("", 7), "player-7", "empty name -> player-<actor>");
+        Eq(DiagLogic.SafeFileName(null, 9), "player-9", "null name -> player-<actor>");
+        Eq(DiagLogic.SafeFileName("CON", 2), "player-2", "reserved CON -> player-<actor>");
+        Check(DiagLogic.SafeFileName(new string('n', 60), 1).Length <= 40, "60-char name capped at 40");
+        Eq(DiagLogic.SafeFileName("Jo.sh", 3), "Jo.sh", "dot inside name kept");
+
+        Console.WriteLine("PlayerLogErrors");
+        var logLines = new List<string> { "ok", "NullReferenceException: Object reference not set", "  at Foo.Bar () [0x00000]", "  at Baz ()", "next normal line", "Error loading asset", "fine" };
+        var errs = DiagLogic.PlayerLogErrors(logLines);
+        Check(errs.Contains("NullReferenceException: Object reference not set"), "exception line kept");
+        Check(errs.Contains("  at Foo.Bar () [0x00000]"), "first stack line kept");
+        Check(errs.Contains("  at Baz ()"), "second stack line kept");
+        Check(errs.Contains("Error loading asset"), "Error line kept");
+        Check(!errs.Contains("ok") && !errs.Contains("next normal line") && !errs.Contains("fine"), "normal lines dropped");
+        var manyErrs = new List<string>();
+        for (int i = 0; i < 1000; i++) manyErrs.Add("Exception " + i);
+        var capped = DiagLogic.PlayerLogErrors(manyErrs, 400);
+        Eq(capped.Count, 400, "1000 error lines, maxLines 400 -> 400 results");
+        Eq(capped[0], "Exception 600", "keeps the last 400: first is line 600");
+        Eq(capped[399], "Exception 999", "keeps the last 400: last is line 999");
+
+        Console.WriteLine("RateLimiter");
+        var limiter = new RateLimiter(1000, 2000);
+        Check(limiter.TryTake(1500, 0), "t=0 take 1500 from burst 2000 -> true");
+        Check(!limiter.TryTake(1000, 0), "t=0 take 1000 again -> false (500 left)");
+        Check(limiter.TryTake(1000, 1.0), "t=1.0 take 1000 -> true (refilled)");
+        Check(limiter.TryTake(2000, 100), "t=100 take 2000 -> true (refill capped at burst)");
+        Check(!limiter.TryTake(1, 100), "t=100 take 1 more -> false (bucket empty)");
+
+        Console.WriteLine("UpdateMessage");
+        var scoutMods = new List<string> { "Scoutmaster Mode" };
+        Eq(LobbyCheck.UpdateMessage("applied", "Joshua", scoutMods, 8, Shortcut, Name), "[Joshua] updated Scoutmaster Mode.", "applied with mod name");
+        Eq(LobbyCheck.UpdateMessage("applied", "Joshua", null, 8, Shortcut, Name), "[Joshua] updated a mod.", "applied with null mods -> a mod");
+        const string publishedText = "[Joshua] published mod pack rev 8. Restart PEAK from the PEAK (Modded) icon to get it.";
+        Eq(LobbyCheck.UpdateMessage("restart-needed", "Joshua", null, 8, Shortcut, Name), publishedText, "restart-needed text");
+        Eq(LobbyCheck.UpdateMessage("not-allowed", "Joshua", null, 8, Shortcut, Name), publishedText, "not-allowed text");
+        Eq(LobbyCheck.UpdateMessage("up-to-date", "Joshua", null, 8, Shortcut, Name), null, "up-to-date -> null");
+        string failed = LobbyCheck.UpdateMessage("failed", "Joshua", null, 8, Shortcut, Name);
+        Check(failed != null && failed.StartsWith("Couldn't apply [Joshua]'s update.", StringComparison.Ordinal), "failed starts with Couldn't apply");
+
         Console.WriteLine();
         if (_failures == 0)
             Console.WriteLine("ALL LOBBY CHECKS PASSED");

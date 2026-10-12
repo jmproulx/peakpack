@@ -30,8 +30,8 @@ namespace PeakPack.Companion
     /// BepInEx\PeakPack\live-originals.txt while the host's are active, so they come back even if the game crashes
     /// in a lobby or AutoReload starts the new instance before the old one is destroyed.
     /// </summary>
-    [BepInPlugin(Guid, "PeakPack Companion", "0.3.0")]
-    public class Plugin : BaseUnityPlugin, IInRoomCallbacks, IMatchmakingCallbacks
+    [BepInPlugin(Guid, "PeakPack Companion", "0.4.0")]
+    public partial class Plugin : BaseUnityPlugin, IInRoomCallbacks, IMatchmakingCallbacks, IOnEventCallback
     {
         public const string Guid = "peakpack.companion";
         const string KPack = "pp.pack", KRev = "pp.rev", KCfg = "pp.cfg";
@@ -68,6 +68,7 @@ namespace PeakPack.Companion
             Logger.LogInfo($"PeakPack pack '{_info.packId}' rev {_info.revision} (host {_info.hostName}); live settings: {_info.liveSettings.Count}");
             PhotonNetwork.AddCallbackTarget(this);
             _registered = true;
+            StartTesting(path);
             if (PhotonNetwork.InRoom) OnJoinedRoom(); // loaded (or reloaded) while already in a lobby
         }
 
@@ -75,6 +76,7 @@ namespace PeakPack.Companion
         {
             if (_registered) PhotonNetwork.RemoveCallbackTarget(this);
             _registered = false;
+            StopTesting();
             RestoreSettings();
         }
 
@@ -82,6 +84,7 @@ namespace PeakPack.Companion
 
         void Update()
         {
+            PollHotkey();
             if (Time.unscaledTime < _nextTick) return;
             _nextTick = Time.unscaledTime + 1f;
             if (!_recoveryChecked)
@@ -92,6 +95,7 @@ namespace PeakPack.Companion
             }
             if (_info == null) return;
             _feed.Flush();
+            TickTesting();
             if (!PhotonNetwork.InRoom) return;
 
             if (IsHost)
@@ -267,6 +271,7 @@ namespace PeakPack.Companion
         {
             _evaluatedFor = null; _settingsNoticeFor = null; _lastPushed = null; _leaveAt = -1f;
             _hostChecks.Clear(); _hostReported.Clear();
+            OnJoinedRoomTesting();
             SetPlayerProperties();
             if (IsHost) PushRoomProperties(true);
         }
@@ -276,6 +281,7 @@ namespace PeakPack.Companion
             _leaveAt = -1f;
             _hostChecks.Clear();
             _feed?.Clear(); // don't show lobby notices after leaving
+            OnLeftRoomTesting();
             RestoreSettings();
         }
 
@@ -330,6 +336,14 @@ namespace PeakPack.Companion
         public bool modsRequiredToJoin;
         public string mismatchPolicy = "warn";
         public List<string> liveSettings = new List<string>();
+        // v0.4
+        public List<string> hostIds = new List<string>();
+        public bool diagnostics;
+        public bool liveUpdates;
+        public List<string> ownModFolders = new List<string>();
+        public List<string> hotMods = new List<string>();
+        public string appExe = "";
+        public List<string> appArgs = new List<string>();
 
         public bool Block => string.Equals(mismatchPolicy, "block", StringComparison.OrdinalIgnoreCase);
 
@@ -341,6 +355,10 @@ namespace PeakPack.Companion
                 var dto = JsonUtility.FromJson<PackInfoDto>(File.ReadAllText(path));
                 if (dto == null || string.IsNullOrEmpty(dto.packId) || dto.revision <= 0) return null;
                 if (dto.liveSettings == null) dto.liveSettings = new List<string>();
+                if (dto.hostIds == null) dto.hostIds = new List<string>();
+                if (dto.ownModFolders == null) dto.ownModFolders = new List<string>();
+                if (dto.hotMods == null) dto.hotMods = new List<string>();
+                if (dto.appArgs == null) dto.appArgs = new List<string>();
                 if (string.IsNullOrEmpty(dto.shortcutName)) dto.shortcutName = "PEAK (Modded)";
                 return dto;
             }

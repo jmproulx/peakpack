@@ -38,5 +38,12 @@
     <Reference Include="UnityEngine.JSONSerializeModule" HintPath="$(ManagedDir)\UnityEngine.JSONSerializeModule.dll" Private="false" />
     <Reference Include="Unity.TextMeshPro" HintPath="$(ManagedDir)\Unity.TextMeshPro.dll" Private="false" />
     <Reference Include="UnityEngine.UI" HintPath="$(ManagedDir)\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="Unity.InputSystem" HintPath="$(ManagedDir)\Unity.InputSystem.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(BepInExCore)\0Harmony.dll" Private="false" />
   </ItemGroup>
+
+  <!-- After every build: fail if our IL touches non-public game members directly (use cached AccessTools instead). -->
+  <Target Name="IlAccessCheck" AfterTargets="Build" Condition="'$(SkipIlScan)' != 'true'">
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\IlScan\IlScan.csproj&quot; -c Release -- &quot;$(TargetPath)&quot; &quot;$(ManagedDir)&quot; &quot;$(BepInExCore)&quot;" />
+  </Target>
 </Project>

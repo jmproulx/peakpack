@@ -170,7 +170,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
 
         // 7. What the in-game companion reads (pack id + revision + lobby settings), and the applied manifest
         //    (so the next check can say exactly what changed).
-        PackInfo.From(m, options.ShortcutName).Save(paths.PackInfoPath);
+        PackInfo.From(m, options.ShortcutName, state, paths).Save(paths.PackInfoPath);
         File.WriteAllText(paths.InstalledManifestPath, m.ToJson());
 
         state.GameDir = gameDir;

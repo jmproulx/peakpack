@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build-time guard (same approach as ScoutmasterMode): fails the companion's build if its IL references
+       non-public members of the game (or any other assembly). PEAK's Mono runtime rejects those at JIT time
+       (FieldAccessException/MethodAccessException), which once broke a sibling mod. Use AccessTools instead. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\PEAK</GameDir>
+    <CecilDir Condition="'$(CecilDir)' == '' And Exists('$(GameDir)\BepInEx\core\Mono.Cecil.dll')">$(GameDir)\BepInEx\core</CecilDir>
+    <CecilDir Condition="'$(CecilDir)' == ''">$(LOCALAPPDATA)\PeakPack\profile\BepInEx\core</CecilDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Mono.Cecil" HintPath="$(CecilDir)\Mono.Cecil.dll" />
+  </ItemGroup>
+</Project>

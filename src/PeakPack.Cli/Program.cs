@@ -17,6 +17,11 @@ try
         "stamp" => Stamp(a),
         "check" => await Check(a),
         "selfinstall" => SelfInstall(a),
+        "hotfix" => await HotfixCmd(a),
+        "lobby" => LobbyCmd(a),
+        "hot-update" => await HotUpdateCmd(a),
+        "hot-rollback" => HotRollbackCmd(a),
+        "options" => OptionsCmd(a),
         "install" or "sync" => await Install(a),
         "launch" => await Launch(a),
         "status" => Status(a),
@@ -49,6 +54,22 @@ static int Help()
       stamp   --manifest <dir with manifest.json> --bepinex <BepInEx dir>
                                                     write the companion + pack-info.json into the host's own game
       (work dir default: %LOCALAPPDATA%\PeakPack-publisher)
+
+    Live testing with friends (host):
+      hotfix  --mod <name> [--dll <new build>] [--version V] [--notes "..."] [--config publish.json] [--work D]
+              [--rollback] [--publish] [--notify <host BepInEx dir>]
+                  publish a new build of ONE of your own mods as the next pack revision. DRY RUN unless --publish.
+                  After a real publish: updates your game's pack-info and tells your lobby (test lobby: live update
+                  for friends who opted in; everyone else: restart from the PEAK (Modded) icon).
+                  --rollback republishes the previous build of that mod.
+      lobby   snapshot|hot-update [--revision N] [--bepinex <host BepInEx dir>] [--config publish.json]
+                  snapshot: ask everyone in your lobby for fresh logs (they land in <BepInEx>\PeakPack-remote-logs\)
+                  hot-update: announce revision N to your lobby
+
+    Friend side (normally run by the app / the in-game companion):
+      hot-update   [--manifest M] [--data-dir D] [--allow-local] [--public-key K]   apply a live update if allowed
+      hot-rollback [--data-dir D]                                                  undo the last live update
+      options      [--diagnostics on|off] [--live-updates on|off] [--data-dir D]   friend consent switches
 
     Friend actions (headless; the GUI does the same):
       install   --manifest <url|path> [--game-dir D] [--data-dir D] [--adopt] [--allow-local] [--public-key K]
@@ -235,6 +256,76 @@ static int SelfInstall(Args a)
     Setup.CreateShortcuts(paths, a.Get("--game-dir"), opt);
     Console.WriteLine($"Installed copy: {r.InstalledExe} (copied: {r.Copied}, kept newer: {r.KeptNewerInstalledCopy})");
     Console.WriteLine($"Mark-of-the-Web on installed copy: {Setup.HasMarkOfTheWeb(r.InstalledExe)}");
+    return 0;
+}
+
+static string DefaultConfig() => Path.Combine(PublishPipeline.DefaultWorkDir, "publish.json");
+
+static string? HostBepInEx(Args a, PublishConfig? cfg)
+{
+    if ((a.Get("--notify") ?? a.Get("--bepinex")) is { } d) return d;
+    var g = cfg?.GameDir is { } gd ? Path.Combine(gd, "BepInEx") : null;
+    return g is not null && Directory.Exists(g) ? g : null;
+}
+
+static async Task<int> HotfixCmd(Args a)
+{
+    var cfgPath = a.Get("--config") ?? DefaultConfig();
+    var work = a.Get("--work") ?? PublishPipeline.DefaultWorkDir;
+    var index = await LoadIndex(a);
+    using var dl = new Downloader(Path.Combine(work, "cache"));
+    var cfg = PublishConfig.Load(cfgPath);
+    var o = new HotfixRunner.Options(cfgPath, a.Require("--mod"), a.Get("--dll"), a.Get("--version"), a.Get("--notes"),
+        a.Has("--rollback"), a.Has("--publish"), work, HostBepInEx(a, cfg), a.Get("--previous"), a.Get("--repo"));
+    var r = await new HotfixRunner(Console.WriteLine).RunAsync(o, index, dl);
+    Console.WriteLine(r.Summary);
+    if (!a.Has("--publish") && r.ExitCode == 0) Console.WriteLine("Add --publish to do it for real.");
+    return r.ExitCode;
+}
+
+static int LobbyCmd(Args a)
+{
+    var sub = a.Positional.Skip(1).FirstOrDefault()?.ToLowerInvariant() ?? throw new ArgumentException("lobby snapshot|hot-update");
+    PublishConfig? cfg = File.Exists(a.Get("--config") ?? DefaultConfig()) ? PublishConfig.Load(a.Get("--config") ?? DefaultConfig()) : null;
+    var bep = HostBepInEx(a, cfg) ?? throw new ArgumentException("Pass --bepinex <your game's BepInEx folder> (or set gameDir in publish.json).");
+    var path = sub switch
+    {
+        "snapshot" => LobbyCommands.Write(bep, LobbyCommands.Snapshot),
+        "hot-update" => LobbyCommands.Write(bep, LobbyCommands.HotUpdate, int.Parse(a.Require("--revision"))),
+        _ => throw new ArgumentException("lobby snapshot|hot-update"),
+    };
+    Console.WriteLine($"Queued for your game's companion: {path}");
+    if (sub == "snapshot") Console.WriteLine($"Friends' logs arrive in {LobbyCommands.RemoteLogsDir(bep)} within a few seconds (your game must be hosting).");
+    return 0;
+}
+
+static async Task<int> HotUpdateCmd(Args a)
+{
+    var paths = new AppPaths(a.Get("--data-dir"));
+    var manifest = a.Get("--manifest") ?? InstallState.Load(paths).ManifestUrl ?? throw new ArgumentException("--manifest is required");
+    using var dl = new Downloader(paths.CacheDir) { AllowLocalFiles = a.Has("--allow-local") };
+    var r = await HotUpdater.ApplyAsync(paths, dl, manifest, a.Get("--public-key"));
+    Console.WriteLine($"{r.Status}: {r.Message}");
+    return r.Status is HotUpdater.Status.Applied or HotUpdater.Status.UpToDate ? 0 : r.Status == HotUpdater.Status.Failed ? 1 : 3;
+}
+
+static int HotRollbackCmd(Args a)
+{
+    var r = HotUpdater.RollBack(new AppPaths(a.Get("--data-dir")));
+    Console.WriteLine($"{r.Status}: {r.Message}");
+    return r.Status == HotUpdater.Status.RolledBack ? 0 : 1;
+}
+
+static int OptionsCmd(Args a)
+{
+    var paths = new AppPaths(a.Get("--data-dir"));
+    var st = InstallState.Load(paths);
+    static bool On(string v) => v.Equals("on", StringComparison.OrdinalIgnoreCase) || v == "true" || v == "1";
+    if (a.Get("--diagnostics") is { } d) st.ShareDiagnostics = On(d);
+    if (a.Get("--live-updates") is { } l) st.AcceptLiveUpdates = On(l);
+    st.Save(paths);
+    PackInfo.Refresh(paths, "PEAK (Modded)");
+    Console.WriteLine($"Share error logs with the host: {(st.ShareDiagnostics ? "on" : "off")}; live updates in test lobbies: {(st.AcceptLiveUpdates ? "on" : "off")}");
     return 0;
 }
 

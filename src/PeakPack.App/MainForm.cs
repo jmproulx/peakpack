@@ -32,6 +32,12 @@ public sealed class MainForm : Form
     CommandLink _playModded = null!, _playVanilla = null!;
     Label _welcomeText = null!, _modsHeader = null!, _whatsNew = null!, _modeInfo = null!;
     TableLayoutPanel _doneRow = null!;
+    // Friend options (consent): asked once on the welcome page, changeable on the main page.
+    TableLayoutPanel _options = null!;
+    CheckBox _shareLogs = null!, _liveUpdates = null!;
+    Label _shareNote = null!, _liveNote = null!;
+    LinkLabel _undoLink = null!;
+    bool _rendering;
     ListView _mods = null!;
     LinkLabel _checkLink = null!, _folderLink = null!, _removeLink = null!, _copyLink = null!;
     AccentButton _okButton = null!;   // the page's one primary action (Install / Play now / Try again)
@@ -109,12 +115,13 @@ public sealed class MainForm : Form
 
         _whatsNew = new Label { AutoSize = true, MaximumSize = new Size(w, 0), Margin = _ui.Pad(0, 0, 0, 4) };
         _modeInfo = new Label { AutoSize = true, MaximumSize = new Size(w, 0), ForeColor = Theme.Muted, Margin = _ui.Pad(0) };
+        BuildOptions(w);
 
         _body = new TableLayoutPanel
         {
             Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = false, Padding = _ui.Pad(20, 16, 20, 10), BackColor = Theme.Face,
         };
-        foreach (var c in new Control[] { _status, _bar, _actions, _modsHeader, _mods, _whatsNew, _modeInfo })
+        foreach (var c in new Control[] { _status, _bar, _actions, _modsHeader, _mods, _whatsNew, _options, _modeInfo })
         {
             _body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             _body.Controls.Add(c);
@@ -216,10 +223,69 @@ public sealed class MainForm : Form
         }
         if (_problem is { } p) _status.Set(StatusKind.Bad, p.Heading, p.Advice + (_page == Page.Main ? $" You can still play with the mods you have (revision {st.InstalledRevision})." : ""));
         FillModList(st);
+        RenderOptions(st, _page == Page.Welcome ? _latest : Installer.LoadInstalledManifest(_s.Paths) ?? _latest);
         _playModded.IsPrimary = true;
         ResumeLayout(true);
         SizeToContent();
         if (!_busy) ActiveControl = _page == Page.Main ? _playModded : _okButton; // focus the main action, not Cancel/Close
+    }
+
+    void BuildOptions(int w)
+    {
+        _options = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = _ui.Pad(0, 2, 0, 6) };
+        _shareLogs = new CheckBox { AutoSize = true, Font = _ui.Body, Margin = _ui.Pad(0, 0, 0, 0) };
+        _shareNote = new Label { AutoSize = true, MaximumSize = new Size(w - _ui.Px(18), 0), ForeColor = Theme.Muted, Font = _ui.Small, Margin = _ui.Pad(18, 0, 0, 6) };
+        _liveUpdates = new CheckBox { AutoSize = true, Font = _ui.Body, Margin = _ui.Pad(0) };
+        _liveNote = new Label { AutoSize = true, MaximumSize = new Size(w - _ui.Px(18), 0), ForeColor = Theme.Muted, Font = _ui.Small, Margin = _ui.Pad(18, 0, 0, 4) };
+        _undoLink = new LinkLabel { AutoSize = true, Font = _ui.Body, LinkBehavior = LinkBehavior.HoverUnderline, Margin = _ui.Pad(18, 0, 0, 0) };
+        foreach (var c in new Control[] { _shareLogs, _shareNote, _liveUpdates, _liveNote, _undoLink }) _options.Controls.Add(c);
+        _shareLogs.CheckedChanged += (_, _) => SaveOptions();
+        _liveUpdates.CheckedChanged += (_, _) => SaveOptions();
+        _undoLink.LinkClicked += (_, _) => UndoLiveUpdate();
+    }
+
+    /// <summary>Consent texts: what is shared, with whom, and how to turn it off, in plain words.</summary>
+    void RenderOptions(InstallState st, PackManifest? m)
+    {
+        _rendering = true;
+        try
+        {
+            bool allowDiag = m?.Lobby?.Diagnostics ?? true;
+            bool testLobby = m?.Lobby?.TestLobby == true;
+            _options.Visible = _page != Page.Done && (allowDiag || testLobby);
+            _shareLogs.Visible = _shareNote.Visible = allowDiag;
+            _shareLogs.Text = $"Share PEAK error logs with {Host} while I'm in his lobby";
+            _shareLogs.Checked = st.ShareDiagnostics;
+            _shareNote.Text = $"Helps {Host} fix his mods. Only error messages and lines from his mods, plus your mod list and pack revision, " +
+                              $"with your Windows user name removed. Sent only to {Host}, only while you're in his lobby. You can turn this off here any time.";
+            _liveUpdates.Visible = _liveNote.Visible = testLobby;
+            _liveUpdates.Text = $"Test lobby: let {Host} update his own mods while I play";
+            _liveUpdates.Checked = st.AcceptLiveUpdates;
+            _liveNote.Text = $"His new builds load without restarting PEAK. Only his own mods, only signed builds. Rarely a mod can act up until you restart PEAK.";
+            _undoLink.Visible = _page == Page.Main && HotUpdater.CanRollBack(_s.Paths);
+            _undoLink.Text = $"Undo {Host}'s last live update";
+            _shareLogs.Enabled = _liveUpdates.Enabled = !_busy;
+        }
+        finally { _rendering = false; }
+    }
+
+    void SaveOptions()
+    {
+        if (_rendering) return;
+        var st = _s.LoadState();
+        st.ShareDiagnostics = _shareLogs.Checked;
+        st.AcceptLiveUpdates = _liveUpdates.Checked;
+        st.Save(_s.Paths);
+        try { PackInfo.Refresh(_s.Paths, Shortcut); } catch (Exception ex) { _s.Paths.Log("pack-info refresh failed: " + ex.Message); }
+        _s.Paths.Log($"Options: share logs {(st.ShareDiagnostics ? "on" : "off")}, live updates {(st.AcceptLiveUpdates ? "on" : "off")}");
+    }
+
+    void UndoLiveUpdate()
+    {
+        var r = HotUpdater.RollBack(_s.Paths, Shortcut);
+        Render();
+        _status.Set(r.Status == HotUpdater.Status.RolledBack ? StatusKind.Good : StatusKind.Bad,
+            r.Status == HotUpdater.Status.RolledBack ? "Live update undone" : "Couldn't undo the live update", r.Message);
     }
 
     void RenderWelcome()

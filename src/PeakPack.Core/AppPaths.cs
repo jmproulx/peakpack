@@ -27,6 +27,10 @@ public sealed class AppPaths
     public string InstalledManifestPath => Path.Combine(DataDir, "installed-manifest.json");
     /// <summary>Read by the in-game companion plugin (BepInEx root = the profile's BepInEx folder).</summary>
     public string PackInfoPath => PackInfo.PathIn(BepInExDir);
+    /// <summary>Previous builds kept by live updates, so the friend can undo the last one.</summary>
+    public string RollbackDir => Path.Combine(DataDir, "rollback");
+    /// <summary>Result of the last live update, read by the companion to show a notice.</summary>
+    public string HotResultPath => Path.Combine(BepInExDir, "PeakPack", "hot-update-result.json");
     /// <summary>Backups of anything we move out of the game folder. Deliberately NOT inside DataDir,
     /// so "Remove everything" never deletes a friend's pre-existing files.</summary>
     public string BackupRoot => Path.Combine(Path.GetDirectoryName(DataDir.TrimEnd('\\', '/'))!, AppName + "-backups");
@@ -76,6 +80,11 @@ public sealed class InstallState
     public LaunchMode? LastLaunchMode { get; set; }
     public DateTimeOffset? LastLaunchTime { get; set; }
     public DateTimeOffset? LastSyncTime { get; set; }
+    /// <summary>Friend's consent: relay PEAK error logs to the pack host while in his lobby. Asked once in the installer
+    /// (on by default, explained), can be turned off in the app.</summary>
+    public bool ShareDiagnostics { get; set; } = true;
+    /// <summary>Friend's opt-in: in the host's test lobby, accept live updates of the host's own reload-safe mods. Off by default.</summary>
+    public bool AcceptLiveUpdates { get; set; }
 
     public static InstallState Load(AppPaths p)
     {

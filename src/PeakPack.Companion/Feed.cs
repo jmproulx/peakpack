@@ -17,9 +17,9 @@ namespace PeakPack.Companion
     internal sealed class Feed
     {
         const char NameStart = '\u0001', NameEnd = '\u0002';
-        // Reflection handle only (no game state); re-created with each (re)loaded assembly.
-        static readonly MethodInfo AddMessage =
-            typeof(PlayerConnectionLog).GetMethod("AddMessage", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(string) }, null);
+        // Cached AccessTools handle (no direct non-public access in our IL: PEAK's Mono rejects that at JIT time;
+        // tools\IlScan checks every build). Reflection handle only, no game state.
+        static readonly MethodInfo AddMessage = HarmonyLib.AccessTools.Method(typeof(PlayerConnectionLog), "AddMessage", new[] { typeof(string) });
 
         readonly ManualLogSource _log;
         readonly List<(string Text, bool Warning, bool Sound, float Expires)> _queue = new List<(string, bool, bool, float)>();

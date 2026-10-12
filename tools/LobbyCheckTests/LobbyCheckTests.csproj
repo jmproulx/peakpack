@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\PeakPack.Companion\LobbyCheck.cs" Link="LobbyCheck.cs" />
+    <Compile Include="..\..\src\PeakPack.Companion\DiagLogic.cs" Link="DiagLogic.cs" />
   </ItemGroup>
 
 </Project>

@@ -75,6 +75,21 @@ static class Program
             return;
         }
 
+        // Started by the in-game companion in a test lobby (no window): apply a signed live update of the host's
+        // reload-safe mods if the friend opted in, write the result for the companion's notice, exit.
+        if (AppSession.Has(args, "--hot-update"))
+        {
+            var loc = AppSession.Get(args, "--manifest") ?? s.LoadState().ManifestUrl ?? s.ManifestLocation;
+            using var dl = s.NewDownloader();
+            HotUpdater.ApplyAsync(s.Paths, dl, loc, s.PublicKey, s.Config.ShortcutName).GetAwaiter().GetResult();
+            return;
+        }
+        if (AppSession.Has(args, "--hot-rollback"))
+        {
+            HotUpdater.RollBack(s.Paths, s.Config.ShortcutName);
+            return;
+        }
+
         if (AppSession.Has(args, "--launch"))
         {
             Application.Run(new QuickLaunchContext(s));

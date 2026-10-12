@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace PeakPack.Companion
 {
@@ -47,6 +48,23 @@ namespace PeakPack.Companion
             if (theirRev.Value > myRev)
                 return name(player) + " has a newer mod pack (rev " + theirRev.Value + "). Restart PEAK from the " + shortcut + " icon to update.";
             return null;
+        }
+
+        /// <summary>Notice after a live-update attempt (statuses from PeakPack's HotUpdater). Null = say nothing.</summary>
+        public static string UpdateMessage(string status, string host, IList<string> mods, int rev, string shortcut, Func<string, string> name)
+        {
+            switch (status)
+            {
+                case "applied":
+                    return name(host) + " updated " + (mods != null && mods.Count > 0 ? string.Join(", ", mods) : "a mod") + ".";
+                case "restart-needed":
+                case "not-allowed":
+                    return name(host) + " published mod pack rev " + rev + ". Restart PEAK from the " + shortcut + " icon to get it.";
+                case "up-to-date":
+                    return null;
+                default:
+                    return "Couldn't apply " + name(host) + "'s update. Restart PEAK from the " + shortcut + " icon to get it.";
+            }
         }
 
         /// <summary>Strips rich-text tags out of player names (they are shown inside a TMP text with rich text on).</summary>

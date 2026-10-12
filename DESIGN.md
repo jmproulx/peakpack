@@ -176,16 +176,14 @@ GitHub Releases on the public repo `jmproulx/peakpack` (app source included), on
 - Limitation: Photon lets any player in a room set room properties, so a modified client could push different values *for whitelisted keys only*, within their allowed ranges. Fine among friends; documented.
 - Logic is unit-tested without Unity (`tools/LobbyCheckTests`, 38 checks). In-game behaviour still needs a real two-player session to confirm (not testable in the sandbox).
 
-### 9.3 Why not stream code into running games
+### 9.3 Streaming code into running games
 
-AutoReload works for Joshua because he's a developer watching his own log. Doing it to friends would mean:
+v0.3 recommended against it as a default, and that still holds. v0.4 adds it as an **opt-in test lobby for Joshua's own reload-safe mods only** (section 17), because live playtesting with friends needs it. The concerns below are why it is off by default and fenced in.
 
-- **Mods must support unloading.** Most Thunderstore mods don't clean up Harmony patches, spawned objects or event handlers; reloading them mid-game leaks or crashes. Only Joshua's own mods would qualify, and only if written carefully.
-- **Mid-match desync.** Players would briefly run different code in the same run (physics, items, RPC signatures).
-- **Security.** It turns "download a signed manifest at launch" into "a running game accepts new code from the network". Even with signatures, it's a much larger attack surface, and Thunderstore's rules forbid plugins that download and run code.
-- **Benefit is small.** Restarting PEAK from the icon takes ~30 s and is exactly the tested path.
-
-If Joshua ever wants it: an opt-in "dev lobby" mode for his own mods only, where the companion offers *"Joshua published rev 8. Restart now?"* is the safe version. Not worth building now.
+- **Mods must support unloading.** Most Thunderstore mods don't clean up Harmony patches, spawned objects or event handlers. Only Joshua's own mods marked reload-safe qualify, and the hotfix tool checks each build for `OnDestroy` and an embedded PDB.
+- **Mid-match desync.** Players briefly run different code in the same run.
+- **Security.** A running game must never accept code from the network. In v0.4 the lobby event carries only a revision number. The friend's own PeakPack app fetches the manifest from its built-in URL and verifies the signature with its built-in key.
+- **Restarting is still the tested path.** Everything that isn't reload-safe falls back to "restart from the PEAK (Modded) icon".
 
 ## 10. Unsigned exe: exactly what happens
 
@@ -232,7 +230,7 @@ PeakPack never redistributes other authors' mods: friends download from Thunders
 
 Out of scope by Joshua's decision (11 Oct 2026): all friends are on Windows with Steam. No Mac, Steam Deck or Linux support is planned.
 
-## 15. Status (v0.3)
+## 15. Status (v0.3; v0.4 in section 17)
 
 **Works and tested:**
 
@@ -257,3 +255,109 @@ Out of scope by Joshua's decision (11 Oct 2026): all friends are on Windows with
 4. **Live settings:** JetpackBoost's thrust and forward push follow the host. Add more keys?
 5. **modsRequiredToJoin:** set to false for the first pack (both mods are client-side; vanilla friends can join). Turn on when a mod needs everyone.
 6. **Signing later?** SignPath (free, public repo) is worth trying once the pack is in regular use.
+
+## 17. Testing with friends (v0.4): remote logs, live updates, hotfixes
+
+Goal: Joshua playtests his own mods (ScoutmasterMode, HeliPilot v2, JetpackBoost, ElytraGlider) with friends. When a friend says "I can't see the helicopter", Joshua or an agent can read the friend's logs, push a fix, and have it load in the friend's running game.
+
+### 17.1 Remote diagnostics (opt-in, on by default, explained)
+
+- **Consent:** the installer's welcome page has a plain checkbox, on by default: *"Share PEAK error logs with Joshua while I'm in his lobby"*. The note under it says what is shared, with whom, and how to turn it off. The same switch is on the main window and takes effect immediately (the companion re-reads `pack-info.json` every 2 s). Joshua can also turn the feature off for the whole pack (`lobby.diagnostics`).
+- **What is sent:**
+  - every log line from Joshua's own mods and PeakPack;
+  - errors and exceptions from any mod, taken from BepInEx;
+  - errors and exceptions from Unity's own log (`Application.logMessageReceivedThreaded`, because Unity errors don't reach LogOutput.log here);
+  - errors from the end of `Player.log` (`Application.consoleLogPath`, opened shared, last 256 KB);
+  - a header with the pack id and revision, PEAK, Unity and BepInEx versions, and the full mod list with versions.
+- **Scrubbing:** the Windows profile path, user name and PC name are replaced by `%USERPROFILE%`, `<user>` and `<pc>` before anything leaves the PC.
+- **Who receives it:** only the lobby host (Photon master client), and only if the room's pack id matches the friend's signed pack AND the master's Photon user id is in `lobby.hostIds` from the signed manifest.
+  - The host's companion records its own id in `BepInEx\PeakPack\host-id.txt`, and the publisher puts it into the next manifest automatically.
+  - Until that has happened once, only the pack id is matched, and the publisher prints a note.
+- **Transport:**
+  - Photon event 172, targeted to the master only, as 3,000-character chunks.
+  - Rate-limited to about 8 KB/s per friend, with a bounded queue (60 chunks) and 60 KB per snapshot.
+  - The host drops anything over 400K characters per sender per minute and rotates files at 2 MB.
+  - Event codes 171-173 carry a "PPK1" tag; PEAK itself uses 1-4 and 18, Photon 200+.
+- **When:**
+  - a snapshot when the friend's character first appears in the host's lobby, then new relevant lines as they happen;
+  - a fresh snapshot whenever the host asks: **Ctrl+F9** in game, "Request logs from everyone" in the Host window, or `PeakPack.Cli lobby snapshot`.
+  - Friends see a native notice either way: *"Joshua asked for your PEAK logs to fix a mod. Sending them now."* or *"... Sharing is off in PeakPack."*
+- **On Joshua's PC:** `D:\SteamLibrary\steamapps\common\PEAK\BepInEx\PeakPack-remote-logs\<friend>.log`, plus `_lobby.txt` (who sent what, pack revision, file). This is plain text for an agent to read.
+- **Limits:** a lobby member could send junk under their own name, so a prankster could fill a log file, but only bounded and only under `PeakPack-remote-logs` with a sanitized file name. Nothing received is ever executed.
+
+### 17.2 Live updates of Joshua's own mods (opt-in "test lobby", default off)
+
+- **Two switches, both needed:**
+  - Joshua turns on **"Test lobby: live updates for my mods"** (`lobby.testLobby`) and marks his builds **reload-safe** (`customFiles[].reloadSafe`). The publisher then adds Hamunii AutoReload to the friends' pack.
+  - Each friend ticks **"Test lobby: let Joshua update his own mods while I play"** (off by default).
+- **Flow:**
+  1. Joshua publishes a hotfix, a normal signed pack release (17.3).
+  2. His companion sends event 173 *"revision N"*.
+  3. A friend's companion checks that the sender is the verified host and that N is newer than its own revision. It then starts the friend's own installed `PeakPack.exe --hot-update`, after checking that the exe sits next to the profile.
+  4. The app does everything security-relevant with the same tested Core code as normal syncs:
+     - manifest from its built-in URL;
+     - ECDSA signature checked with the built-in key (an unsigned manifest is never applied);
+     - allowlisted hosts and SHA-256 pins.
+  5. Only `hotReload` files may change. These are Joshua's own reload-safe `.dll`s under `plugins/`. Any other difference means **"restart-needed"** and nothing is touched: Thunderstore packages, BepInEx, configs, a removed mod, or a non-reload-safe build.
+  6. The new DLL is written in place, exactly what Joshua's `-p:Deploy=true` copy does, so AutoReload sees the change and hot-loads it.
+  7. The previous build is kept, and the revision, installed manifest and `pack-info.json` move to N, so the lobby check matches the host.
+  8. The companion shows *"Joshua updated Scoutmaster Mode."*
+- **Restart fallback:** friends who didn't opt in, packs that aren't test lobbies, and non-reload-safe changes get *"Joshua published mod pack rev N. Restart PEAK from the PEAK (Modded) icon to get it."*
+- **Rollback:**
+  - friend side: "Undo Joshua's last live update" in the app (`PeakPack.exe --hot-rollback`) puts the previous build back, and AutoReload loads it again;
+  - host side: `hotfix --mod X --rollback` republishes the previous build from the release history as a new revision.
+  - The next normal start from the icon always brings the friend to the latest revision.
+- **Why the app, not the companion, verifies and swaps:**
+  - Unity's Mono has no dependable ECDSA;
+  - it keeps the in-game plugin small;
+  - it keeps one audited code path for downloads, signatures, hashes and file writes;
+  - the lobby can at most trigger an update check, never supply a URL or code.
+- **Risks, honestly:**
+  - **Desync mid-round:** for a few seconds, players run different builds. Use it between rounds or in the Airport.
+  - **Unclean unloading:** a mod whose `OnDestroy` misses something (a Harmony patch, a spawned object, a static event) can double-apply or leak until restart. AutoReload never truly unloads old assemblies, so memory grows a little with each update. If mod A depends on reloaded mod B, A keeps the first B (AutoReload limitation).
+  - **Bad builds:** a crashing build hits every opted-in friend at once. Undo and `--rollback` exist for that.
+  - **Default off**, and only Joshua's signed own builds. Third-party code is never applied live.
+
+### 17.3 One-command hotfix (agents)
+
+```powershell
+$cli = "C:\Users\joshu\PeakMods\FriendInstaller\src\PeakPack.Cli\bin\Debug\net10.0-windows\PeakPack.Cli.exe"
+& $cli hotfix --mod ScoutmasterMode --dll C:\Users\joshu\PeakMods\ScoutmasterMode\bin\Release\ScoutmasterMode.dll            # dry run
+& $cli hotfix --mod ScoutmasterMode --dll C:\Users\joshu\PeakMods\ScoutmasterMode\bin\Release\ScoutmasterMode.dll --publish  # real
+& $cli hotfix --mod ScoutmasterMode --rollback --publish                                                                        # previous build
+& $cli lobby snapshot                                                                                                           # fresh logs
+```
+
+`hotfix` does the following:
+
+1. Finds the mod in `publish.json` by id, short name, title or DLL name.
+2. Checks the build: managed, `[BepInPlugin]`, `OnDestroy`, embedded PDB. A build that fails is published as restart-only.
+3. Keeps the exact bytes under `<work>\builds`, bumps the mod's version, and sets the changelog line.
+4. Runs the normal pipeline: `gh release create rev-N ... --latest`, with the stable `PeakPack.exe`, so friends' links stay intact. It's a **dry run unless `--publish`**.
+5. After a real release: saves `publish.json`, stamps Joshua's game (pack-info + companion), and drops a `hot-update` command for his companion, which announces revision N to the lobby.
+
+The Host window has the same thing as "Publish hotfix..." and "Roll back to previous build" on the Own builds tab.
+
+### 17.4 The live loop: friend reports a bug -> fix running in their game
+
+1. **Friend:** "I can't see the helicopter." (Joshua is hosting with the companion; the friend has log sharing on, the default.)
+2. **Agent (on Joshua's PC):** `PeakPack.Cli lobby snapshot`, wait ~5 s, then read `D:\SteamLibrary\steamapps\common\PEAK\BepInEx\PeakPack-remote-logs\_lobby.txt` and `<friend>.log`. These contain the friend's revision, mod versions, HeliPilot's own log lines, and Unity errors (e.g. a missing shader or asset bundle exception).
+3. **Agent:** fixes HeliPilot, `dotnet build -c Release` (the mod's own IlScan check runs), then optionally tests in Joshua's own game (`-p:Deploy=true` + AutoReload).
+4. **Agent:** `PeakPack.Cli hotfix --mod HeliPilot --dll <new build> --notes "Fix invisible helicopter for clients"` (dry run, check the output), then the same with `--publish` once Joshua says go.
+5. **Friends:**
+   - those who opted in to test-lobby updates: their PeakPack verifies and swaps the DLL, AutoReload loads it, and they see *"Joshua updated Heli Pilot."*;
+   - everyone else: *"Joshua published mod pack rev N. Restart PEAK from the PEAK (Modded) icon to get it."*
+6. **Agent:** `lobby snapshot` again to confirm the error is gone. If the fix made things worse: `hotfix --mod HeliPilot --rollback --publish`.
+
+**Tested in the sandbox** (`tools/v4-test.ps1`, the real installed `PeakPack.exe --hot-update` as the companion starts it):
+
+- applied, undo and re-apply;
+- refusals that leave every file untouched: non-reload-safe build, Thunderstore change, friend opted out, wrong key, tampered manifest, test lobby off;
+- consent switches reaching `pack-info.json`;
+- hotfix dry run (exact gh command, stable PeakPack.exe, nothing saved or announced);
+- DLL reload-safety checks on the real JetpackBoost build;
+- lobby command files;
+- companion IlScan;
+- 107 unit checks of the lobby and diagnostics logic.
+
+**Not tested:** anything inside PEAK. Photon events between real players, AutoReload swapping a DLL under a running game, and the in-game notices all need Joshua and a friend in a real lobby.
