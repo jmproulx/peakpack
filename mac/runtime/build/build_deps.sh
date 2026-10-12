@@ -23,6 +23,8 @@ export ac_cv_prog_cc_c23=no
 export CPPFLAGS="-I$PP_DEPS/include"
 export LDFLAGS="$LDFLAGS -L$PP_DEPS/lib"
 
+# gnutls: --disable-gost, because gnutls 3.8.3 bundles GOST/Streebog code that collides with nettle
+# 3.10's own streebog.h (CI run 38308287374; GOST is irrelevant to Wine's schannel and PEAK).
 # Release tarballs ship generated autotools files; never regenerate them (CI run 38305928217:
 # gnutls' make wanted aclocal-1.16, which the runner doesn't have). Sources are also copied with
 # cp -Rp so timestamps don't make them look stale.
@@ -55,7 +57,7 @@ if ! stamp_has deps-gnutls; then
       --with-included-libtasn1 --with-included-unistring --without-p11-kit --without-idn \
       --without-brotli --without-zstd --without-tpm --without-tpm2 --disable-doc --disable-manpages \
       --disable-tests --disable-tools --disable-cxx --disable-nls --disable-libdane \
-      --disable-full-test-suite \
+      --disable-full-test-suite --disable-gost \
      && make -j"$J" "${no_autoregen[@]}" && make install "${no_autoregen[@]}")
   stamp_done deps-gnutls
 fi
