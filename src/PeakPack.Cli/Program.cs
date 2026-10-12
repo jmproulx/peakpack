@@ -198,7 +198,7 @@ static async Task<PublishPipeline.Prepared> PrepareOnly(Args a, PublishConfig cf
     var index = await LoadIndex(a);
     using var dl = new Downloader(Path.Combine(work, "cache"));
     var pipe = new PublishPipeline(Console.WriteLine);
-    var prev = await pipe.LoadPreviousAsync(cfg, work, dl, a.Get("--previous"));
+    var prev = await pipe.LoadPreviousAsync(cfg, work, dl, a.Get("--previous"), default, a.Has("--first-publish"));
     var p = await pipe.PrepareAsync(cfg, work, index, dl, prev);
     Console.WriteLine();
     Console.WriteLine($"Revision {p.Manifest.Revision} staged in {p.StagingDir}");

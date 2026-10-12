@@ -48,6 +48,7 @@ namespace PeakPack.Companion
         float _hotWaitUntil = -1f;
         DateTime _hotResultBefore;
         int _hotRev;
+        string _hotHost;
         readonly Dictionary<int, float> _gotLogsNotice = new Dictionary<int, float>();
         ConfigEntry<Key> _requestKey;
 
@@ -102,7 +103,9 @@ namespace PeakPack.Companion
         void TickTesting()
         {
             ReloadPackInfoIfChanged();
-            ConfirmReload(); // also outside a lobby: an update can finish after leaving
+            // Also outside a lobby: an update can finish after leaving.
+            try { CheckHotResult(); ConfirmReload(); }
+            catch (Exception e) { Logger.LogWarning("Live update check failed: " + e.Message); _confirm = null; _hotWaitUntil = -1f; }
             _diag?.RefreshOwnSources();
             if (!PhotonNetwork.InRoom || _diag == null) return;
             RecordHostId();
@@ -120,7 +123,6 @@ namespace PeakPack.Companion
                 PumpOutbox();
             }
             else { _diag.ClearLive(); _outbox.Clear(); }
-            CheckHotResult();
         }
 
         // ---------- who may receive / send ----------
@@ -317,6 +319,7 @@ namespace PeakPack.Companion
             _hotProcess = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir });
             _hotWaitUntil = Time.unscaledTime + HotUpdateTimeout;
             _hotRev = rev;
+            _hotHost = HostNick(); // the result may arrive after leaving the lobby
             _lastHotRevStarted = rev;
             Logger.LogInfo($"Live update to rev {rev}: started {exe} {args}");
         }
@@ -407,11 +410,11 @@ namespace PeakPack.Companion
                 try { r = JsonUtility.FromJson<HotResultDto>(File.ReadAllText(HotResultPath)); } catch { }
                 var status = r?.status ?? "failed";
                 Logger.LogInfo($"Live update result: {status} {r?.message}");
-                var msg = LobbyCheck.UpdateMessage(status, HostNick(), r?.mods, r?.revision ?? _hotRev, _info.shortcutName, Feed.Name);
+                var msg = LobbyCheck.UpdateMessage(status, (_hotHost ?? HostNick()), r?.mods, r?.revision ?? _hotRev, _info.shortcutName, Feed.Name);
                 if (status == "applied" && r.plugins != null && r.plugins.Count > 0)
                 {
                     // Files are in place; only say "updated" once the new builds are actually running (ConfirmReload).
-                    _confirm = new PendingConfirm { Since = Time.unscaledTime, Mods = r.mods, Rev = r.revision, Host = HostNick() };
+                    _confirm = new PendingConfirm { Since = Time.unscaledTime, Mods = r.mods, Rev = r.revision, Host = (_hotHost ?? HostNick()) };
                     foreach (var p in r.plugins)
                     {
                         var parts = p.Split('|');
@@ -424,7 +427,7 @@ namespace PeakPack.Companion
             {
                 // Only give up once PeakPack has really finished (a slow download just takes longer).
                 _hotWaitUntil = -1f;
-                _feed.Post(LobbyCheck.UpdateMessage("failed", HostNick(), null, _hotRev, _info.shortcutName, Feed.Name), warning: true);
+                _feed.Post(LobbyCheck.UpdateMessage("failed", (_hotHost ?? HostNick()), null, _hotRev, _info.shortcutName, Feed.Name), warning: true);
             }
         }
     }

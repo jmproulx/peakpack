@@ -100,9 +100,18 @@ public static class Headless
                         .GetAwaiter().GetResult();
                     st.LatestRevision = o.Manifest.Revision;
                     st.Changes = o.Result.Installed.Concat(o.Result.Removed.Select(r => "-" + r)).ToList();
-                    if (o.RestartingForAppUpdate) { st.Message = "PeakPack updated itself and restarted with the same arguments"; return Finish(0, "done"); }
+                    if (o.RestartingForAppUpdate)
+                    {
+                        // The new PeakPack continues with the same arguments and the same status file; wait for it so the
+                        // caller sees one finished run and the real exit code.
+                        st.State = "working"; st.Message = "PeakPack updated itself; continuing in the new version"; Write();
+                        var child = SelfUpdate.LastStarted;
+                        if (child is null) return Finish(0, "done");
+                        child.WaitForExit();
+                        return child.ExitCode;
+                    }
                 }
-                catch (OperationCanceledException) { st.Message = "Existing mods found"; st.Problem = new("Your PEAK folder already has mods", "Run again with --adopt to move them to a backup folder.", ""); return Finish(3, "failed"); }
+                catch (SyncRunner.AdoptDeclinedException) { st.Message = "Existing mods found"; st.Problem = new("Your PEAK folder already has mods", "Run again with --adopt to move them to a backup folder.", ""); return Finish(3, "failed"); }
                 catch (Exception ex) when (launch && !vanilla)
                 {
                     var mode = AppSession.Get(args, "--on-sync-fail") ?? "stop";

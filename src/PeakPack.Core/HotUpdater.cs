@@ -65,6 +65,8 @@ public static class HotUpdater
         if (!string.Equals(installed.Loader.Id, m.Loader.Id, StringComparison.OrdinalIgnoreCase)
             || !installed.Packages.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(m.Packages.Select(p => p.Id)))
             return (Status.RestartNeeded, [], "Thunderstore mods or BepInEx changed.");
+        if (JsonSerializer.Serialize(installed.Platforms, PackManifest.JsonOptions) != JsonSerializer.Serialize(m.Platforms, PackManifest.JsonOptions))
+            return (Status.RestartNeeded, [], "Platform settings changed (e.g. Mac defaults or launch options).");
         var before = installed.Files.ToDictionary(f => f.Path, StringComparer.OrdinalIgnoreCase);
         var after = m.Files.ToDictionary(f => f.Path, StringComparer.OrdinalIgnoreCase);
         if (before.Keys.Any(k => !after.ContainsKey(k))) return (Status.RestartNeeded, [], "A mod was removed (can't be unloaded live).");
@@ -146,22 +148,31 @@ public static class HotUpdater
             {
                 foreach (var (f, src, dest) in fetched)
                 {
+                    written.Add((f.Path, dest)); // before writing: a half-written (truncated) file must be restored too
                     WriteInPlace(src, dest);
-                    written.Add((f.Path, dest));
                 }
             }
             catch (Exception ex)
             {
                 // Put back what was already replaced; nothing else changed (state, manifest, pack-info untouched).
+                bool allRestored = true;
                 foreach (var (rel, dest) in written)
                 {
                     try
                     {
-                        if (rb.Files[rel] is { } backup && File.Exists(backup)) WriteInPlace(backup, dest);
+                        if (rb.Files[rel] is { } backup && File.Exists(backup))
+                        {
+                            // Unchanged (e.g. the write failed because the file is locked): nothing to put back.
+                            if (File.Exists(dest) && Downloader.Sha256OfFile(dest) == Downloader.Sha256OfFile(backup)) continue;
+                            WriteInPlace(backup, dest);
+                        }
                         else if (File.Exists(dest)) File.Delete(dest);
                     }
-                    catch (Exception rex) { paths.Log($"Live update: couldn't restore {rel}: {rex.Message}"); }
+                    catch (Exception rex) { allRestored = false; paths.Log($"Live update: couldn't restore {rel}: {rex.Message}"); }
                 }
+                if (!allRestored)
+                    throw new IOException($"Couldn't replace a mod file ({ex.Message}) and couldn't put everything back. " +
+                                          $"The previous builds are kept in {paths.RollbackDir}; restart PEAK from the icon to repair.", ex);
                 try { Directory.Delete(paths.RollbackDir, true); } catch { }
                 throw new IOException($"Couldn't replace a mod file ({ex.Message}); the previous builds were put back.", ex);
             }
@@ -226,10 +237,14 @@ public static class HotUpdater
         catch (IOException)
         {
             var tmp = $"{dest}.pp-new-{Guid.NewGuid():N}";   // unique, and not a .dll, so AutoReload ignores it
-            Setup.CopyBytesOnly(src, tmp);
-            if (File.Exists(old)) old = $"{dest}.pp-old-{Guid.NewGuid():N}";
-            File.Move(dest, old);
-            File.Move(tmp, dest);                            // AutoReload ignores renames; the companion then queues the reload itself
+            try
+            {
+                Setup.CopyBytesOnly(src, tmp);
+                if (File.Exists(old)) old = $"{dest}.pp-old-{Guid.NewGuid():N}";
+                File.Move(dest, old);
+                File.Move(tmp, dest);                        // AutoReload ignores renames; the companion then queues the reload itself
+            }
+            finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }
         }
     }
 

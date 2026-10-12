@@ -13,6 +13,9 @@ public static class SelfUpdate
     public static Version CurrentVersion =>
         (System.Reflection.Assembly.GetEntryAssembly() ?? typeof(SelfUpdate).Assembly).GetName().Version is { } v ? new Version(v.Major, v.Minor, Math.Max(v.Build, 0)) : new Version(0, 0, 0);
 
+    /// <summary>The updated copy started by the last successful TryUpdateAsync (headless mode waits for it).</summary>
+    public static Process? LastStarted { get; private set; }
+
     public static void CleanupOld(AppPaths paths)
     {
         try { File.Delete(Path.Combine(paths.DataDir, AppPaths.AppName + ".old.exe")); } catch { }
@@ -39,7 +42,7 @@ public static class SelfUpdate
 
         var psi = new ProcessStartInfo(running) { UseShellExecute = false };
         foreach (var a in restartArgs) psi.ArgumentList.Add(a);
-        Process.Start(psi);
+        LastStarted = Process.Start(psi);
         return true;
     }
 }

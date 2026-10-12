@@ -28,7 +28,7 @@ public sealed class PublishPipeline(Action<string> log)
 
     /// <summary>The revision friends currently have: an explicit file, else the live manifest URL (a 404 means
     /// "first publish"), else the last local release. A network error is an error: guessing could reuse a revision.</summary>
-    public async Task<PackManifest?> LoadPreviousAsync(PublishConfig cfg, string workDir, Downloader dl, string? previousPath = null, CancellationToken ct = default)
+    public async Task<PackManifest?> LoadPreviousAsync(PublishConfig cfg, string workDir, Downloader dl, string? previousPath = null, CancellationToken ct = default, bool allowFirstPublish = false)
     {
         if (previousPath is not null) return File.Exists(previousPath) ? PackManifest.Parse(await File.ReadAllTextAsync(previousPath, ct)) : null;
         PackManifest? live = null, local = null;
@@ -59,6 +59,11 @@ public sealed class PublishPipeline(Action<string> log)
                 "Using that; check that the newest rev-N release is marked Latest on GitHub.");
             return local;
         }
+        if (live is null && local is null && cfg.EffectiveManifestUrl is not null && !allowFirstPublish)
+            throw new InvalidOperationException(
+                "No previous revision found (the friends' link returned 404 and this PC has no release record). Publishing now " +
+                "would start again at revision 1, which friends would refuse. Check that the newest rev-N release is marked Latest " +
+                "on GitHub; only for a brand-new pack, pass --first-publish.");
         return live ?? local;
     }
 

@@ -29,13 +29,17 @@ public static class SyncRunner
         }
         catch (ForeignLoaderException fe)
         {
-            if (!askAdopt(fe.GameDir)) throw new OperationCanceledException("Setup was cancelled. Nothing was changed.");
+            if (!askAdopt(fe.GameDir)) throw new AdoptDeclinedException();
             var res = await Task.Run(() => inst.SyncAsync(lm, gameDir, true, progress, ct, Options(s)), ct);
             return new Outcome(res, lm.Manifest, false);
         }
     }
 
     static SyncOptions Options(AppSession s) => new(ShortcutName: s.Config.ShortcutName);
+
+    /// <summary>The friend said no to moving an existing mod loader aside. (Derives from OperationCanceledException so
+    /// the windows treat it as "cancelled"; headless mode tells it apart from a network timeout.)</summary>
+    public sealed class AdoptDeclinedException() : OperationCanceledException("Setup was cancelled. Nothing was changed.");
 
     public sealed record Check(PackManifest Manifest, List<PackDiff.Change> Changes, bool IsNewRevision);
 
@@ -56,8 +60,9 @@ public static class SyncRunner
 
     public static Problem Describe(Exception ex, string host) => ex switch
     {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound } or FileNotFoundException
-            or HttpRequestException when ex.Message.Contains("(404)") =>
+        FileNotFoundException or HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound } =>
+            new("The mod list isn't available", $"{host} may not have published the pack yet, or the link changed. Ask {host} for the latest PeakPack link. Normal PEAK still works.", ex.Message),
+        HttpRequestException when ex.Message.Contains("(404)") =>
             new("The mod list isn't available", $"{host} may not have published the pack yet, or the link changed. Ask {host} for the latest PeakPack link. Normal PEAK still works.", ex.Message),
         HttpRequestException or TaskCanceledException { InnerException: TimeoutException } or System.Net.Sockets.SocketException =>
             new("Can't reach the internet", "PeakPack couldn't check for mod updates. Check your connection and try again. Normal PEAK still works.", ex.Message),

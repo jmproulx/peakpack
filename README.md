@@ -42,6 +42,7 @@ powershell -ExecutionPolicy Bypass -File tools\v3-test.ps1                 # v0.
                                                                            #   without Mark-of-the-Web, pipeline dry run, stamp, lobby logic
 powershell -ExecutionPolicy Bypass -File tools\v4-test.ps1                 # v0.4: live updates via the real PeakPack.exe --hot-update,
                                                                            #   refusals, consent -> pack-info, hotfix dry run, IlScan
+powershell -ExecutionPolicy Bypass -File tools5-test.ps1                 # v0.5: Mac/Wine mode (simulated), headless CLI, cockpit bundle, live-update hardening
 powershell -ExecutionPolicy Bypass -File tools\gui-selftest.ps1 -Published # friend window at 100/125/150 %: screenshots in sandbox\shots\<scale>
 powershell -ExecutionPolicy Bypass -File tools\host-selftest.ps1           # Host window at 100/125/150 % with a dry-run publish
 powershell -ExecutionPolicy Bypass -File tools\shortcut-launch-test.ps1    # runs the created desktop shortcut before/after a new publish

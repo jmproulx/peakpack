@@ -366,3 +366,159 @@ The Host window has the same thing as "Publish hotfix..." and "Roll back to prev
 - 107 unit checks of the lobby and diagnostics logic.
 
 **Not tested:** anything inside PEAK. Photon events between real players, AutoReload swapping a DLL under a running game, and the in-game notices all need Joshua and a friend in a real lobby.
+
+## 18. PeakPack on Mac (v0.5): Wine mode, headless CLI, Mac key defaults
+
+Context: `C:\Users\joshu\PeakMods\MacPort\DESIGN.md` (Track D). Mac friends run the **same Windows PeakPack.exe** inside our Wine prefix. A native "PEAK (Modded).app" front end drives it. Windows behaviour is unchanged by everything in this section.
+
+### 18.1 Wine mode in PeakPack (built)
+
+- **Detection (`Platform.cs`):** `ntdll` exports `wine_get_version` only under Wine; `wine_get_host_version` returns `Darwin` on macOS. For sandbox tests, `PEAKPACK_FAKE_PLATFORM=wine-mac` simulates it, and a simulated platform never writes the registry.
+- **Doorstop under Wine:** `winhttp.dll` in the game folder only loads if Wine prefers the native DLL. Before every modded launch, PeakPack sets `HKCU\Software\Wine\AppDefaults\PEAK.exe\DllOverrides` `winhttp = native,builtin`. This is the prefix's own registry, it survives Steam relaunching PEAK, and it's per app. Processes PeakPack starts also get `WINEDLLOVERRIDES=winhttp=n,b`. The front end can set the same variable on its `wine` calls as a backup.
+- **Skipped under Wine:**
+  - `.lnk` shortcuts;
+  - the Installed Apps entry;
+  - first-run self-install and self-relocation.
+
+  The front end owns all of these (Dock icon, install folder, removal).
+- **Signed `platforms.mac` manifest section** (publish.json `mac`):
+  - `extraArgs`: Mac-only game arguments, e.g. `-force-d3d11` for the DXMT path. Validation refuses anything that isn't a plain `-flag`, and anything containing "doorstop".
+  - `files`: Mac config defaults, always `ifMissing` and only under `config/`. A friend's own settings are never overwritten. A Mac file with the same path as a Windows file replaces it on Mac (`PackManifest.FilesFor(platform)`).
+  - `minFrontEnd`: informational, for the front end.
+  - The publisher uploads the Mac files as release assets named `mac-<id>-<sha8>-<file>`.
+- **Headless CLI** (`PeakPack.exe --headless …`, `Headless.cs`). No window ever opens; it writes a JSON status file (atomic; poll it for progress) and returns an exit code:
+
+  | Command | Does |
+  |---|---|
+  | `--headless --status` | check the signed manifest: "Not installed yet" / "Ready to play" / "Update available: …" |
+  | `--headless --sync [--adopt]` | install/update exactly like the PEAK (Modded) shortcut |
+  | `--headless --launch [--vanilla] [--on-sync-fail stop\|installed\|vanilla]` | sync, then start PEAK modded (or normal) |
+  | options | `--status-out <file>` (default `%LOCALAPPDATA%\PeakPack\headless-status.json`) |
+
+  - Exit codes: 0 ok · 1 failed (`problem.heading/advice/details`) · 2 PEAK not found · 3 foreign mod loader (rerun with `--adopt`) · 4 PEAK already running · 5 not installed.
+  - Status fields: `state` (working/done/failed), `step`, `message`, `progress`, `platform`, `appVersion`, `installedRevision`, `latestRevision`, `changes`, `launched`, `commandLine`, `problem`, `exitCode`.
+
+### 18.2 Mac key defaults (shipped as `platforms.mac.files`, next revision)
+
+Mac laptops have no Insert/Delete (forward)/Home/End/PageUp/PageDown/numpad, and F1-F12 need Fn. PEAK's own keys that are verified or well documented (W A S D, Space, Shift, Ctrl, E, Q, R, V, 1-4, Esc, mouse) and all other mod keys were avoided. Each pair keeps its meaning (`]`/`[` = up/down, `=`/`-` = more/less).
+
+| Mod (config file) | Setting | Windows | Mac |
+|---|---|---|---|
+| JetpackBoost (`com.joshua.jetpackboost.cfg`) | [Keys] ThrustUp / ThrustDown | PageUp / PageDown | `]` RightBracket / `[` LeftBracket |
+| | [Keys] ForwardUp / ForwardDown | End / Home | `;` Semicolon / `'` Quote |
+| ElytraGlider (`com.joshua.elytraglider.cfg`) | [Keys] CyclePreset / ToggleElytra | Insert / Delete | P / Y |
+| | [Keys] ToggleReadout | NumpadPeriod | `.` Period |
+| | [Keys] LiftUp / LiftDown | Numpad + / - | `=` Equals / `-` Minus |
+| | [Keys] BoostUp / BoostDown | Numpad * / / | `\` Backslash / `/` Slash |
+| HeliPilot (`com.joshua.helipilot.cfg`) | [Controls] ToggleControlKey | F8 | H |
+| | [Controls] InvertScrollZoom | false | **true** (natural scrolling) |
+| | [Debug] DebugSummonKey / DebugFlareKey / DebugDumpKey (still behind EnableDebugKeys = false) | F9 / F9 / F10 | Z / Z (+Shift) / U |
+| ItemTuner (`com.joshua.itemtuner.cfg`) | [Debug] LogLayout | true | false (same as Windows friends) |
+| *later* ScoutBots | [Keys] SpawnBots / ToggleHunter | F4 / F1 | N / J |
+| *later* ScoutmasterMode | [Debug] F5 / F6 / F7 / F11 / F3 | | I / K / Comma / X / O (F3 and F11 should be gated by EnableDebugKeys in code) |
+| Companion (host only, Joshua on Windows) | [Host] RequestLogsKey (+Ctrl) | F9 | unchanged |
+
+Unchanged because they already work on a Mac: ItemTuner `F`, HeliPilot `G` and flight keys, ScoutmasterMode `B`, `T`, `C`.
+
+Risks:
+
+- PEAK's full default map lives in serialized assets, so H, P, Y, Z, U, J, N, I, K, O, X were chosen as "free" from documentation. **Check them on PEAK's Controls page before the next revision.**
+- Punctuation positions assume a US layout.
+- If Wine maps Command to Ctrl, HeliPilot's "down" (LeftCtrl) is Command on Mac.
+
+### 18.3 Live-update hardening (helps Windows too; built)
+
+- **`HotUpdater`:**
+  - The undo record (`rollback\last.json` plus backups) is written **before** any DLL is replaced.
+  - If a replacement fails partway, the files already replaced are restored, state, manifest and pack-info stay at the old revision, and the result is "failed: … the previous builds were put back".
+  - Temp names in the fallback path are unique.
+- **The result now lists `plugins`** (`guid|version|plugins/…dll`, read from each new DLL). The companion no longer says "updated" when the files are written; it waits until the new builds are **running**:
+  1. Before starting PeakPack it snapshots `Chainloader.PluginInfos`. A plugin counts as loaded when its GUID maps to a **new** PluginInfo with a live instance and the expected version. AutoReload replaces the PluginInfo on every reload.
+  2. Not loaded after 6 s (e.g. Wine on macOS: no file-change events reach AutoReload's FileSystemWatcher): the companion queues the reload itself. It adds the plugin's path to AutoReload's own queue (`pendingReloads`, the dictionary its watcher fills, found with a cached AccessTools handle) using the same path spelling as the watcher.
+  3. Still not loaded after 25 s: a native notice says *"Joshua updated Heli Pilot. Restart PEAK from the PEAK (Modded) icon to load it."* It never claims success that didn't happen.
+  4. An older PeakPack app that doesn't report `plugins` gets the old behaviour (notice on file write).
+- **Fixed false assumption:** AutoReload listens to Changed/Created only, **not Renamed**. The locked-file fallback (rename) therefore relies on step 2.
+- **Version:** app and companion are now **0.4.1**, so friends' PeakPack self-updates to the hardened code with the next revision.
+
+### 18.4 HeliPilot cockpit bundle (next revision)
+
+- `customFiles` can ship any file into a mod's plugin folder: `plugins/Joshua-HeliPilot/HeliPilot_cockpit.bundle` sits next to `HeliPilot.dll`, which is where HeliPilot looks.
+- Its loader matches case-insensitively; if the bundle is missing or broken it logs and falls back to the built-in cockpit.
+- Source: `_quarantine\HeliPilot_cockpit.bundle` (sha256 0bb047d7…, identical to Joshua's deployed copy).
+- Not shipped: the `.manifest` and `HeliPilot_cockpit_mac.bundle` (that one is for the future native track).
+- A bundle change is never applied live (not a .dll): it's a restart update.
+- Staged for revision 4 with HeliPilot 0.3.2, under `%LOCALAPPDATA%\PeakPack-publisher\builds\next\`.
+
+### 18.5 One repo, two kinds of releases
+
+- MacPort CI lives in `jmproulx/peakpack` under `mac/`; its releases are `mac-build-*` **prereleases, never Latest**.
+- Friends' apps read `releases/latest/download/manifest.json`, so "latest" must always be the newest `rev-N`.
+- The pipeline:
+  - always passes `--latest` for pack releases;
+  - takes the **higher** of the live and the locally released revision (a misplaced "latest" can't make it reuse a revision);
+  - after every real release, **checks that the friends' link serves the new revision**, with a loud warning if not.
+- Hotfixes use the same pipeline.
+
+### 18.6 Spec: the native Mac front end ("PEAK (Modded).app")
+
+A thin wrapper; all mod logic stays in the Windows PeakPack inside the prefix. Built later by MacPort CI (`mac/`).
+
+- **Layout (inside the prefix):** install PeakPack as `C:\users\<u>\AppData\Local\PeakPack\PeakPack.exe` (the Windows default data folder, **not** `C:\PeakPack`). Then:
+  - self-update works;
+  - the companion's live-update check finds `PeakPack.exe` next to the profile;
+  - `pack-info.json` gets `appExe` automatically.
+- **Calls** (always with `WINEPREFIX=<prefix>`, `WINEDLLOVERRIDES=winhttp=n,b`, and the runtime's `wine64`):
+
+  | UI | Command |
+  |---|---|
+  | App start | `wine PeakPack.exe --headless --status --status-out C:\…\status.json` → show "Ready to play" / "Update available" / "Not installed yet" |
+  | Click (Dock) | `--headless --launch --on-sync-fail stop` → on exit 1, show `problem.heading`/`advice` with **Play with the mods I have** (`--on-sync-fail installed`) / **Play normal PEAK** (`--vanilla`) / Cancel |
+  | Option-click > Play normal PEAK | `--headless --launch --vanilla` |
+  | First setup | `--headless --sync` (exit 3 → ask, then `--adopt`) |
+  | Options (log sharing, test-lobby live updates) | the Windows app's switches; until a Mac UI exists: `PeakPack.exe` (window) under Wine, or a later `--headless --set-option` |
+  | Logs | open `…\PeakPack\log.txt` and `…\profile\BepInEx\LogOutput.log` |
+
+- **Progress:** poll the status file every 250 ms while `state` is `working` (`message`, `progress`).
+- **Errors:** never parse the log. Use the exit code and `problem`.
+- **Launch path:**
+  - B1 (Windows Steam in the prefix): PeakPack's normal `steam.exe -applaunch` inside the prefix.
+  - B2 (bridge): `--launch-method direct` (PeakPack starts `PEAK.exe` with `SteamAppId`/`SteamGameId`; already built).
+  - Mac extra args come from the signed manifest automatically.
+- **Updates:**
+  - mods: every click (PeakPack);
+  - PeakPack.exe: self-updates from the manifest's `app` entry;
+  - the front end and the Wine runtime: from the `mac-build-*` prereleases and `mac-kit.json`, owned by MacPort.
+- **Signature:** every pack file is verified by PeakPack exactly as on Windows. The front end must not download mods itself.
+
+### 18.7 Tests and review (v0.5)
+
+- `tools/v5-test.ps1`, 56 checks, sandbox, simulated Mac via `PEAKPACK_FAKE_PLATFORM=wine-mac`:
+  - Mac args and config defaults in the signed manifest;
+  - a Windows friend never gets Mac files, while a Mac friend's Mac files replace the Windows ones;
+  - ifMissing keeps a friend's edit;
+  - Mac launch carries `-force-d3d11` and the (simulated) Wine DLL override, with no registry write in the simulation;
+  - Windows is unchanged;
+  - headless status, error and exit codes;
+  - no shortcuts under Wine;
+  - the cockpit bundle lands next to HeliPilot.dll;
+  - live-update result lists plugins;
+  - a failed mid-replace is undone;
+  - a bundle change is restart-only;
+  - bad Mac entries are refused;
+  - a release never reuses a revision when "latest" is stale.
+- All earlier suites still pass (sandbox 39, v3, v4, friend and Host GUI self-tests).
+- A code review found 14 issues. Fixed:
+  - a network timeout in headless mode reported as "existing mods" (exit 3);
+  - a half-written file not restored, and temp files left behind;
+  - rollback backups deleted after a failed restore;
+  - a 404 on "latest" with no local record restarting at revision 1 (now refused unless `--first-publish`);
+  - the companion's update check not guarded and only running inside a lobby;
+  - headless self-update reporting "done" while the new copy was still working (it now waits and returns the new copy's exit code);
+  - Mac-section changes not treated as restart-only;
+  - a missing local mod list described as "Couldn't write a file".
+- Still open, low priority:
+  - AutoReload's queue might reload a DLL twice in a narrow race;
+  - `PEAKPACK_FAKE_PLATFORM` is honoured in release builds (only matters if someone sets it on Windows);
+  - a Wine build without `wine_get_host_version` would be treated as Linux.
+- **Not tested:** anything under real Wine or macOS, and AutoReload inside a running PEAK. Those are MacPort gates G-D2 and G-D3.
+
