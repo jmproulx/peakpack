@@ -1,0 +1,2 @@
+# Locally built probe binaries (CI builds the published ones; see NOTES-for-lead.md)
+probes/out/

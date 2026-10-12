@@ -1,0 +1,141 @@
+{
+  "schema": "peakpack-mac-job/1",
+  "slot": "slot1",
+  "job_id": "auto",
+  "job_id_hint": "the hub picks it before starting, e.g. slot1-20261013-0900, and passes --job-id; \"auto\" = slot1-<date-time>",
+  "title": "PeakPack for Mac - slot 1: preflight, Steam bridge, runtime, game files, modded launch, short perf run",
+  "requester": "PeakPack for Mac (MacPort lead) - Joshua's project",
+  "machine": {
+    "host": "M1 iMac",
+    "macos_user": "fleet",
+    "screen": "ours for the whole slot (computer-use steps click in Steam and PEAK)",
+    "needs": ["Rosetta 2 (detected, never installed by us)", "Mac Steam installed; signed in once by Joshua (H-STEAM)", "screen recording + input control for the hub's tooling (already granted)"],
+    "optional": ["Xcode Command Line Tools (G-B0 exact nm check, G-B1 builds its probe; both have fallbacks)"]
+  },
+  "release": {
+    "repo": "jmproulx/peakpack",
+    "tag": "mac-build-runtime-pp1-cx26.3.0",
+    "page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-runtime-pp1-cx26.3.0",
+    "assets_used": ["SHA256SUMS", "peakpack-runtime-pp1-cx26.3.0-x86_64.tar.xz", "manifest-pp1-cx26.3.0.json", "peakpack-steam-tests-pp1-cx26.3.0-*.tar.xz"],
+    "assets_not_needed": ["peakpack-wine-sdk-*", "peakpack-runtime-src-*", "peakpack-steam-bridge-* (already merged into the runtime tarball)"],
+    "verification": "every asset is checked against the release's SHA256SUMS by the kit (lib/assets.sh)",
+    "also_downloaded": "PeakPack.exe from https://github.com/jmproulx/peakpack/releases/latest/download/PeakPack.exe (newest pack release; G-D2)"
+  },
+  "kit": {
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz",
+    "path_in_archive": "peakpack-mac-build-runtime-pp1-cx26.3.0/mac/testkit",
+    "standalone": "a tarball of mac/testkit works the same (it then takes the Steam test scripts from the release asset)",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-build-runtime-pp1-cx26.3.0/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit, next to $JOB/kit/runtime; cleanup.sh removes it with the job dir)",
+    "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
+  },
+  "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",
+  "time_budget_min": 180,
+  "expected_machine_min": 115,
+  "how_to_run": {
+    "all_in_one": "cd $JOB/kit && bash testkit/run_slot.sh testkit/slot1.job.json --job-id <job_id> > $JOB/run_slot-console.txt 2>&1 &   (background; watch requests with: bash testkit/cu.sh $JOB wait)",
+    "one_gate": "bash testkit/run_gate.sh <gate> --job-dir ~/peakpack-test/<job_id> [-- gate args]",
+    "computer_use": "scripts print [CU-REQUEST] lines and write <job-dir>/cu/<gate>.<step>.request; do the steps in gates/<gate>.md (section CU-<step>), then answer: bash testkit/cu.sh <job-dir> done <gate>.<step> ok|fail|skip \"note\" [key=value ...]",
+    "exit_codes": {"0": "pass", "1": "fail", "2": "blocked (precondition missing)", "3": "needs-human", "4": "error (incl. timeout)"}
+  },
+  "early_cu": [
+    {
+      "key": "G-B5.download",
+      "timeout_s": 5400,
+      "instruction": "Start this right after H-STEAM passes; it runs in Steam while the scripts do G-B0/G-B1/G-A1. In Mac Steam open the console (in Terminal: open steam://open/console, or Safari's address bar: steam://open/console and allow it to open Steam). Click the input line at the bottom of the Console view, type exactly: download_depot 3527290 3527291 and press Return. Screenshot evidence/G-B5/b5-console-started.png. When the console prints 'Depot download complete : \"<path>\" (manifest <id>)' (about 1.93 GB), screenshot b5-console-complete.png and answer: bash testkit/cu.sh <job-dir> done G-B5.download ok \"complete\" path=\"<path>\" manifest=<id>. On an error line answer fail \"<message>\". Never type credentials; do not quit Steam."
+    }
+  ],
+  "run_order": ["P0", "H-STEAM", "G-B0", "G-B1", "G-A1", "G-B5", "G-B2", "G-D2", "G-A2-lite"],
+  "gates": [
+    {
+      "id": "P0", "title": "Preflight (detect and report)", "doc": "testkit/gates/P0.md",
+      "command": "bash testkit/run_gate.sh P0 --job-dir $JOB", "args": "",
+      "requires": [], "needs_human": false, "computer_use": [], "expected_min": 3, "timeout_min": 10,
+      "pass": "arm64; Rosetta present; >= 12 GB free (20 recommended); github.com reachable; base tools present. CLT/Steam/screencapture are reported only.",
+      "on_fail": "continue (dependent gates block themselves)"
+    },
+    {
+      "id": "H-STEAM", "title": "Mac Steam signed in", "doc": "testkit/gates/H-STEAM.md",
+      "command": "bash testkit/run_gate.sh H-STEAM --job-dir $JOB", "args": "",
+      "requires": [], "needs_human": "only if Steam is not signed in (Joshua signs in once, ticks Remember me)", "computer_use": ["signed_in"], "expected_min": 1, "timeout_min": 3,
+      "pass": "steam_osx running and an account signed in (files or the agent's look at the Steam window)",
+      "on_fail": "exit 3: relay the printed instructions to Joshua; after he signs in, re-run H-STEAM and continue with run_slot.sh --from G-B0"
+    },
+    {
+      "id": "G-B0", "title": "steamclient.dylib x86_64 slice + exports (T0)", "doc": "testkit/gates/G-B0.md",
+      "command": "bash testkit/run_gate.sh G-B0 --job-dir $JOB", "args": "",
+      "requires": [], "needs_human": false, "computer_use": [], "expected_min": 1, "timeout_min": 5,
+      "pass": "x86_64 slice present; CreateInterface, Steam_BGetCallback, Steam_FreeLastCallback, Steam_GetAPICallResult, Steam_ReleaseThreadLocalMemory exported",
+      "on_fail": "continue; a missing x86_64 slice blocks Track B2 (report it prominently)"
+    },
+    {
+      "id": "G-B1", "title": "Rosetta probe talks to Mac Steam (T1/T2)", "doc": "testkit/gates/G-B1.md",
+      "command": "bash testkit/run_gate.sh G-B1 --job-dir $JOB -- --hold 90", "args": "--hold 90",
+      "requires": ["H-STEAM"], "needs_human": false, "computer_use": ["playing"], "expected_min": 3, "timeout_min": 10,
+      "pass": "dylib loads under Rosetta; CreateInterface(SteamClient021); BLoggedOn=1; real SteamID; app id 3527290; auth ticket + GetAuthSessionTicketResponse OK; Mac Steam shows Playing PEAK",
+      "on_fail": "continue"
+    },
+    {
+      "id": "G-A1", "title": "Runtime boots (download, verify, prefix, cmd/reg/regedit, D3D11 via DXMT)", "doc": "testkit/gates/G-A1.md",
+      "command": "bash testkit/run_gate.sh G-A1 --job-dir $JOB", "args": "",
+      "requires": ["P0"], "needs_human": false, "computer_use": [], "expected_min": 20, "timeout_min": 45,
+      "pass": "assets match SHA256SUMS; wine --version; prefix created in the job dir with DXMT; cmd /c ver; PEAK.exe overrides; regedit export; D3D11 probe renders through DXMT (or 'skip' until the probe exe ships, then G-B2's main menu is the DXMT proof)",
+      "on_fail": "continue (G-B2, G-D2, G-A2-lite will block)"
+    },
+    {
+      "id": "G-B5", "title": "PEAK Windows depot via download_depot (T15)", "doc": "testkit/gates/G-B5.md",
+      "command": "bash testkit/run_gate.sh G-B5 --job-dir $JOB", "args": "",
+      "requires": ["H-STEAM"], "needs_human": false, "computer_use": ["download (pre-announced as early_cu)"], "expected_min": 30, "timeout_min": 100,
+      "pass": "download_depot completes; PEAK.exe, UnityPlayer.dll, steam_api64.dll, Assembly-CSharp.dll, version.txt; >= 200 files, 1.5-3 GB; every file's SHA-256 equals the Windows reference when version.txt matches (2.6.b); moved into <job>/game/PEAK",
+      "on_fail": "continue (game gates will block)"
+    },
+    {
+      "id": "G-B2", "title": "Steam bridge in Wine: T3, T4, T5 (PEAK main menu)", "doc": "testkit/gates/G-B2.md",
+      "command": "bash testkit/run_gate.sh G-B2 --job-dir $JOB -- --t5-seconds 240", "args": "--t5-seconds 240",
+      "requires": ["G-A1", "G-B5"], "needs_human": false, "computer_use": ["mainmenu"], "expected_min": 10, "timeout_min": 30,
+      "pass": "T3 SteamID+ticket via forwarder; T4 RestartAppIfNecessary=0, IsSteamRunning=1, InitEx OK, SteamID, app id, ticket; T5 Player.log 'Steam runtime manager initialized: True' with persona, no Steamworks.NET failures; main menu renders (agent)",
+      "on_fail": "continue"
+    },
+    {
+      "id": "G-D2", "title": "PeakPack modded + vanilla launch", "doc": "testkit/gates/G-D2.md",
+      "command": "bash testkit/run_gate.sh G-D2 --job-dir $JOB", "args": "",
+      "requires": ["G-A1", "G-B5"], "needs_human": false, "computer_use": ["modded"], "expected_min": 20, "timeout_min": 45,
+      "pass": "--status/--sync exit 0; modded launch: LogOutput.log rewritten, chainloader complete, loaded == 'N plugins to load', no BepInEx load errors, main menu (agent); vanilla: Steam initialised, LogOutput.log untouched, no BepInEx/Doorstop in Player.log",
+      "on_fail": "continue"
+    },
+    {
+      "id": "G-A2-lite", "title": "Short performance run (Metal HUD, solo to the Shore, 2 min)", "doc": "testkit/gates/G-A2-lite.md",
+      "command": "bash testkit/run_gate.sh G-A2-lite --job-dir $JOB -- --minutes 2", "args": "--minutes 2",
+      "requires": ["G-A1", "G-B5"], "needs_human": false, "computer_use": ["menu", "shore", "fps"], "expected_min": 15, "timeout_min": 35,
+      "pass": "no crash; lowest HUD fps on the Shore >= 30; memory pressure level never critical; swap growth < 1 GB. Recorded: avg fps, menu fps, RSS. (>= 90 % of CrossOver needs the optional G-A2-CX)",
+      "on_fail": "continue"
+    }
+  ],
+  "human_steps": [
+    {"who": "Joshua", "when": "once, before or at H-STEAM", "what": "Sign in to Mac Steam under the fleet user (Steam Guard), tick Remember me, leave Steam running.", "gate": "H-STEAM"}
+  ],
+  "later_slots": "slot3.job.json (G-X1, H-MIC; humans), slot4.job.json (G-C0 native smoke, optional G-A2-CX)",
+  "optional_human_gates": [
+    {"gate": "G-A2-CX", "what": "CrossOver 26 trial baseline for G-A2's 90 % criterion", "decision": "Joshua"},
+    {"gate": "G-X1 + H-MIC", "what": "cross-play with a friend, voice, mic prompt", "decision": "Joshua; slot 3 (slot3.job.json)"}
+  ],
+  "outside_paths": [
+    "~/Library/Application Support/Steam/[Steam.AppBundle/Steam/Contents/MacOS/]steamapps/content/app_3527290 (download_depot output; moved into the job dir by G-B5, empty folder removed)",
+    "~/Library/Application Support/Steam/[...]/depotcache/3527291_*.manifest (Steam writes it during the download; cleanup.sh removes new ones)",
+    "/tmp/.wine-<uid>/server-<dev>-<inode> (Wine server socket of our prefix; removed by cleanup.sh)",
+    "Steam-side records of playtime/'Playing PEAK' on Joshua's account (server-side, expected)",
+    "macOS-managed caches: Rosetta AOT translations (/var/db/oah), Metal shader caches (per-user temp) - system-managed, not removed"
+  ],
+  "copy_back": {
+    "command": "bash testkit/collect.sh $JOB",
+    "file": "$JOB/copyback/peakpack-<job_id>-results.tar.gz (+ .sha256)",
+    "contains": ["results/*.json + summary.json/summary.txt", "logs/<gate>/ (console.log, Player.log copies, LogOutput.log, wine/DXMT logs, manifests)", "evidence/<gate>/*.png", "cu/ (requests and answers)", "state/ (versions, pre-existing snapshot, outside paths)", "downloads/SHA256SUMS"],
+    "also_relay": "the agent's own screenshots named in the CU steps if they were saved elsewhere, and the run_slot console output"
+  },
+  "cleanup": {
+    "command": "bash testkit/cleanup.sh $JOB",
+    "dry_run_first": "bash testkit/cleanup.sh $JOB --dry-run",
+    "removes": ["our Wine processes and anything started from the job dir", "Steam depot content/download folders and depotcache files created by this job", "the job dir including the kit ($JOB/kit)", "~/peakpack-test when empty"],
+    "leaves": ["Mac Steam and its login", "system settings, Rosetta, CLT", "anything that existed before the job"]
+  },
+  "direct_shell_needed": "none"
+}

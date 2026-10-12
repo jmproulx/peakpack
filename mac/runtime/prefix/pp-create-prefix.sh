@@ -53,7 +53,7 @@ done
 
 mkdir -p "$P/peakpack"
 [ -f "$P/peakpack/dxmt.conf" ] || cp "$here/dxmt.conf" "$P/peakpack/dxmt.conf"
-"$here/pp-backend.sh" "$R" "$P" "$backend"
+bash "$here/pp-backend.sh" "$R" "$P" "$backend"   # bash: works without the exec bit (testkit R8)
 
 cat > "$stamp" <<EOF
 {

@@ -1,0 +1,33 @@
+{
+  "schema": "peakpack-mac-job/1",
+  "slot": "slot3",
+  "job_id": "auto",
+  "title": "PeakPack for Mac - slot 3: cross-play with a friend, voice, microphone prompt (humans present)",
+  "machine": {"host": "M1 iMac", "macos_user": "fleet", "screen": "ours for the slot; Joshua at the iMac for voice"},
+  "release": {"repo": "jmproulx/peakpack", "tag": "mac-build-runtime-pp1-cx26.3.0"},
+  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz", "setup": "as slot1.job.json"},
+  "time_budget_min": 150,
+  "expected_machine_min": 110,
+  "schedule_with": "Joshua (at the iMac) and the pilot friend (own Windows PC, own Steam account, PeakPack synced to the same pack revision) for about 45 min after the setup gates",
+  "environment": {"PP_HUMAN_PRESENT": "1 for H-MIC and G-X1 only, once both people are ready"},
+  "early_cu": [
+    {"key": "G-B5.download", "timeout_s": 5400, "instruction": "Same as slot 1: Mac Steam console, download_depot 3527290 3527291, answer with path= and manifest=. See gates/G-B5.md CU-download."}
+  ],
+  "run_order": ["P0", "H-STEAM", "G-A1", "G-B5", "G-D2", "H-MIC", "G-X1"],
+  "gates": [
+    {"id": "P0", "args": "", "requires": [], "needs_human": false, "expected_min": 3},
+    {"id": "H-STEAM", "args": "", "requires": [], "needs_human": "only if signed out", "expected_min": 1},
+    {"id": "G-A1", "args": "", "requires": ["P0"], "needs_human": false, "expected_min": 20},
+    {"id": "G-B5", "args": "", "requires": ["H-STEAM"], "needs_human": false, "computer_use": ["download"], "expected_min": 30},
+    {"id": "G-D2", "args": "", "requires": ["G-A1", "G-B5"], "needs_human": false, "computer_use": ["modded"], "expected_min": 20},
+    {"id": "H-MIC", "doc": "testkit/gates/H-MIC.md", "command": "PP_HUMAN_PRESENT=1 bash testkit/run_gate.sh H-MIC --job-dir $JOB  (start in parallel with G-X1)", "args": "",
+     "requires": [], "needs_human": "yes: only Joshua answers the macOS microphone prompt", "computer_use": ["prompt"], "expected_min": 30},
+    {"id": "G-X1", "doc": "testkit/gates/G-X1.md", "command": "PP_HUMAN_PRESENT=1 bash testkit/run_gate.sh G-X1 --job-dir $JOB", "args": "",
+     "requires": ["G-D2"], "needs_human": "yes: Joshua + the pilot friend", "computer_use": ["lobby", "steamjoin", "voice", "companion", "mods"], "expected_min": 60,
+     "pass": "room-code join both ways; Steam friends-list join both ways; voice both ways (built-in mic); companion lobby check clean; heli, glider, item tuner, scoutmaster consistent on both sides; no desync"}
+  ],
+  "notes": "Without PP_HUMAN_PRESENT=1, run_slot.sh records H-MIC and G-X1 as needs-human (exit 3) with the printed instructions; run them by hand when both people are ready.",
+  "copy_back": {"command": "bash testkit/collect.sh $JOB"},
+  "cleanup": {"command": "bash testkit/cleanup.sh $JOB", "after": "Joshua may switch the microphone permission off again (System Settings > Privacy & Security > Microphone)"},
+  "direct_shell_needed": "none"
+}

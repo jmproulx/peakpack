@@ -1,0 +1,43 @@
+{
+  "schema": "peakpack-mac-job/1",
+  "slot": "slot4",
+  "job_id": "auto",
+  "job_id_hint": "new job dir per slot; G-C0 needs PEAK depot again, so slot 4 repeats G-B5 (or reuses slot 1's job dir if it was kept with cleanup.sh --keep-job-dir)",
+  "title": "PeakPack for Mac - slot 4: native smoke (G-C0 phases a + b), optional CrossOver baseline",
+  "machine": {"host": "M1 iMac", "macos_user": "fleet", "screen": "ours for the slot"},
+  "release": {"repo": "jmproulx/peakpack", "tag": "mac-build-runtime-pp1-cx26.3.0"},
+  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz", "path_in_archive": "peakpack-mac-build-runtime-pp1-cx26.3.0/mac/testkit", "setup": "as slot1.job.json"},
+  "time_budget_min": 120,
+  "expected_machine_min": 70,
+  "hub_downloads": [
+    {"what": "Unity 6000.3.15f1 Mac Mono support pkg (Unity's own server; never installed, never redistributed by us)",
+     "url": "https://download.unity3d.com/download_unity/c1aa84e375f6/MacEditorTargetInstaller/UnitySetup-Mac-Mono-Support-for-Editor-6000.3.15f1.pkg",
+     "to": "$JOB/downloads/UnitySetup-Mac-Mono-Support-for-Editor-6000.3.15f1.pkg", "bytes": 724929213,
+     "alt": "or pass --download to G-C0 and the gate fetches it"},
+    {"what": "optional: BepInEx 5.4.23.x macOS build for the HarmonyX arm64 check", "url": "https://github.com/BepInEx/BepInEx/releases (the macOS asset of the newest 5.4.23.x)", "to": "$JOB/downloads/", "pass_as": "--bepinex-zip $JOB/downloads/<file>.zip"}
+  ],
+  "early_cu": [
+    {"key": "G-B5.download", "timeout_s": 5400, "instruction": "Same as slot 1: Mac Steam console, download_depot 3527290 3527291, answer with path= and manifest=. See gates/G-B5.md CU-download."}
+  ],
+  "run_order": ["P0", "H-STEAM", "G-B5", "G-C0", "G-A2-CX"],
+  "gates": [
+    {"id": "P0", "command": "bash testkit/run_gate.sh P0 --job-dir $JOB", "args": "", "requires": [], "needs_human": false, "expected_min": 3, "timeout_min": 10},
+    {"id": "H-STEAM", "command": "bash testkit/run_gate.sh H-STEAM --job-dir $JOB", "args": "", "requires": [], "needs_human": "only if signed out", "expected_min": 1, "timeout_min": 3},
+    {"id": "G-B5", "command": "bash testkit/run_gate.sh G-B5 --job-dir $JOB", "args": "", "requires": ["H-STEAM"], "needs_human": false, "computer_use": ["download"], "expected_min": 30, "timeout_min": 100},
+    {"id": "G-C0", "title": "Native smoke", "doc": "testkit/gates/G-C0.md",
+     "command": "bash testkit/run_gate.sh G-C0 --job-dir $JOB -- --run-seconds 150 --download [--bepinex-zip ZIP] [--harmony-plugin DLL] [--bundle-variant]", "args": "--run-seconds 150 --download",
+     "requires": ["G-B5"], "needs_human": false, "computer_use": ["look (phase a)", "menu (phase b)"], "expected_min": 60, "timeout_min": 150,
+     "phases": {"a": "stock Windows data in the Unity Mac player: build-target acceptance, scripts reach the main menu (pink expected), shader error lines, DllNotFound list, EOS-absent behaviour, HarmonyX arm64 (with --bepinex-zip)", "b": "same player with PEAK shaders converted ON THIS MAC by native/pm.py (loose Data files, no data.unity3d): main menu + Airport screenshots; y-orientation, depth, sRGB, framebuffer fetch (CoreCopy), instancing, missing materials. Needs python3 >= 3.11 + UnityPy + lz4 + spirv-cross: detected, never installed (phase b is skipped and reported when absent)"},
+     "pass": "phase a: no build-target error and >= 2 of 3 main-menu log markers; phase b (when the converter is available): converter exit 0, no build-target error, main-menu markers, renders without crash/black screen. Everything else is recorded for Track C."},
+    {"id": "G-A2-CX", "title": "CrossOver baseline (optional)", "doc": "testkit/gates/G-A2-CX.md",
+     "command": "bash testkit/run_gate.sh G-A2-CX --job-dir $JOB [-- --fps 58,60,...]", "args": "",
+     "requires": [], "needs_human": "yes: CrossOver trial install/licence and Steam sign-in inside the bottle are Joshua's call", "expected_min": 1, "timeout_min": 5}
+  ],
+  "outside_paths": [
+    "as slot 1 (Steam depot folders, depotcache, Wine socket dir)",
+    "G-C0: ~/Library/Preferences/unity.LandCrab.PEAK.plist, ~/Library/Application Support/unity.LandCrab.PEAK or LandCrab/PEAK, ~/Library/Saved Application State/com.peakpack.testkit.native.savedState (Unity player per-user data; cleanup.sh removes those that did not exist before)"
+  ],
+  "copy_back": {"command": "bash testkit/collect.sh $JOB"},
+  "cleanup": {"command": "bash testkit/cleanup.sh $JOB"},
+  "direct_shell_needed": "none"
+}

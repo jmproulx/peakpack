@@ -1,6 +1,6 @@
 # Tuning matrix for gate G-A2 (and the G-A3 soak)
 
-*12 Oct 2026, runtime team. Run on the 8 GB M1/M2 test Mac in the `peaktest` user (DESIGN §9). Every knob below can be changed without rebuilding: an env var through `pp-env.sh`, a prefix script, or a Unity argument.*
+*12 Oct 2026, runtime team. Run as fleet-hub jobs on the M1 iMac (user `fleet`, our own job folder; no SSH; the hub does the computer use; DESIGN §9 and `mac/testkit`). An 8 GB M1/M2 Air pilot follows. Every knob below can be changed without rebuilding: an env var through `pp-env.sh`, a prefix script, or a Unity argument.*
 
 ## 1. Pass/fail (from DESIGN §7)
 

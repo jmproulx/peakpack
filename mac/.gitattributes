@@ -13,3 +13,7 @@
 series    text eol=lf
 *.exe     binary
 *.dll     binary
+*.json    text eol=lf
+*.md      text eol=lf
+*.awk     text eol=lf
+*.manifest text eol=lf

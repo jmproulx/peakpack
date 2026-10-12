@@ -44,6 +44,10 @@ case "$PP_PE_TOOLCHAIN" in
   mingw-gcc)  mingw_arg="--with-mingw" ;;
 esac
 
+# configure may be regenerated with autoconf 2.72 (extra DLLs), whose AC_PROG_CC picks
+# -std=gnu23; keep clang's default gnu17 for the unix side, as for the deps (build_deps.sh).
+export ac_cv_prog_cc_c23=no
+
 # Absolute rpath to the deps prefix for the build only; bundle step rewrites it.
 export LDFLAGS="$LDFLAGS -L$PP_DEPS/lib -Wl,-rpath,$PP_DEPS/lib"
 export CPPFLAGS="-I$PP_DEPS/include"

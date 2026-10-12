@@ -117,7 +117,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          sparse-checkout: mac/runtime
+          sparse-checkout: |
+            mac/runtime
+            mac/testkit
           persist-credentials: false
       - name: Runtime id
         id: id
@@ -222,6 +224,12 @@ jobs:
           mac/runtime/steam/src/launcher/build_launcher.sh "$pe"
           x86_64-w64-mingw32-clang -O1 -Wall -o "$pe/steam_client_probe.exe" mac/runtime/steam/tests/probe/steam_client_probe.c -ladvapi32
           x86_64-w64-mingw32-clang -O1 -Wall -o "$pe/steam_api_probe.exe" mac/runtime/steam/tests/probe/steam_api_probe.c
+          # Test-kit probes (testkit R1/R2): G-A1's D3D11-over-DXMT probe, and a macOS x86_64 build of the
+          # Steam client probe so G-B1 needs no Xcode CLT on the test Mac.
+          x86_64-w64-mingw32-clang -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
+            -ld3d11 -ldxgi -ldxguid -luser32
+          clang -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
+          lipo -archs "$pe/steam_client_probe-macos-x86_64"
           python3 -m venv "$W/venv-steam"
           "$W/venv-steam/bin/pip" install --quiet "pefile==2024.8.26"
           "$W/venv-steam/bin/python" -I mac/runtime/steam/src/forwarder/verify_forwarder.py "$pe/steamclient64.dll" \
