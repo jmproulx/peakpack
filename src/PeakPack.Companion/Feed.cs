@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Reflection;
+using BepInEx.Logging;
 using UnityEngine;
 
 namespace PeakPack.Companion
@@ -15,39 +17,50 @@ namespace PeakPack.Companion
     internal sealed class Feed
     {
         const char NameStart = '\u0001', NameEnd = '\u0002';
+        // Reflection handle only (no game state); re-created with each (re)loaded assembly.
         static readonly MethodInfo AddMessage =
             typeof(PlayerConnectionLog).GetMethod("AddMessage", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(string) }, null);
 
+        readonly ManualLogSource _log;
         readonly List<(string Text, bool Warning, bool Sound, float Expires)> _queue = new List<(string, bool, bool, float)>();
+
+        public Feed(ManualLogSource log) { _log = log; }
 
         /// <summary>Marks a player name; rendered in the game's player-name colour.</summary>
         public static string Name(string s) => NameStart + s + NameEnd;
 
         public void Post(string text, bool warning, bool sound = true)
         {
-            BepInEx.Logging.Logger.CreateLogSource("PeakPack").LogInfo("Notice: " + text.Replace(NameStart.ToString(), "").Replace(NameEnd.ToString(), ""));
+            _log.LogInfo("Notice: " + text.Replace(NameStart.ToString(), "").Replace(NameEnd.ToString(), ""));
             _queue.Add((text, warning, sound, Time.unscaledTime + 60f));
             Flush();
         }
+
+        public void Clear() => _queue.Clear();
 
         public void Flush()
         {
             if (_queue.Count == 0) return;
             _queue.RemoveAll(q => Time.unscaledTime > q.Expires);
             if (_queue.Count == 0 || AddMessage == null) return;
-            var log = Object.FindAnyObjectByType<PlayerConnectionLog>();
-            if (log == null || !log.isActiveAndEnabled) return;
-            foreach (var q in _queue)
+            var log = UnityEngine.Object.FindAnyObjectByType<PlayerConnectionLog>();
+            if (log == null || !log.isActiveAndEnabled || log.text == null) return;
+            while (_queue.Count > 0)
             {
-                var body = q.Text.Replace(NameStart.ToString(), Tag(log.userColor)).Replace(NameEnd.ToString(), "</color>");
-                AddMessage.Invoke(log, new object[] { Tag(q.Warning ? log.leftColor : log.joinedColor) + body + "</color>" });
-                if (q.Sound)
+                var q = _queue[0];
+                _queue.RemoveAt(0); // dequeue first: a failure must not re-send lines every second
+                try
                 {
-                    var sfx = q.Warning ? log.sfxLeave : log.sfxJoin;
-                    if (sfx != null) sfx.Play();
+                    var body = q.Text.Replace(NameStart.ToString(), Tag(log.userColor)).Replace(NameEnd.ToString(), "</color>");
+                    AddMessage.Invoke(log, new object[] { Tag(q.Warning ? log.leftColor : log.joinedColor) + body + "</color>" });
+                    if (q.Sound)
+                    {
+                        var sfx = q.Warning ? log.sfxLeave : log.sfxJoin;
+                        if (sfx != null) sfx.Play();
+                    }
                 }
+                catch (Exception e) { _log.LogWarning("Couldn't show a notice in the game's feed: " + e.Message); }
             }
-            _queue.Clear();
         }
 
         static string Tag(Color c) => "<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">";

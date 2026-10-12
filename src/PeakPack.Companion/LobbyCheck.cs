@@ -53,7 +53,10 @@ namespace PeakPack.Companion
         public static string SafeName(string nick)
         {
             if (string.IsNullOrEmpty(nick)) return "Someone";
-            var s = nick.Replace("<", "").Replace(">", "");
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in nick) if (c != '<' && c != '>' && !char.IsControl(c)) sb.Append(c);
+            var s = sb.ToString().Trim();
+            if (s.Length == 0) return "Someone";
             if (s.Length <= 32) return s;
             return s.Substring(0, char.IsHighSurrogate(s[31]) ? 31 : 32); // don't cut an emoji in half
         }

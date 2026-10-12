@@ -25,8 +25,10 @@ namespace PeakPack.Companion
     /// you're in their lobby ("pp.cfg" room property). Your own values come back when you leave; your config file
     /// is never left with the host's values.
     ///
-    /// Reload-safe (Hamunii AutoReload): no Harmony patches, no static state; OnDestroy unregisters the Photon
-    /// callbacks and restores any settings it changed.
+    /// Reload-safe (Hamunii AutoReload): no Harmony patches, no static game state; OnDestroy unregisters the Photon
+    /// callbacks and restores any settings it changed. Your own values are also remembered in
+    /// BepInEx\PeakPack\live-originals.txt while the host's are active, so they come back even if the game crashes
+    /// in a lobby or AutoReload starts the new instance before the old one is destroyed.
     /// </summary>
     [BepInPlugin(Guid, "PeakPack Companion", "0.3.0")]
     public class Plugin : BaseUnityPlugin, IInRoomCallbacks, IMatchmakingCallbacks
@@ -46,10 +48,16 @@ namespace PeakPack.Companion
         readonly Dictionary<int, float> _hostChecks = new Dictionary<int, float>();
         readonly HashSet<string> _hostReported = new HashSet<string>();
         readonly Dictionary<string, string> _originals = new Dictionary<string, string>();
-        readonly Feed _feed = new Feed();
+        readonly Dictionary<ConfigFile, bool> _saveFlags = new Dictionary<ConfigFile, bool>();
+        Feed _feed;
+        string _originalsPath;
+        bool _recoveryChecked;
 
         void Awake()
         {
+            _feed = new Feed(Logger);
+            _originalsPath = Path.Combine(Paths.BepInExRootPath, "PeakPack", "live-originals.txt");
+            LoadOriginals();
             var path = Path.Combine(Paths.BepInExRootPath, "PeakPack", "pack-info.json");
             _info = PackInfoDto.Load(path, Logger);
             if (_info == null)
@@ -74,8 +82,15 @@ namespace PeakPack.Companion
 
         void Update()
         {
-            if (_info == null || Time.unscaledTime < _nextTick) return;
+            if (Time.unscaledTime < _nextTick) return;
             _nextTick = Time.unscaledTime + 1f;
+            if (!_recoveryChecked)
+            {
+                // First tick: every plugin is loaded now. Own values left over from a crash in a lobby come back.
+                _recoveryChecked = true;
+                if (_originals.Count > 0 && !PhotonNetwork.InRoom) RestoreSettings();
+            }
+            if (_info == null) return;
             _feed.Flush();
             if (!PhotonNetwork.InRoom) return;
 
@@ -87,16 +102,16 @@ namespace PeakPack.Companion
             else if (Character.localCharacter != null)
             {
                 // Only once the player is actually in the scene (joiners are still loading at OnJoinedRoom).
-                var key = PhotonNetwork.CurrentRoom.Name + "#" + RoomRev();
+                // Re-check only when the host's pack or revision changes (not on every live-setting change).
+                var key = PhotonNetwork.CurrentRoom.Name + "#" + RoomPack() + "#" + RoomRev();
                 if (_evaluatedFor != key) { _evaluatedFor = key; EvaluateAsClient(); }
             }
 
-            if (_leaveAt > 0 && Time.unscaledTime >= _leaveAt)
+            if (_leaveAt > 0 && Time.unscaledTime >= _leaveAt && !IsHost)
             {
                 _leaveAt = -1f;
                 Logger.LogInfo("Leaving the lobby: pack revision is older than the host's (mismatchPolicy = block).");
-                global::Player.LeaveCurrentGame();
-                UnityEngine.SceneManagement.SceneManager.LoadScene("Title");
+                global::Player.LeaveCurrentGame(); // the game itself returns to the title screen (NetworkConnector.OnLeftRoom)
             }
         }
 
@@ -113,7 +128,7 @@ namespace PeakPack.Companion
             bool block = v == LobbyCheck.Verdict.YouAreOlder && _info.Block;
             var msg = LobbyCheck.ClientMessage(v, HostNick(), _info.revision, RoomRev() ?? 0, _info.shortcutName, block, Feed.Name);
             if (msg != null) _feed.Post(msg, warning: true);
-            if (block) _leaveAt = Time.unscaledTime + BlockLeaveDelay;
+            _leaveAt = block ? Time.unscaledTime + BlockLeaveDelay : -1f;
             if (v == LobbyCheck.Verdict.Match || v == LobbyCheck.Verdict.YouAreNewer || v == LobbyCheck.Verdict.YouAreOlder)
                 ApplyHostSettings(PhotonNetwork.CurrentRoom.CustomProperties[KCfg] as Hashtable);
         }
@@ -177,14 +192,13 @@ namespace PeakPack.Companion
                 var e = FindEntry(spec);
                 if (e == null) continue;
                 var mine = e.GetSerializedValue();
-                if (!_originals.ContainsKey(spec)) _originals[spec] = mine;
+                if (!_originals.ContainsKey(spec)) { _originals[spec] = mine; SaveOriginals(); }
                 if (mine == value) continue;
+                // The host's values live in memory only: this config file doesn't auto-save until they're restored.
                 var file = e.ConfigFile;
-                var save = file.SaveOnConfigSet;
-                file.SaveOnConfigSet = false; // the host's value lives in memory only
+                if (!_saveFlags.ContainsKey(file)) { _saveFlags[file] = file.SaveOnConfigSet; file.SaveOnConfigSet = false; }
                 try { e.SetSerializedValue(value); } // parsed as the entry's type and clamped to its allowed range
                 catch (Exception ex) { Logger.LogWarning($"Ignored host value for {spec}: {ex.Message}"); }
-                finally { file.SaveOnConfigSet = save; }
                 changedPlugins.Add(spec.Split('|')[0]);
             }
             var room = PhotonNetwork.CurrentRoom?.Name;
@@ -198,22 +212,53 @@ namespace PeakPack.Companion
 
         void RestoreSettings()
         {
-            if (_originals.Count == 0) return;
+            if (_originals.Count == 0 && _saveFlags.Count == 0) return;
             var files = new HashSet<ConfigFile>();
             foreach (var kv in _originals)
             {
                 var e = FindEntry(kv.Key);
                 if (e == null) continue;
                 var file = e.ConfigFile;
-                var save = file.SaveOnConfigSet;
+                bool autoSave = _saveFlags.TryGetValue(file, out var flag) ? flag : file.SaveOnConfigSet;
                 file.SaveOnConfigSet = false;
                 try { e.SetSerializedValue(kv.Value); } catch { }
-                finally { file.SaveOnConfigSet = save; }
-                if (save) files.Add(file);
+                if (!_saveFlags.ContainsKey(file)) file.SaveOnConfigSet = autoSave;
+                if (autoSave) files.Add(file);
             }
-            foreach (var f in files) { try { f.Save(); } catch { } } // in case anything saved while the host's values were active
+            foreach (var kv in _saveFlags) kv.Key.SaveOnConfigSet = kv.Value;
+            foreach (var f in files) { try { f.Save(); } catch { } } // the file now holds the player's own values again
+            _saveFlags.Clear();
             _originals.Clear();
+            try { if (File.Exists(_originalsPath)) File.Delete(_originalsPath); } catch { }
             Logger.LogInfo("Restored your own values for live settings.");
+        }
+
+        // One line per setting: spec TAB base64(value). Small, and only exists while the host's values are active.
+        void SaveOriginals()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_originalsPath));
+                File.WriteAllLines(_originalsPath, _originals.Select(kv => kv.Key + "\t" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(kv.Value))));
+            }
+            catch (Exception e) { Logger.LogWarning("Couldn't remember your own settings: " + e.Message); }
+        }
+
+        void LoadOriginals()
+        {
+            try
+            {
+                if (!File.Exists(_originalsPath)) return;
+                foreach (var line in File.ReadAllLines(_originalsPath))
+                {
+                    var tab = line.IndexOf('\t');
+                    if (tab <= 0) continue;
+                    var spec = line.Substring(0, tab);
+                    if (!_originals.ContainsKey(spec))
+                        _originals[spec] = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(line.Substring(tab + 1)));
+                }
+            }
+            catch (Exception e) { Logger.LogWarning("Couldn't read " + _originalsPath + ": " + e.Message); }
         }
 
         // ---------- Photon callbacks ----------
@@ -230,6 +275,7 @@ namespace PeakPack.Companion
         {
             _leaveAt = -1f;
             _hostChecks.Clear();
+            _feed?.Clear(); // don't show lobby notices after leaving
             RestoreSettings();
         }
 
@@ -237,18 +283,18 @@ namespace PeakPack.Companion
         {
             if (newMasterClient != null && newMasterClient.IsLocal)
             {
+                _leaveAt = -1f;
                 RestoreSettings();          // we're the host now: our own values apply
                 PushRoomProperties(true);
                 foreach (var p in PhotonNetwork.PlayerListOthers) _hostChecks[p.ActorNumber] = Time.unscaledTime + 2f;
             }
-            else _evaluatedFor = null;
         }
 
         public void OnRoomPropertiesUpdate(Hashtable propertiesThatChanged)
         {
             if (IsHost || propertiesThatChanged == null) return;
+            // Pack/revision changes are picked up by Update (its check key includes them).
             if (propertiesThatChanged.ContainsKey(KCfg) && _evaluatedFor != null) ApplyHostSettings(propertiesThatChanged[KCfg] as Hashtable);
-            if (propertiesThatChanged.ContainsKey(KRev) || propertiesThatChanged.ContainsKey(KPack)) _evaluatedFor = null;
         }
 
         public void OnPlayerEnteredRoom(PhotonPlayer newPlayer)
@@ -258,8 +304,8 @@ namespace PeakPack.Companion
 
         public void OnPlayerPropertiesUpdate(PhotonPlayer targetPlayer, Hashtable changedProps)
         {
-            if (IsHost && targetPlayer != null && !targetPlayer.IsLocal && changedProps != null && changedProps.ContainsKey(KRev)
-                && _hostChecks.ContainsKey(targetPlayer.ActorNumber))
+            // Also after the first check: a late pp.rev corrects "joined without the mod pack" (each distinct thing is said once).
+            if (IsHost && targetPlayer != null && !targetPlayer.IsLocal && changedProps != null && changedProps.ContainsKey(KRev))
                 _hostChecks[targetPlayer.ActorNumber] = Time.unscaledTime + 1f;
         }
 
@@ -295,6 +341,7 @@ namespace PeakPack.Companion
                 var dto = JsonUtility.FromJson<PackInfoDto>(File.ReadAllText(path));
                 if (dto == null || string.IsNullOrEmpty(dto.packId) || dto.revision <= 0) return null;
                 if (dto.liveSettings == null) dto.liveSettings = new List<string>();
+                if (string.IsNullOrEmpty(dto.shortcutName)) dto.shortcutName = "PEAK (Modded)";
                 return dto;
             }
             catch (Exception e) { log.LogWarning("Couldn't read " + path + ": " + e.Message); return null; }

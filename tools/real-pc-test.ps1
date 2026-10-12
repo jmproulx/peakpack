@@ -27,7 +27,8 @@ param(
     [int]$TimeoutSeconds = 240,
     [switch]$AlsoDirect,
     [switch]$AlsoVanilla,
-    [switch]$SkipSteam
+    [switch]$SkipSteam,
+    [switch]$WithCompanion   # also load PeakPack.Companion (+ a test pack-info.json) in the test profile and check it starts cleanly
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -114,6 +115,20 @@ try {
 Copy-Item (Join-Path $PSScriptRoot 'RealPcTestPlugin\bin\Release\PeakPackRealPcTest.dll') (Join-Path $profileBep 'plugins\PeakPack-RealPcTest\')
 Set-Content -LiteralPath (Join-Path $profileBep 'plugins\PeakPack-RealPcTest\autoquit-seconds.txt') $AutoQuitSeconds
 Check (Test-Path -LiteralPath $preloader) "test profile preloader at $preloader"
+if ($WithCompanion) {
+    & $dn build (Join-Path $root 'src\PeakPack.Companion') -c Release -v q --nologo "-p:GameDir=$GameDir" | Out-Null
+    $comp = Join-Path $root 'src\PeakPack.Companion\bin\Release\PeakPack.Companion.dll'
+    New-Item -ItemType Directory -Force (Join-Path $profileBep 'plugins\PeakPack-Companion'), (Join-Path $profileBep 'PeakPack') | Out-Null
+    Copy-Item $comp (Join-Path $profileBep 'plugins\PeakPack-Companion\')
+    @'
+{
+  "schema": 1, "packId": "real-pc-test", "packName": "Real PC test", "hostName": "Joshua", "revision": 1,
+  "published": "2026-10-11T00:00:00+00:00", "shortcutName": "PEAK (Modded)", "modsRequiredToJoin": false,
+  "mismatchPolicy": "warn", "liveSettings": [ "com.joshua.jetpackboost|Boost|ThrustMultiplier" ]
+}
+'@ | Set-Content -LiteralPath (Join-Path $profileBep 'PeakPack\pack-info.json') -Encoding utf8
+    Check (Test-Path -LiteralPath (Join-Path $profileBep 'plugins\PeakPack-Companion\PeakPack.Companion.dll')) 'companion + pack-info.json in the test profile'
+}
 
 $before = Snapshot-Game
 $hisLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
@@ -185,6 +200,13 @@ function Run-Phase($name, [string[]]$cliArgs, $marker, [bool]$expectLoad) {
         $log = Join-Path $profileBep 'LogOutput.log'
         $hit = if (Test-Path -LiteralPath $log) { @(Select-String -LiteralPath $log -Pattern 'PEAKPACK-REAL-PC-TEST|BepInEx \d|Chainloader' | ForEach-Object { $_.Line }) } else { @() }
         Check ($hit -match 'PEAKPACK-REAL-PC-TEST loaded') "test profile LogOutput.log has the plugin's line ($log)"
+        if ($WithCompanion) {
+            $all = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log } else { @() }
+            Check (($all -match "PeakPack pack 'real-pc-test' rev 1").Count -gt 0) 'companion loaded and read pack-info.json'
+            $compErr = @($all | Where-Object { $_ -match 'PeakPack Companion|PeakPack\]' -and $_ -match 'Error|Exception' })
+            Check ($compErr.Count -eq 0) "no companion errors in the log ($($compErr -join ' / '))"
+            $all | Where-Object { $_ -match 'PeakPack Companion' } | Select-Object -First 4 | ForEach-Object { Say "    | $_" }
+        }
         $hit | Select-Object -First 8 | ForEach-Object { Say "    | $_" }
     } else {
         Check ($null -eq $res) 'no plugin ran (vanilla)'

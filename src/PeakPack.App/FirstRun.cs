@@ -26,14 +26,14 @@ public static class FirstRun
     public static Setup.SelfInstallResult Install(AppSession s)
     {
         var r = Setup.EnsureInstalledCopy(s.Paths);
-        Setup.CreateShortcuts(s.Paths, s.FindGameDir(), s.SetupOptions, ExtraArgs(s));
+        Setup.CreateShortcuts(s.Paths, s.FindGameDir(), s.SetupOptions, ExtraArgs(s), s.Config.DesktopAppShortcut);
         return r;
     }
 
     /// <summary>After the first successful mod install: refresh the shortcuts (PEAK's icon is known now).</summary>
     public static void RefreshShortcuts(AppSession s, string gameDir)
     {
-        if (File.Exists(s.Paths.InstalledExePath)) Setup.CreateShortcuts(s.Paths, gameDir, s.SetupOptions, ExtraArgs(s));
+        if (File.Exists(s.Paths.InstalledExePath)) Setup.CreateShortcuts(s.Paths, gameDir, s.SetupOptions, ExtraArgs(s), s.Config.DesktopAppShortcut);
     }
 
     /// <summary>Start the installed copy with the same (test) arguments; the caller then exits.</summary>

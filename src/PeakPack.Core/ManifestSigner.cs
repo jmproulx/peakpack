@@ -51,6 +51,9 @@ public sealed class PackConfig
     /// <summary>Base64 SubjectPublicKeyInfo. When set, manifest.json.sig must verify.</summary>
     public string? PublicKey { get; set; }
     public string ShortcutName { get; set; } = "PEAK (Modded)";
+    /// <summary>Also put a "PeakPack" icon (the app window) on the desktop. Off by default: one icon keeps it obvious;
+    /// the app window is in the Start Menu.</summary>
+    public bool DesktopAppShortcut { get; set; }
 
     public static PackConfig Load(Stream? s) =>
         s is null ? new PackConfig() : JsonSerializer.Deserialize<PackConfig>(s, PackManifest.JsonOptions) ?? new PackConfig();

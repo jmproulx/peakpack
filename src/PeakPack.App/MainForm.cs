@@ -168,7 +168,16 @@ public sealed class MainForm : Form
     void SizeToContent()
     {
         var pref = _body.GetPreferredSize(new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, 0));
-        ClientSize = new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, _header.Height + pref.Height + _footer.Height);
+        int h = _header.Height + pref.Height + _footer.Height;
+        // Small screens / high scaling: shrink the mod list rather than run off the screen.
+        int avail = Screen.FromPoint(Cursor.Position).WorkingArea.Height - (Height - ClientSize.Height) - _ui.Px(8);
+        if (h > avail && _mods.Visible)
+        {
+            _mods.Height = Math.Max(_ui.Px(70), _mods.Height - (h - avail));
+            pref = _body.GetPreferredSize(new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, 0));
+            h = _header.Height + pref.Height + _footer.Height;
+        }
+        ClientSize = new Size(_ui.Px(ContentWidth) + _body.Padding.Horizontal, h);
         PlaceFooterButtons();
     }
 
