@@ -112,11 +112,20 @@ ensure_x86_64() {
   fi
 }
 
+# Host (macOS) compilers as ABSOLUTE paths, resolved before anything touches PATH: llvm-mingw's
+# bin/ also contains a plain `clang` that targets Windows (CI run 38313863585: Wine's configure
+# "C compiler cannot create executables" after llvm-mingw was put first in PATH).
+if [ -z "${PP_HOST_CC:-}" ]; then
+  PP_HOST_CC="${PP_CC:-$(xcrun -f clang 2>/dev/null || command -v clang || echo clang)}"
+  PP_HOST_CXX="${PP_CXX:-$(xcrun -f clang++ 2>/dev/null || command -v clang++ || echo clang++)}"
+  export PP_HOST_CC PP_HOST_CXX
+fi
+
 # Toolchain environment for x86_64 macOS host objects.
 mac_x86_64_env() {
   export MACOSX_DEPLOYMENT_TARGET="$PP_MACOS_MIN"
-  export CC="${PP_CC:-clang} -arch x86_64"
-  export CXX="${PP_CXX:-clang++} -arch x86_64"
+  export CC="$PP_HOST_CC -arch x86_64"
+  export CXX="$PP_HOST_CXX -arch x86_64"
   export OBJC="$CC"
   export CFLAGS="-O2 -mmacosx-version-min=$PP_MACOS_MIN"
   export CXXFLAGS="$CFLAGS"
@@ -131,7 +140,9 @@ mac_x86_64_env() {
 # Put the PE cross toolchain on PATH.
 pe_toolchain_env() {
   case "$PP_PE_TOOLCHAIN" in
-    llvm-mingw) export PATH="$PP_TOOLS/llvm-mingw/bin:$PATH"; need x86_64-w64-mingw32-clang i686-w64-mingw32-clang ;;
+    # Appended, not prepended: only the prefixed *-w64-mingw32-* tools are needed, and its plain
+    # clang/ar/ranlib must never shadow the host tools.
+    llvm-mingw) export PATH="$PATH:$PP_TOOLS/llvm-mingw/bin"; need x86_64-w64-mingw32-clang i686-w64-mingw32-clang ;;
     mingw-gcc)  need x86_64-w64-mingw32-gcc i686-w64-mingw32-gcc ;;
     *) die "unknown PP_PE_TOOLCHAIN=$PP_PE_TOOLCHAIN" ;;
   esac

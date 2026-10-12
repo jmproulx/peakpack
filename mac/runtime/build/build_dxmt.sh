@@ -63,7 +63,8 @@ rm -rf "$PP_BLD/dxmt" "$out"
   cd "$src" || exit 1
   # The x86_64 unix side (winemetal.so) is built natively for macOS by meson's build
   # machine compiler: force x86_64 even when the outer shell is translated.
-  export CC="clang -arch x86_64" CXX="clang++ -arch x86_64" OBJC="clang -arch x86_64" OBJCXX="clang++ -arch x86_64"
+  # Absolute host compilers: llvm-mingw is first in PATH here and has its own (Windows-targeting) clang.
+  export CC="$PP_HOST_CC -arch x86_64" CXX="$PP_HOST_CXX -arch x86_64" OBJC="$PP_HOST_CC -arch x86_64" OBJCXX="$PP_HOST_CXX -arch x86_64"
   export MACOSX_DEPLOYMENT_TARGET="$PP_MACOS_MIN"
   meson setup "$PP_BLD/dxmt" \
     --cross-file build-win64.txt \

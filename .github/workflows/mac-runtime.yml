@@ -188,8 +188,11 @@ jobs:
           STEAM_BRIDGE: ${{ inputs.steam_bridge && '1' || '0' }}
         run: |
           set -uo pipefail
-          if mac/runtime/build/build_wine.sh --no-prepare; then exit 0; fi
+          wlog="$GITHUB_WORKSPACE/_work/wine-build-1.log"; mkdir -p "$(dirname "$wlog")"
+          if mac/runtime/build/build_wine.sh --no-prepare 2>&1 | tee "$wlog"; then exit 0; fi
           [ "$STEAM_BRIDGE" = 1 ] || exit 1
+          # Retry without the bridge only when the bridge is what failed (not e.g. a configure error).
+          grep -q 'lsteamclient' "$wlog" || { echo "::error::Wine build failed (not in lsteamclient); no retry"; exit 1; }
           echo "::warning::Wine build failed with the in-tree Steam bridge; rebuilding Wine without it"
           echo "BRIDGE_DISABLED=1" >> "$GITHUB_ENV"
           set -e
@@ -228,7 +231,7 @@ jobs:
           # Steam client probe so G-B1 needs no Xcode CLT on the test Mac.
           x86_64-w64-mingw32-clang -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
             -ld3d11 -ldxgi -ldxguid -luser32
-          clang -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
+          "$(xcrun -f clang)" -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
           lipo -archs "$pe/steam_client_probe-macos-x86_64"
           python3 -m venv "$W/venv-steam"
           "$W/venv-steam/bin/pip" install --quiet "pefile==2024.8.26"
