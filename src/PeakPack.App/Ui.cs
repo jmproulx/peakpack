@@ -214,6 +214,10 @@ public sealed class CommandLink : Button
         AccessibleRole = AccessibleRole.PushButton;
     }
 
+    /// <summary>The main choice: shown with a resting outline, like the default command link in Windows dialogs.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool IsPrimary { get; set { field = value; Invalidate(); } }
+
     /// <summary>Layout scale (Ui.Scale); fonts come from <see cref="Control.Font"/> (title) and <see cref="NoteFont"/>.</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public float LayoutScale { get; set; } = 1f;
@@ -254,9 +258,9 @@ public sealed class CommandLink : Button
         var g = e.Graphics;
         g.Clear(Parent?.BackColor ?? Theme.Face);
         var box = new Rectangle(0, 0, Width - 1, Height - 1);
-        if (Enabled && (_hover || _down))
+        if (Enabled && (_hover || _down || IsPrimary))
         {
-            using var fill = new SolidBrush(_down ? DownFill : HoverFill);
+            using var fill = new SolidBrush(_down ? DownFill : _hover ? HoverFill : Color.FromArgb(0xF4, 0xF8, 0xFD));
             using var line = new Pen(HoverLine);
             g.FillRectangle(fill, box);
             g.DrawRectangle(line, box);
@@ -280,5 +284,38 @@ public sealed class CommandLink : Button
             TextRenderer.DrawText(g, _note, NoteFont ?? Font, new Rectangle(TextLeft, Px(9) + titleSize.Height + Px(1), textW, Height), ink, Wrap);
         if (Focused && ShowFocusCues)
             ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(box, -Px(2), -Px(2)));
+    }
+}
+
+/// <summary>The one primary button of a page (Install, Play now): flat PEAK orange with white text, square corners,
+/// standard button size. Everything else stays a normal system button.</summary>
+public sealed class AccentButton : Button
+{
+    bool _hover, _down;
+
+    public AccentButton()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hover = _down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { _down = true; Invalidate(); } base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { _down = false; Invalidate(); base.OnMouseUp(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        var back = !Enabled ? Color.FromArgb(0xE8, 0xB8, 0x98) : _down ? Theme.AccentDark : _hover ? Color.FromArgb(0xCC, 0x5E, 0x15) : Theme.Accent;
+        using (var b = new SolidBrush(back)) g.FillRectangle(b, ClientRectangle);
+        using (var p = new Pen(Theme.AccentDark)) g.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
+        TextRenderer.DrawText(g, Text, Font, ClientRectangle, Color.White,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+        if (Focused && ShowFocusCues)
+            ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -3, -3), Color.White, back);
     }
 }

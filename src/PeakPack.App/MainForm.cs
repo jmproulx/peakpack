@@ -34,7 +34,8 @@ public sealed class MainForm : Form
     TableLayoutPanel _doneRow = null!;
     ListView _mods = null!;
     LinkLabel _checkLink = null!, _folderLink = null!, _removeLink = null!, _copyLink = null!;
-    Button _okButton = null!, _cancelButton = null!;
+    AccentButton _okButton = null!;   // the page's one primary action (Install / Play now / Try again)
+    Button _cancelButton = null!;     // Cancel / Close
     TableLayoutPanel _body = null!;
     Panel _footer = null!;
 
@@ -128,7 +129,7 @@ public sealed class MainForm : Form
         _copyLink = MakeLink("Copy details", () => { CopyDetails(); return Task.CompletedTask; });
         var links = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(_ui.Px(20), _ui.Px(17)), BackColor = Theme.Face };
         links.Controls.AddRange([_checkLink, _folderLink, _removeLink, _copyLink]);
-        _okButton = new Button { FlatStyle = FlatStyle.System, Size = _ui.Sz(96, 28), Font = _ui.Body };
+        _okButton = new AccentButton { Size = _ui.Sz(104, 28), Font = _ui.Font(9f, FontStyle.Bold) };
         _cancelButton = new Button { FlatStyle = FlatStyle.System, Size = _ui.Sz(96, 28), Font = _ui.Body };
         _okButton.Click += async (_, _) => await OnOkAsync();
         _cancelButton.Click += (_, _) => Close();
@@ -195,8 +196,7 @@ public sealed class MainForm : Form
         {
             Page.Welcome => $"Set up {Host}'s mods for PEAK",
             Page.Done => "Setup complete",
-            _ => $"Pack revision {st.InstalledRevision}" + (st.LastLaunchMode is { } lm && st.LastLaunchTime is { } lt
-                ? $"   ·   last played {(lm == LaunchMode.Modded ? "with mods" : "normal PEAK")} {Ago(lt)}" : ""),
+            _ => $"Mod pack for PEAK, kept in sync with {Host}",
         });
 
         _playModded.Visible = _playVanilla.Visible = _page == Page.Main;
@@ -216,8 +216,10 @@ public sealed class MainForm : Form
         }
         if (_problem is { } p) _status.Set(StatusKind.Bad, p.Heading, p.Advice + (_page == Page.Main ? $" You can still play with the mods you have (revision {st.InstalledRevision})." : ""));
         FillModList(st);
+        _playModded.IsPrimary = true;
         ResumeLayout(true);
         SizeToContent();
+        if (!_busy) ActiveControl = _page == Page.Main ? _playModded : _okButton; // focus the main action, not Cancel/Close
     }
 
     void RenderWelcome()
@@ -275,12 +277,13 @@ public sealed class MainForm : Form
         _playVanilla.Height = _playVanilla.PreferredHeightFor(_playVanilla.Width);
         _playModded.Enabled = _playVanilla.Enabled = !_busy;
         _checkLink.Text = updating ? "Update now" : "Check for updates";
-        _okButton.Text = "Close";
-        _okButton.Visible = true;
-        _cancelButton.Visible = false;
-        _okButton.Enabled = true;
+        _okButton.Text = "Try again";
+        _okButton.Visible = _problem is not null;
+        _okButton.Enabled = !_busy;
+        _cancelButton.Text = "Close";
+        _cancelButton.Visible = true;
         AcceptButton = null;
-        CancelButton = _okButton;
+        CancelButton = _cancelButton;
 
         if (!_busy && _problem is null)
         {
@@ -307,9 +310,9 @@ public sealed class MainForm : Form
         _whatsNew.Text = latestNote is { Length: > 0 } ? $"What's new in revision {shown!.Revision}: {latestNote}" : "";
         _whatsNew.Visible = _whatsNew.Text.Length > 0;
         _modsHeader.Text = "What's in this pack";
-        _modeInfo.Visible = true;
-        _modeInfo.Text = $"Mods only load when you use Play with mods or the \"{Shortcut}\" icon. Starting PEAK from Steam is always normal PEAK." +
-                         (st.ModsRequiredToJoin ? $" To join {Host}'s games, play with mods." : "");
+        // The Steam rule is already in the "Play normal PEAK" note; only add what matters for joining.
+        _modeInfo.Visible = st.ModsRequiredToJoin;
+        _modeInfo.Text = st.ModsRequiredToJoin ? $"To join {Host}'s games, use Play with mods." : "";
     }
 
     void FillModList(InstallState st)
@@ -356,11 +359,19 @@ public sealed class MainForm : Form
         _modsHeader.Visible = _mods.Visible = _mods.Items.Count > 0;
     }
 
+    static readonly char[] WhiteSpace = ['\n', '\r', '\t', ' '];
+
+    /// <summary>One line for the list: the first sentence if it's short, else cut at a word boundary (full text in the tooltip).</summary>
     static string? OneLine(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
-        s = s.Replace('\n', ' ').Replace('\r', ' ').Trim();
-        return s.Length > 110 ? s[..107].TrimEnd() + "..." : s;
+        s = string.Join(' ', s.Split(WhiteSpace, StringSplitOptions.RemoveEmptyEntries));
+        const int max = 72;
+        var dot = s.IndexOf(". ", StringComparison.Ordinal);
+        if (dot > 0 && dot < max) return s[..(dot + 1)];
+        if (s.Length <= max) return s;
+        var cut = s.LastIndexOf(' ', max);
+        return (cut > 30 ? s[..cut] : s[..max]).TrimEnd(',', ';', ':', '-', ' ') + "...";
     }
 
     static string FormatSize(long bytes) => bytes < 1024 * 1024 ? $"{Math.Max(1, bytes / 1024)} KB" : $"{bytes / 1024d / 1024d:0.#} MB";
@@ -399,6 +410,7 @@ public sealed class MainForm : Form
     {
         if (_page == Page.Welcome) await InstallAsync();
         else if (_page == Page.Done) { _page = Page.Main; Render(); await PlayAsync(LaunchMode.Modded); }
+        else if (_problem is not null) await CheckAsync();
         else Close();
     }
 
