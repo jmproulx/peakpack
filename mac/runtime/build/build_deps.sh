@@ -15,6 +15,11 @@ J="$(ncpu)"
 mkdir -p "$PP_DEPS" "$PP_BLD/deps"
 host=x86_64-apple-darwin
 common_cfg=(--prefix="$PP_DEPS" --host="$host" --enable-shared --disable-static)
+# Autoconf 2.72 makes AC_PROG_CC pick -std=gnu23, under which old-style declarations in
+# bundled gnulib/getopt code fail (CI run 38304185476: nettle getopt.c "conflicting types for
+# 'getopt'/'getenv'"). Presetting the cache variable keeps clang's default (gnu17) for every
+# autoconf-based dependency, whichever autoconf generated its configure.
+export ac_cv_prog_cc_c23=no
 export CPPFLAGS="-I$PP_DEPS/include"
 export LDFLAGS="$LDFLAGS -L$PP_DEPS/lib"
 
