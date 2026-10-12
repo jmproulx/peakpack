@@ -153,20 +153,41 @@ public sealed class PublishPipeline(Action<string> log)
 
     /// <summary>Puts the companion and a pack-info.json into a BepInEx folder (the host's own game), so the host's
     /// game announces this revision in lobbies. Touches only BepInEx\plugins\PeakPack-Companion\ and BepInEx\PeakPack\.</summary>
-    public void StampHost(PackManifest m, string manifestDir, string bepInExDir, string shortcutName = "PEAK (Modded)")
+    public enum CompanionStamp { NotInPack, Installed, AlreadyCurrent, LockedByGame }
+
+    /// <summary>Writes pack-info.json FIRST (always: that's what makes the host's lobby announce the new revision; the
+    /// running companion re-reads it within 2 s), then installs the companion if it differs. A companion DLL that the
+    /// running game loaded at startup is locked by Windows: then it's left as is, reported, and replaced by running
+    /// stamp again with PEAK closed. Never throws for a locked DLL.</summary>
+    public CompanionStamp StampHost(PackManifest m, string manifestDir, string bepInExDir, string shortcutName = "PEAK (Modded)")
     {
         if (!Directory.Exists(bepInExDir)) throw new DirectoryNotFoundException($"No BepInEx folder at {bepInExDir}");
-        var comp = m.Files.FirstOrDefault(f => f.Id.Equals(PublishConfig.CompanionId, StringComparison.OrdinalIgnoreCase));
-        if (comp is not null)
-        {
-            var src = Path.Combine(manifestDir, comp.Url.Split('/')[^1]);
-            var dst = SafePath.Combine(bepInExDir, comp.Path);
-            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-            if (!File.Exists(dst) || Downloader.Sha256OfFile(dst) != comp.Sha256) File.Copy(src, dst, true);
-            log($"Companion -> {dst}");
-        }
         PackInfo.From(m, shortcutName).Save(PackInfo.PathIn(bepInExDir));
-        log($"pack-info.json (rev {m.Revision}) -> {PackInfo.PathIn(bepInExDir)}");
+        log($"pack-info.json -> revision {m.Revision}, host ids [{string.Join(", ", m.Lobby?.HostIds ?? [])}] ({PackInfo.PathIn(bepInExDir)})");
+
+        var comp = m.Files.FirstOrDefault(f => f.Id.Equals(PublishConfig.CompanionId, StringComparison.OrdinalIgnoreCase));
+        if (comp is null) { log("Companion: not in this pack; left as is."); return CompanionStamp.NotInPack; }
+        var src = Path.Combine(manifestDir, comp.Url.Split('/')[^1]);
+        var dst = SafePath.Combine(bepInExDir, comp.Path);
+        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+        if (File.Exists(dst) && Downloader.Sha256OfFile(dst) == comp.Sha256.ToLowerInvariant())
+        {
+            log($"Companion: already this build ({comp.Version}); not copied.");
+            return CompanionStamp.AlreadyCurrent;
+        }
+        try
+        {
+            File.Copy(src, dst, true);
+            log($"Companion: installed {comp.Version} -> {dst}");
+            return CompanionStamp.Installed;
+        }
+        catch (IOException)
+        {
+            var have = File.Exists(dst) ? System.Diagnostics.FileVersionInfo.GetVersionInfo(dst).ProductVersion : "?";
+            log($"Companion: in use by the running game (installed {have}); left as is. pack-info was updated anyway. " +
+                "To replace the DLL, run stamp again with PEAK closed.");
+            return CompanionStamp.LockedByGame;
+        }
     }
 
     static void CopyDir(string src, string dst)

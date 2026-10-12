@@ -153,7 +153,19 @@ $hostBep = Join-Path $v3 'hostgame\BepInEx'; New-Item -ItemType Directory -Force
 $o = PP stamp --manifest (Join-Path $work 'staging') --bepinex $hostBep
 $hi = Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw | ConvertFrom-Json
 Check ($hi.revision -eq 1) 'host pack-info.json stamped'
-if ($companionBuilt) { Check (Test-Path (Join-Path $hostBep 'plugins\PeakPack-Companion\PeakPack.Companion.dll')) 'host companion installed' }
+if ($companionBuilt) {
+    $hc = Join-Path $hostBep 'plugins\PeakPack-Companion\PeakPack.Companion.dll'
+    Check (Test-Path $hc) 'host companion installed'
+    $o = PP stamp --manifest (Join-Path $work 'staging') --bepinex $hostBep
+    Check ($o -match 'already this build') 'stamp again: identical companion is not copied'
+    # The running game keeps the DLL it loaded at startup locked: stamp must still update pack-info.
+    [IO.File]::WriteAllText($hc, 'older build')
+    (Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw).Replace('"revision": 1', '"revision": 0') | Set-Content (Join-Path $hostBep 'PeakPack\pack-info.json')
+    $lock = [IO.File]::Open($hc, 'Open', 'Read', 'Read')
+    try { $o = PP stamp --manifest (Join-Path $work 'staging') --bepinex $hostBep } finally { $lock.Dispose() }
+    Check ($o -match 'in use by the running game' -and (Get-Content $hc -Raw) -eq 'older build') 'locked companion: left as is and reported'
+    Check ((Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw | ConvertFrom-Json).revision -eq 1) 'locked companion: pack-info still updated'
+}
 
 Write-Host '== companion lobby logic'
 if (Test-Path (Join-Path $PSScriptRoot 'LobbyCheckTests')) {

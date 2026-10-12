@@ -19,6 +19,9 @@
     <!-- Embedded PDB: Hamunii AutoReload reads plugins with Mono.Cecil ReadSymbols=true. -->
     <DebugType>embedded</DebugType>
     <Deterministic>true</Deterministic>
+    <!-- Reproducible: without this the SDK appends the git commit to the version, so every commit (even one that
+         doesn't touch the companion) produced a new DLL hash and a "changed" companion in the next pack. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\PEAK</GameDir>
     <ManagedDir>$(GameDir)\PEAK_Data\Managed</ManagedDir>
