@@ -53,7 +53,13 @@ fi
 if ! stamp_has deps-gnutls; then
   log "gnutls"
   rm -rf "$PP_BLD/deps/gnutls" && cp -Rp "$PP_SRC/gnutls" "$PP_BLD/deps/gnutls"
+  # CrossOver's gnutls hooks.m4 only CHECKS for -lnettle/-lhogweed when NETTLE_LIBS/HOGWEED_LIBS are
+  # empty and never adds them (CI run 38310697150: libgnutls failed to link, every nettle_* undefined),
+  # so pass all three libraries explicitly, as CodeWeavers' own build does.
   (cd "$PP_BLD/deps/gnutls" && ./configure "${common_cfg[@]}" \
+      NETTLE_CFLAGS="-I$PP_DEPS/include" NETTLE_LIBS="-L$PP_DEPS/lib -lnettle" \
+      HOGWEED_CFLAGS="-I$PP_DEPS/include" HOGWEED_LIBS="-L$PP_DEPS/lib -lhogweed" \
+      GMP_CFLAGS="-I$PP_DEPS/include" GMP_LIBS="-L$PP_DEPS/lib -lgmp" \
       --with-included-libtasn1 --with-included-unistring --without-p11-kit --without-idn \
       --without-brotli --without-zstd --without-tpm --without-tpm2 --disable-doc --disable-manpages \
       --disable-tests --disable-tools --disable-cxx --disable-nls --disable-libdane \
