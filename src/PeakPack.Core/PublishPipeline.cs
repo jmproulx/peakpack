@@ -30,7 +30,12 @@ public sealed class PublishPipeline(Action<string> log)
     /// "first publish"), else the last local release. A network error is an error: guessing could reuse a revision.</summary>
     public async Task<PackManifest?> LoadPreviousAsync(PublishConfig cfg, string workDir, Downloader dl, string? previousPath = null, CancellationToken ct = default, bool allowFirstPublish = false)
     {
-        if (previousPath is not null) return File.Exists(previousPath) ? PackManifest.Parse(await File.ReadAllTextAsync(previousPath, ct)) : null;
+        if (previousPath is not null)
+        {
+            if (File.Exists(previousPath)) return PackManifest.Parse(await File.ReadAllTextAsync(previousPath, ct));
+            // A mistyped path must never mean "first publish": fall through to the live/local revision (and its guard).
+            log($"Previous manifest {previousPath} not found; using the live/local revision instead.");
+        }
         PackManifest? live = null, local = null;
         if (cfg.EffectiveManifestUrl is { } url)
         {
@@ -75,13 +80,19 @@ public sealed class PublishPipeline(Action<string> log)
 
         // Stable-named friend app next to the versioned one (see class comment).
         if (cfg.App is { } app && File.Exists(app.Source))
+        {
             File.Copy(app.Source, Path.Combine(staging, "PeakPack.exe"), true);
+            // For tools that fetch PeakPack.exe directly (the Mac front end and test kit): "sha256sum -c" format.
+            File.WriteAllText(Path.Combine(staging, "PeakPack.exe.sha256"),
+                $"{Downloader.Sha256OfFile(Path.Combine(staging, "PeakPack.exe"))}  PeakPack.exe\n", new UTF8Encoding(false));
+        }
 
         var assets = new List<string> { Path.Combine(staging, "manifest.json") };
         if (File.Exists(Path.Combine(staging, "manifest.json.sig"))) assets.Add(Path.Combine(staging, "manifest.json.sig"));
         foreach (var f in m.Files.Concat(m.Platforms?.Mac?.Files ?? [])) assets.Add(Path.Combine(staging, f.Url.Split('/')[^1]));
         if (m.App is not null) assets.Add(Path.Combine(staging, m.App.Url.Split('/')[^1]));
         if (File.Exists(Path.Combine(staging, "PeakPack.exe"))) assets.Add(Path.Combine(staging, "PeakPack.exe"));
+        if (File.Exists(Path.Combine(staging, "PeakPack.exe.sha256"))) assets.Add(Path.Combine(staging, "PeakPack.exe.sha256"));
         assets = assets.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var problems = new List<string>();

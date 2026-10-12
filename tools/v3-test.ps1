@@ -138,7 +138,7 @@ Check ($o -match 'copied: False') 'opening the same download again does not rewr
 Write-Host '== publish pipeline (dry run only: nothing is uploaded)'
 $work = Join-Path $v3 'work'
 $o = PP release --config (Join-Path $v3 'publish.json') --work $work --previous (Join-Path $v3 'none.json') --dry-run --notes 'Dry-run test'
-Check ($o -match 'DRY RUN, would run: .*gh(\.exe)?"? release create rev-1 ') 'dry run prints the gh release command'
+Check ($o -match 'DRY RUN, would run: .*gh(\.exe)?"? release create rev-\d+ ') 'dry run prints the gh release command'
 Check ($o -match '--repo jmproulx/peakpack' -and $o -match '--latest') 'targets jmproulx/peakpack, marked latest'
 Check (-not ($o -match 'NOT READY')) "pipeline reports ready ($(($o | Select-String 'NOT READY') -join '; '))"
 Check (Test-Path (Join-Path $work 'staging\PeakPack.exe')) 'stable PeakPack.exe asset staged'
@@ -152,7 +152,8 @@ Write-Host '== stamp the host''s own game (companion + pack-info)'
 $hostBep = Join-Path $v3 'hostgame\BepInEx'; New-Item -ItemType Directory -Force (Join-Path $hostBep 'plugins') | Out-Null
 $o = PP stamp --manifest (Join-Path $work 'staging') --bepinex $hostBep
 $hi = Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw | ConvertFrom-Json
-Check ($hi.revision -eq 1) 'host pack-info.json stamped'
+$stagedRev = (Get-Content (Join-Path $work 'staging\manifest.json') -Raw | ConvertFrom-Json).revision
+Check ($hi.revision -eq $stagedRev) "host pack-info.json stamped (revision $stagedRev)"
 if ($companionBuilt) {
     $hc = Join-Path $hostBep 'plugins\PeakPack-Companion\PeakPack.Companion.dll'
     Check (Test-Path $hc) 'host companion installed'
@@ -160,11 +161,11 @@ if ($companionBuilt) {
     Check ($o -match 'already this build') 'stamp again: identical companion is not copied'
     # The running game keeps the DLL it loaded at startup locked: stamp must still update pack-info.
     [IO.File]::WriteAllText($hc, 'older build')
-    (Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw).Replace('"revision": 1', '"revision": 0') | Set-Content (Join-Path $hostBep 'PeakPack\pack-info.json')
+    (Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw).Replace("`"revision`": $stagedRev", '"revision": 0') | Set-Content (Join-Path $hostBep 'PeakPack\pack-info.json')
     $lock = [IO.File]::Open($hc, 'Open', 'Read', 'Read')
     try { $o = PP stamp --manifest (Join-Path $work 'staging') --bepinex $hostBep } finally { $lock.Dispose() }
     Check ($o -match 'in use by the running game' -and (Get-Content $hc -Raw) -eq 'older build') 'locked companion: left as is and reported'
-    Check ((Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw | ConvertFrom-Json).revision -eq 1) 'locked companion: pack-info still updated'
+    Check ((Get-Content (Join-Path $hostBep 'PeakPack\pack-info.json') -Raw | ConvertFrom-Json).revision -eq $stagedRev) 'locked companion: pack-info still updated'
 }
 
 Write-Host '== companion lobby logic'

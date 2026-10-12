@@ -115,10 +115,14 @@ public sealed class PackManifest
                 if (string.IsNullOrWhiteSpace(f.Url) || !IsSha256(f.Sha256))
                     throw new InvalidDataException($"Mac file entry '{f.Path}' is incomplete.");
                 f.Path = SafePath.NormalizeRelative(f.Path);
-                if (!f.Path.StartsWith("config/", StringComparison.OrdinalIgnoreCase) || f.Path.Split('/').Length < 2)
-                    throw new InvalidDataException($"Mac file '{f.Path}' must go under config/.");
-                f.Overwrite = OverwriteMode.IfMissing; // never overwrite a friend's own settings
-                f.HotReload = false;
+                bool isConfig = f.Path.StartsWith("config/", StringComparison.OrdinalIgnoreCase);
+                bool isPlugin = f.Path.StartsWith("plugins/", StringComparison.OrdinalIgnoreCase) && f.Path.Split('/').Length >= 3;
+                if (!(isConfig && f.Path.Split('/').Length >= 2) && !isPlugin)
+                    throw new InvalidDataException($"Mac file '{f.Path}' must go under config/ or plugins/<folder>/.");
+                if (isConfig) f.Overwrite = OverwriteMode.IfMissing; // never overwrite a friend's own settings
+                f.HotReload = false;                                  // Mac-only files change only with a restart
+                if (isPlugin && Files.Any(w => w.Path.Equals(f.Path, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException($"Mac plugin file '{f.Path}' also exists for every platform.");
                 if (!macDests.Add(f.Path)) throw new InvalidDataException($"Mac file '{f.Path}' is listed twice.");
             }
         }
@@ -210,8 +214,10 @@ public sealed class MacSettings
 {
     /// <summary>Extra game arguments on Mac, e.g. "-force-d3d11" (the DXMT path). Never Doorstop arguments.</summary>
     public List<string> ExtraArgs { get; set; } = new();
-    /// <summary>Mac defaults for friends' config files (laptop-friendly keys, natural-scroll zoom...). Always
-    /// "ifMissing" under config/: a friend's own changes are never overwritten. Same path as a Windows file = replaces it on Mac.</summary>
+    /// <summary>Mac-only files. Under config/: Mac defaults for friends' config files (laptop-friendly keys...), always
+    /// "ifMissing", so a friend's own changes are never overwritten; same path as a Windows file = replaces it on Mac.
+    /// Under plugins/&lt;folder&gt;/: Mac-only plugins (e.g. PeakPack.MacPreset), enforced like any pack file and never
+    /// installed on Windows.</summary>
     public List<FileEntry> Files { get; set; } = new();
     /// <summary>Lowest Mac front-end version that understands this pack (informational for the front end).</summary>
     public string? MinFrontEnd { get; set; }

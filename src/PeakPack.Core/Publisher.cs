@@ -58,6 +58,9 @@ public sealed class PublishConfig
         public List<string> ExtraArgs { get; set; } = new();
         /// <summary>{ id, version, source, dest: "config/&lt;guid&gt;.cfg" }. Always installed "ifMissing".</summary>
         public List<CustomFile> ConfigFiles { get; set; } = new();
+        /// <summary>Mac-only files: dest under plugins/ (enforced, like any pack file; e.g. PeakPack.MacPreset) or
+        /// config/ (forced ifMissing). Never installed on Windows.</summary>
+        public List<CustomFile> Files { get; set; } = new();
         public string? MinFrontEnd { get; set; }
     }
 
@@ -244,19 +247,21 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
         if (cfg.Mac is { } mac)
         {
             var ms = new MacSettings { ExtraArgs = mac.ExtraArgs.ToList(), MinFrontEnd = mac.MinFrontEnd };
-            foreach (var cf in mac.ConfigFiles)
+            foreach (var cf in mac.ConfigFiles.Concat(mac.Files))
             {
-                if (!File.Exists(cf.Source)) throw new FileNotFoundException($"Mac config file not found: {cf.Source}");
+                if (!File.Exists(cf.Source)) throw new FileNotFoundException($"Mac file not found: {cf.Source}");
                 var sha = Downloader.Sha256OfFile(cf.Source);
                 var assetName = $"mac-{cf.Id}-{sha[..8]}-{Path.GetFileName(cf.Source)}";
                 File.Copy(cf.Source, Path.Combine(outDir, assetName), true);
+                bool isConfig = cf.Dest.StartsWith("config/", StringComparison.OrdinalIgnoreCase);
                 ms.Files.Add(new FileEntry
                 {
-                    Id = cf.Id, Version = cf.Version, Path = cf.Dest, Overwrite = OverwriteMode.IfMissing,
+                    Id = cf.Id, Version = cf.Version, Path = cf.Dest, Title = cf.Title, Description = cf.Description,
+                    Overwrite = isConfig ? OverwriteMode.IfMissing : OverwriteMode.Always,
                     Url = string.IsNullOrEmpty(baseUrl) ? assetName : baseUrl.TrimEnd('/') + "/" + assetName,
                     Sha256 = sha, Size = new FileInfo(cf.Source).Length,
                 });
-                log($"  mac config {cf.Dest} -> {assetName}");
+                log($"  mac {(isConfig ? "config" : "file")} {cf.Dest} -> {assetName}");
             }
             m.Platforms = new PlatformSettings { Mac = ms };
         }
@@ -286,8 +291,12 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
 
     public static IEnumerable<string> Diff(PackManifest? before, PackManifest after)
     {
-        var a = (before?.Packages.Select(p => p.Id) ?? []).Concat(before?.Files.Select(f => $"{f.Id}@{f.Sha256[..8]}") ?? []).Append(before?.Loader.Id ?? "").ToHashSet();
-        var b = after.Packages.Select(p => p.Id).Concat(after.Files.Select(f => $"{f.Id}@{f.Sha256[..8]}")).Append(after.Loader.Id).ToHashSet();
+        static IEnumerable<string> Keys(PackManifest? m) => m is null ? [] : m.Packages.Select(p => p.Id)
+            .Concat(m.Files.Select(f => $"{f.Id}@{f.Sha256[..8]}"))
+            .Concat((m.Platforms?.Mac?.Files ?? []).Where(f => f.Overwrite == OverwriteMode.Always).Select(f => $"mac:{f.Id}@{f.Sha256[..8]}"))
+            .Append(m.Loader.Id);
+        var a = Keys(before).ToHashSet();
+        var b = Keys(after).ToHashSet();
         foreach (var x in b.Except(a).Order()) yield return "+ " + x;
         foreach (var x in a.Except(b).Where(s => s != "").Order()) yield return "- " + x;
     }

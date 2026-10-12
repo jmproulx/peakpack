@@ -534,3 +534,52 @@ A thin wrapper; all mod logic stays in the Windows PeakPack inside the prefix. B
   - a Wine build without `wine_get_host_version` would be treated as Linux.
 - **Not tested:** anything under real Wine or macOS, and AutoReload inside a running PEAK. Those are MacPort gates G-D2 and G-D3.
 
+### 18.8 For the Mac test kit (R6, R7) and revision 5
+
+**R6:**
+
+- **(a)** Every pack release now also carries **`PeakPack.exe.sha256`** (`<sha256>  PeakPack.exe`, `sha256sum -c` format) next to `PeakPack.exe`.
+- **(b)** `--headless --launch --launch-method direct --game-dir <dir> --status-out <file>` works as one command. `--game-dir` and `--launch-method` are global options that every mode reads. v5-test check E runs exactly this combination (with `--data-dir`/`--manifest` overrides) under simulated Wine.
+- **(c)** The status file uses **camelCase** keys (the same JSON options as the manifest), including nested `problem.heading/advice/details`. It's written atomically (`.tmp` then rename) at every step. The kit can stop falling back to PascalCase. Schema (`state` is the field to poll):
+
+  | Key | Type | Meaning |
+  |---|---|---|
+  | `state` | `working` \| `done` \| `failed` | poll until not `working` |
+  | `step` | `check` \| `sync` \| `launch` \| `start` | current step (`start` = PeakPack itself couldn't start) |
+  | `message` | string | one line for the UI ("Ready to play", "Downloading HeliPilot…") |
+  | `progress` | number 0-1 or absent | sync progress |
+  | `platform` | string | "Windows", "Wine on macOS" (+ " (simulated)" in tests) |
+  | `appVersion` | string | PeakPack version |
+  | `installedRevision` / `latestRevision` | int / int or absent | pack revisions |
+  | `changes` | string[] | what this run changed or what an update would change |
+  | `launched` | `modded` \| `vanilla` or absent | set when PEAK was started |
+  | `commandLine` | string or absent | the exact launch command |
+  | `problem` | `{heading, advice, details}` or absent | on failure |
+  | `exitCode` | int | same as the process exit code (0 ok, 1 failed, 2 no PEAK, 3 foreign loader, 4 PEAK running, 5 not installed) |
+
+- **(d)** **PeakPack.exe has never run under real Wine.** Not Wine 11, not any version. G-D2 is the first time, so treat it as a G-D2 risk.
+  - It's a self-contained .NET 10 single-file WinForms exe. Its native libraries are compressed inside and extracted to `%TEMP%` on start.
+  - Mitigation in 0.4.2: `--headless`, `--hot-update` and `--hot-rollback` now run before any WinForms initialisation, so these paths need no GDI+/comctl32.
+  - Things to watch in G-D2: .NET's single-file extraction and memory mapping under Wine, TLS 1.3/HTTP via Wine's schannel (downloads from github.com and thunderstore.io), the `ntdll` export lookup, and the `HKCU\Software\Wine` write. If .NET fails under Wine 11, the fallback is a `--self-contained` multi-file build; that's a build switch, not code.
+
+**R7:** `mac/testkit/expect/pack-plugins.txt` lists the plugin names that pack revision 4 must load on Mac:
+
+- AutoReload, InfinityJetpack (InfiniteJetpack's real BepInEx name), JetpackBoost, HeliPilot, ElytraGlider, ItemTuner, PeakPack Companion.
+- One per line, exactly as BepInEx logs `Loading [<name> <version>]`; `#` lines carry GUID, version and source.
+- It's generated from the real DLLs by `PeakPack.Cli expect-plugins --manifest <manifest.json> --platform mac --out mac/testkit/expect/pack-plugins.txt`. Regenerate after each revision. Rev 5 adds `PeakPack MacPreset` on Mac.
+
+**Mac-only plugins:** `platforms.mac.files` now also takes files under `plugins/<folder>/`, enforced like any pack file, signed, installed only on Mac, and removed by strict mode on Windows. Config files there stay ifMissing.
+
+**Revision 5 (staged, dry run):**
+
+- Heli Pilot 0.3.2 → 0.3.3 (scroll-zoom no longer switches hotbar slots; cockpit bundle bytes unchanged).
+- + Mac preset (Mac only) 0.1.0 (`plugins/PeakPack-MacPreset/PeakPack.MacPreset.dll`).
+- Friend app 0.4.2.
+- The companion is pinned to the exact rev-4 build (`builds\next5\PeakPack.Companion.dll`, fb520826, same code as the source). Builds made before the reproducibility fix differ byte-wise from today's identical source, and pinning avoids a pointless "new build" for friends and for Joshua's installed copy. Back-to-back builds now reproduce exactly (36d498c3 twice).
+
+**Fixed in this round, found by the extended tests:**
+
+- A mistyped or missing `--previous` path used to mean "first publish" (revision 1, which friends refuse). It now falls back to the guarded live/local revision.
+- `publish`'s "Changes since previous" now also lists Mac-only plugins.
+
+**Test counts at this point:** sandbox 38, v3 40, v4 37, v5 79 (new: Mac-only plugin, validation, sha256 asset, expect-plugins), friend GUI 23, Host GUI self-test OK.

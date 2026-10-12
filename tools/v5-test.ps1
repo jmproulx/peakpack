@@ -12,6 +12,11 @@
 #   K  a bundle-only change is restart-only and the bundle on disk is untouched
 #   L  manifest validation refuses a bad Mac launch argument and a Mac config outside config/
 #   M  release dry run: a local revision above the live one is used, so rev-10 is planned (never reuses a number)
+#   N  Mac-only plugin (mac.files, plugins/<folder>/): listed by check as "(Mac only)"; Mac sync installs it with the
+#      same SHA-256; Windows CLI install never does; strict Windows sync removes a hand-copied one; Mac restores a deleted one
+#   O  validation: a Mac plugin dest outside plugins/<folder>/ is refused; one equal to a Windows file is refused
+#   P  release dry run (never a real release): staging\PeakPack.exe.sha256 is listed as an asset, "<sha256>  PeakPack.exe"
+#   Q  expect-plugins: the Mac list has more plugins than the Windows list; every name line is clean
 # Ends with "ALL V5 CHECKS PASSED" or "N V5 CHECK(S) FAILED"; exit code = number of failures.
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -379,6 +384,111 @@ Step 'M: release dry run never reuses a revision the friends have' {
     Check ($textM -match 'release create rev-10') 'M: plans rev-10 (above the local revision 9)'
     Check ($textM -match 'Mac friends also get') 'M: summary says what Mac friends get'
     Check ((Json (Join-Path $curDir 'manifest.json')).revision -eq 9) 'M: the local release record is untouched by the dry run'
+}
+
+# ---- N-Q: Mac-only plugin, its validation, the sha256 asset, expect-plugins ----
+$macPreset = Join-Path $custom 'PeakPack.MacPreset.dll'
+Build-Variant $jbReal $macPreset 'macpreset'
+$macPresetWDir = Join-Path $wProfile 'plugins\PeakPack-MacPreset'; $macPresetW = Join-Path $macPresetWDir 'PeakPack.MacPreset.dll'
+$macPresetM = Join-Path $mProfile 'plugins\PeakPack-MacPreset\PeakPack.MacPreset.dll'
+
+Step 'N: Mac-only plugin (mac.files, plugins/PeakPack-MacPreset/)' {
+    $revBeforeN = (Json $manifest).revision
+    $cfgN = New-Cfg 'v5 rev 6 (Mac-only plugin)'
+    $cfgN['mac']['files'] = @(
+        @{ id = 'PeakPack-MacPreset'; version = '0.1.0'; title = 'Mac preset'; source = $macPreset; dest = 'plugins/PeakPack-MacPreset/PeakPack.MacPreset.dll' }
+    )
+    WriteText $cfgFile ($cfgN | ConvertTo-Json -Depth 8)
+    $o = PP publish --config $cfgFile --out $out --work $work --index $index
+    if ($LASTEXITCODE -ne 0) { throw "publish failed: $($o -join ' | ')" }
+    $mN = Json $manifest
+    $macF = @($mN.platforms.mac.files | Where-Object { $_.path -eq 'plugins/PeakPack-MacPreset/PeakPack.MacPreset.dll' })
+    Check ($mN.revision -eq $revBeforeN + 1) "N: published revision $($mN.revision) (was $revBeforeN)"
+    Check ($macF.Count -eq 1 -and $macF[0].overwrite -eq 'always') "N: platforms.mac.files has the plugin with overwrite 'always' (got $(@($macF | ForEach-Object { $_.overwrite })))"
+    Check (@($mN.files | Where-Object { $_.path -like 'plugins/PeakPack-MacPreset/*' }).Count -eq 0) 'N: the Mac-only plugin is not in the every-platform files list'
+    Check (@($macF | Where-Object { Test-Path -LiteralPath (Join-Path $out $_.url) }).Count -eq 1) 'N: the Mac-only plugin asset is in the output folder'
+    $pubChanges = @($o | Where-Object { $_ -match '^\s*[+-] ' })
+    Write-Host "  NOTE  publish's 'Changes since previous' lines: $(if ($pubChanges.Count) { $pubChanges -join ' | ' } else { 'none' }) (Mac-only items are not listed there)"
+    $ch = PP check --data-dir $M --manifest $manifest --allow-local --public-key $pub
+    Check ((($ch -join "`n") -match 'Mac preset \(Mac only\)')) "N: check (Mac friend, before sync) lists 'Mac preset (Mac only)'"
+
+    $syncArgsM = @('--headless', '--sync', '--data-dir', $M, '--game-dir', $G2, '--manifest', $manifest, '--allow-local', '--public-key', $pub)
+    $stN = Join-Path $v5 'status-n-mac.json'
+    $rcN = Invoke-PeakApp -Mac ($syncArgsM + @('--status-out', $stN))
+    $sN = Json $stN
+    Check ($rcN -eq 0 -and $sN.installedRevision -eq $mN.revision) "N: Mac headless sync to revision $($mN.revision) (exit $rcN, installedRevision $($sN.installedRevision))"
+    Check ((Test-Path -LiteralPath $macPresetM) -and ((Sha $macPresetM) -eq (Sha $macPreset))) "N: Mac installs plugins\PeakPack-MacPreset\PeakPack.MacPreset.dll with the same SHA-256 ($(Sha $macPresetM))"
+
+    $oW = PP install --manifest $manifest --data-dir $W --game-dir $G1 --allow-local --public-key $pub
+    Check (($oW -join ' ') -match "Now on revision $($mN.revision)\.") "N: Windows CLI install goes to revision $($mN.revision)"
+    Check (-not (Test-Path -LiteralPath $macPresetWDir)) 'N: Windows CLI install does NOT install the Mac-only plugin'
+
+    New-Item -ItemType Directory -Force -Path $macPresetWDir | Out-Null
+    Copy-Item -LiteralPath $macPreset -Destination $macPresetW
+    $oW2 = PP install --manifest $manifest --data-dir $W --game-dir $G1 --allow-local --public-key $pub
+    Check ((($oW2 -join ' ') -match "PeakPack-MacPreset \(not in the host") -and -not (Test-Path -LiteralPath $macPresetWDir)) 'N: a hand-copied Mac plugin on Windows is removed by the strict sync'
+
+    Remove-Item -LiteralPath $macPresetM -ErrorAction SilentlyContinue
+    $stN2 = Join-Path $v5 'status-n-mac-restore.json'
+    $rcN2 = Invoke-PeakApp -Mac ($syncArgsM + @('--status-out', $stN2))
+    Check ($rcN2 -eq 0 -and (Test-Path -LiteralPath $macPresetM) -and ((Sha $macPresetM) -eq (Sha $macPreset))) "N: a deleted Mac plugin is restored by the next Mac sync (exit $rcN2)"
+}
+
+Step 'O: validation of Mac-only plugin destinations' {
+    $revO = (Json $manifest).revision
+    $cfgO1 = New-Cfg 'bad mac plugin dest (no folder)'
+    $cfgO1['mac']['files'] = @(@{ id = 'PeakPack-MacPreset'; version = '0.1.0'; title = 'Mac preset'; source = $macPreset; dest = 'plugins/x.dll' })
+    WriteText (Join-Path $v5 'publish-bad-plugin-dest.json') ($cfgO1 | ConvertTo-Json -Depth 8)
+    $oO1 = PP publish --config (Join-Path $v5 'publish-bad-plugin-dest.json') --out (Join-Path $v5 'bad-plugin-dest-out') --work $work --index $index
+    $rcO1 = $LASTEXITCODE
+    Check ($rcO1 -ne 0 -and (($oO1 -join ' ') -match [regex]::Escape('must go under config/ or plugins/<folder>/'))) "O: mac.files dest plugins/x.dll refused (exit ${rcO1}: $($oO1 | Select-Object -Last 1))"
+
+    $cfgO2 = New-Cfg 'bad mac plugin dest (same as a Windows file)'
+    $cfgO2['mac']['files'] = @(@{ id = 'PeakPack-MacPreset'; version = '0.1.0'; title = 'Mac preset'; source = $macPreset; dest = 'plugins/Joshua-JetpackBoost/JetpackBoost.dll' })
+    WriteText (Join-Path $v5 'publish-dup-plugin-dest.json') ($cfgO2 | ConvertTo-Json -Depth 8)
+    $oO2 = PP publish --config (Join-Path $v5 'publish-dup-plugin-dest.json') --out (Join-Path $v5 'dup-plugin-dest-out') --work $work --index $index
+    $rcO2 = $LASTEXITCODE
+    Check ($rcO2 -ne 0 -and (($oO2 -join ' ') -match [regex]::Escape('also exists for every platform'))) "O: mac.files plugin dest equal to a customFiles dest refused (exit ${rcO2}: $($oO2 | Select-Object -Last 1))"
+    Check ((Json $manifest).revision -eq $revO) 'O: the published folder still holds the last good revision'
+}
+
+Step 'P: release dry run lists PeakPack.exe.sha256 with the right content (dry run only)' {
+    $workSha = Join-Path $v5 'work-sha'
+    New-Item -ItemType Directory -Force -Path $workSha | Out-Null
+    if (Test-Path -LiteralPath (Join-Path $work 'cache')) { Copy-Item -LiteralPath (Join-Path $work 'cache') -Destination (Join-Path $workSha 'cache') -Recurse }
+    $cfgP = New-Cfg 'release dry run (sha256 asset)'
+    $cfgP['githubRepo'] = 'jmproulx/peakpack'
+    $cfgP['app'] = @{ version = '0.4.2'; source = $script:appExe }
+    WriteText (Join-Path $v5 'publish-sha.json') ($cfgP | ConvertTo-Json -Depth 8)
+    $oP = PP release --config (Join-Path $v5 'publish-sha.json') --work $workSha --index $index --previous (Join-Path $v5 'no-such-previous.json') --dry-run
+    $rcP = $LASTEXITCODE
+    $staging = Join-Path $workSha 'staging'
+    $shaFile = Join-Path $staging 'PeakPack.exe.sha256'
+    Check ($rcP -eq 0) "P: dry run exits 0 (got $rcP)"
+    Check ((($oP -join "`n") -match 'staging\\PeakPack\.exe\.sha256')) 'P: the assets list includes staging\PeakPack.exe.sha256'
+    $shaText = if (Test-Path -LiteralPath $shaFile) { ([IO.File]::ReadAllText($shaFile)).Trim() } else { '' }
+    $fields = @($shaText -split '\s+')
+    $exeSha = Sha (Join-Path $staging 'PeakPack.exe')
+    Check ($fields.Count -eq 2 -and $fields[0] -eq $exeSha -and $fields[1] -eq 'PeakPack.exe' -and $exeSha -eq (Sha $script:appExe)) "P: sha256 file is '<sha256>  PeakPack.exe' and its hash is staging\PeakPack.exe ($exeSha)"
+    Check (-not (Test-Path -LiteralPath (Join-Path $workSha 'current'))) 'P: the dry run left no release record behind'
+}
+
+Step 'Q: expect-plugins per platform (Mac has the extra Mac-only plugin)' {
+    $eMac = Join-Path $v5 'expect-mac.txt'; $eWin = Join-Path $v5 'expect-windows.txt'
+    Remove-Item -LiteralPath $eMac, $eWin -ErrorAction SilentlyContinue
+    $null = PP expect-plugins --manifest $manifest --platform mac --work $work --out $eMac
+    $rcQm = $LASTEXITCODE
+    $null = PP expect-plugins --manifest $manifest --platform windows --work $work --out $eWin
+    $rcQw = $LASTEXITCODE
+    Check ($rcQm -eq 0 -and $rcQw -eq 0 -and (Test-Path -LiteralPath $eMac) -and (Test-Path -LiteralPath $eWin)) "Q: both expect-plugins runs exit 0 (mac $rcQm, windows $rcQw)"
+    $linesMac = @(Get-Content -LiteralPath $eMac); $linesWin = @(Get-Content -LiteralPath $eWin)
+    $namesMac = @($linesMac | Where-Object { $_ -and -not $_.StartsWith('#') })
+    $namesWin = @($linesWin | Where-Object { $_ -and -not $_.StartsWith('#') })
+    Check ($namesWin -contains 'JetpackBoost') "Q: windows list has JetpackBoost (names: $($namesWin -join ', '))"
+    Check ($namesMac -contains 'JetpackBoost') "Q: mac list has JetpackBoost (names: $($namesMac -join ', '))"
+    Check ($namesMac.Count -gt $namesWin.Count) "Q: mac list has more plugin lines than windows (mac $($namesMac.Count), windows $($namesWin.Count))"
+    $badLines = @(($linesMac + $linesWin) | Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -ne $_.Trim() })
+    Check ($badLines.Count -eq 0) "Q: every non-comment line is a name with no spaces at the ends (bad: $($badLines -join ' | '))"
 }
 
 Write-Host ''

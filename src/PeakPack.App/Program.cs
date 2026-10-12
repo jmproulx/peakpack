@@ -18,6 +18,12 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        // Windowless modes run before any WinForms initialisation: less to go wrong under Wine on Mac.
+        if (AppSession.Has(args, "--headless") || AppSession.Has(args, "--hot-update") || AppSession.Has(args, "--hot-rollback"))
+        {
+            Environment.ExitCode = RunWindowless(args);
+            return;
+        }
         ApplicationConfiguration.Initialize();
         if (AppSession.Has(args, "--host") || AppSession.Has(args, "--host-selftest"))
         {
@@ -75,35 +81,6 @@ static class Program
             return;
         }
 
-        // Started by the in-game companion in a test lobby (no window): apply a signed live update of the host's
-        // reload-safe mods if the friend opted in, write the result for the companion's notice, exit.
-        if (AppSession.Has(args, "--hot-update"))
-        {
-            // One live update at a time per data folder (the companion could ask again while one is running).
-            using var mutex = new Mutex(false, "PeakPack-hot-update-" + Downloader.Sha256OfBytes(System.Text.Encoding.UTF8.GetBytes(s.Paths.DataDir.ToLowerInvariant()))[..16]);
-            if (!mutex.WaitOne(0)) return;
-            try
-            {
-                var loc = AppSession.Get(args, "--manifest") ?? s.LoadState().ManifestUrl ?? s.ManifestLocation;
-                using var dl = s.NewDownloader();
-                HotUpdater.ApplyAsync(s.Paths, dl, loc, s.PublicKey, s.Config.ShortcutName).GetAwaiter().GetResult();
-            }
-            finally { mutex.ReleaseMutex(); }
-            return;
-        }
-        if (AppSession.Has(args, "--hot-rollback"))
-        {
-            HotUpdater.RollBack(s.Paths, s.Config.ShortcutName);
-            return;
-        }
-
-        // The Mac front end (and agents) drive PeakPack without any window. See Headless.cs for commands and exit codes.
-        if (AppSession.Has(args, "--headless"))
-        {
-            Environment.ExitCode = Headless.Run(s, args);
-            return;
-        }
-
         if (AppSession.Has(args, "--launch"))
         {
             Application.Run(new QuickLaunchContext(s));
@@ -126,6 +103,45 @@ static class Program
         }
 
         Application.Run(new MainForm(s));
+    }
+
+    /// <summary>--headless (Mac front end, agents), --hot-update and --hot-rollback (started by the in-game companion).</summary>
+    static int RunWindowless(string[] args)
+    {
+        AppSession s;
+        try { s = new AppSession(args); }
+        catch (Exception ex)
+        {
+            // Even a broken start reports through the documented status file and exit code.
+            if (AppSession.Has(args, "--headless") && AppSession.Get(args, "--status-out") is { } so)
+                try
+                {
+                    File.WriteAllText(so, System.Text.Json.JsonSerializer.Serialize(new { state = "failed", step = "start", message = "PeakPack couldn't start",
+                        problem = new { heading = "PeakPack couldn't start", advice = "Reinstall PeakPack.", details = ex.Message }, exitCode = 1 }));
+                }
+                catch { }
+            return 1;
+        }
+        SelfUpdate.CleanupOld(s.Paths);
+
+        if (AppSession.Has(args, "--hot-update"))
+        {
+            // One live update at a time per data folder (the companion could ask again while one is running).
+            using var mutex = new Mutex(false, "PeakPack-hot-update-" + Downloader.Sha256OfBytes(System.Text.Encoding.UTF8.GetBytes(s.Paths.DataDir.ToLowerInvariant()))[..16]);
+            if (!mutex.WaitOne(0)) return 0;
+            try
+            {
+                var loc = AppSession.Get(args, "--manifest") ?? s.LoadState().ManifestUrl ?? s.ManifestLocation;
+                using var dl = s.NewDownloader();
+                var r = HotUpdater.ApplyAsync(s.Paths, dl, loc, s.PublicKey, s.Config.ShortcutName).GetAwaiter().GetResult();
+                return r.Status == HotUpdater.Status.Failed ? 1 : 0;
+            }
+            finally { mutex.ReleaseMutex(); }
+        }
+        if (AppSession.Has(args, "--hot-rollback"))
+            return HotUpdater.RollBack(s.Paths, s.Config.ShortcutName).Status == HotUpdater.Status.RolledBack ? 0 : 1;
+
+        return Headless.Run(s, args); // see Headless.cs for commands and exit codes
     }
 
     static MainForm OffScreen(MainForm f)

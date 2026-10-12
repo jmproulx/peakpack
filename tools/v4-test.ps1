@@ -162,7 +162,7 @@ $cfgH | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $v4 'publish-hotfix.jso
 $cfgBefore = Get-Content (Join-Path $v4 'publish-hotfix.json') -Raw
 $o = PP hotfix --mod JetpackBoost --dll $jbReal --config (Join-Path $v4 'publish-hotfix.json') --work (Join-Path $v4 'work') --previous (Join-Path $v4 'none.json') --index (Join-Path $v4 'work\peak-index.json') --notify (Join-Path $v4 'hostgame\BepInEx')
 Check ($o -match 'embedded PDB: True; OnDestroy: True') 'JetpackBoost build passes the reload-safe check'
-Check ($o -match 'DRY RUN, would run: .*release create rev-1 ' -and $o -match '--latest') 'hotfix dry run prints the gh release command (pack release, latest)'
+Check ($o -match 'DRY RUN, would run: .*release create rev-\d+ ' -and $o -match '--latest') 'hotfix dry run prints the gh release command (pack release, latest)'
 Check ($o -match 'PeakPack\.exe ' -or $o -match 'PeakPack\.exe"') 'release keeps the stable PeakPack.exe asset'
 Check ($o -match 'tell the lobby \(live update for friends who opted in\)') 'dry run says it would announce a live update'
 Check ((Get-Content (Join-Path $v4 'publish-hotfix.json') -Raw) -eq $cfgBefore) 'dry run left publish.json unchanged'

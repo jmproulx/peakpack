@@ -12,7 +12,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PeakPack</AssemblyName>
     <RootNamespace>PeakPack.App</RootNamespace>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Company>PeakPack</Company>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

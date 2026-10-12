@@ -2,7 +2,7 @@
     "packName":  "Joshua\u0027s PEAK mods",
     "hostName":  "Joshua",
     "packId":  "joshuas-peak-mods",
-    "notes":  "Heli Pilot 0.3.2 with the cockpit model; Mac keyboard defaults for Mac friends.",
+    "notes":  "Heli Pilot 0.3.3: scrolling to zoom no longer switches hotbar slots. Mac friends get the Mac preset.",
     "loader":  "BepInEx-BepInExPack_PEAK",
     "mods":  [
                  "Sapphire009-InfiniteJetpack-1.0.1"
@@ -28,10 +28,10 @@
                         },
                         {
                             "id":  "Joshua-HeliPilot",
-                            "version":  "0.3.2",
+                            "version":  "0.3.3",
                             "title":  "Heli Pilot",
                             "description":  "Fly a helicopter (with a cockpit view), use the Heli Flare item, and ride along with friends.",
-                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\HeliPilot.dll",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next5\\HeliPilot.dll",
                             "dest":  "plugins/Joshua-HeliPilot/HeliPilot.dll",
                             "reloadSafe":  true
                         },
@@ -62,12 +62,12 @@
                         },
                         {
                             "id":  "Joshua-HeliPilot",
-                            "version":  "0.3.2",
+                            "version":  "0.3.3",
                             "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\HeliPilot_cockpit.bundle",
                             "dest":  "plugins/Joshua-HeliPilot/HeliPilot_cockpit.bundle"
                         }
                     ],
-    "companion":  "auto",
+    "companion":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next5\\PeakPack.Companion.dll",
     "lobby":  {
                   "mismatchPolicy":  "warn",
                   "liveSettings":  [
@@ -87,7 +87,7 @@
               },
     "githubRepo":  "jmproulx/peakpack",
     "app":  {
-                "version":  "0.4.1",
+                "version":  "0.4.2",
                 "source":  "C:\\Users\\joshu\\PeakMods\\FriendInstaller\\publish-out\\PeakPack.exe"
             },
     "gameDir":  "D:\\SteamLibrary\\steamapps\\common\\PEAK",
@@ -122,6 +122,16 @@
                                         "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\mac\\com.joshua.itemtuner.cfg",
                                         "dest":  "config/com.joshua.itemtuner.cfg"
                                     }
-                                ]
+                                ],
+                "files":  [
+                              {
+                                  "id":  "PeakPack-MacPreset",
+                                  "version":  "0.1.0",
+                                  "title":  "Mac preset",
+                                  "description":  "Mac only: M1-friendly graphics settings, applied once; your own changes stay.",
+                                  "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next5\\PeakPack.MacPreset.dll",
+                                  "dest":  "plugins/PeakPack-MacPreset/PeakPack.MacPreset.dll"
+                              }
+                          ]
             }
 }

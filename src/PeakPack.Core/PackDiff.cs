@@ -47,6 +47,14 @@ public static class PackDiff
             list.Add(new Item("file:" + g.Key + "#" + fp, first.Title ?? FriendlyFileTitle(g.Key), first.Version ?? "",
                 g.Key.Equals(PublishConfig.CompanionId, StringComparison.OrdinalIgnoreCase), true)); // the companion counts as a helper
         }
+        // Mac-only plugins (enforced files under plugins/), shown with a "(Mac only)" marker.
+        foreach (var g in (m.Platforms?.Mac?.Files ?? []).Where(f => f.Overwrite == OverwriteMode.Always)
+                     .GroupBy(f => f.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            var first = g.First();
+            var fp = string.Join(",", g.OrderBy(f => f.Path).Select(f => f.Sha256[..8]));
+            list.Add(new Item("mac:" + g.Key + "#" + fp, (first.Title ?? FriendlyFileTitle(g.Key)) + " (Mac only)", first.Version ?? "", false, true));
+        }
         return list;
     }
 

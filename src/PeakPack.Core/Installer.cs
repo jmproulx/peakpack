@@ -162,7 +162,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         }
 
         // 5. Strict mode: plugins/ and patchers/ contain exactly what the manifest says - nothing else.
-        if (options.Strict) result.Removed.AddRange(RemoveUnmanaged(m, state));
+        if (options.Strict) result.Removed.AddRange(RemoveUnmanaged(m, state, options.Target));
 
         // 6. Game folder proxy files (enabled=false => Steam launches stay vanilla).
         if (options.ManageGameFolder)
@@ -265,12 +265,12 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         paths.Log($"Removed package {installedId}");
     }
 
-    IEnumerable<string> RemoveUnmanaged(PackManifest m, InstallState state)
+    IEnumerable<string> RemoveUnmanaged(PackManifest m, InstallState state, Platform.Kind target)
     {
         var removed = new List<string>();
         var allowedTop = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in m.Packages) allowedTop.Add(PackageId.Parse(p.Id).FullName);
-        foreach (var f in m.FilesFor(Platform.Current))
+        foreach (var f in m.FilesFor(target))
         {
             var segs = f.Path.Split('/');
             if (segs.Length >= 2) allowedTop.Add(segs[0] + "/" + segs[1]);
