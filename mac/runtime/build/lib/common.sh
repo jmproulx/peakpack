@@ -115,9 +115,15 @@ ensure_x86_64() {
 # Host (macOS) compilers as ABSOLUTE paths, resolved before anything touches PATH: llvm-mingw's
 # bin/ also contains a plain `clang` that targets Windows (CI run 38313863585: Wine's configure
 # "C compiler cannot create executables" after llvm-mingw was put first in PATH).
+# Use Apple's /usr/bin shims, NOT `xcrun -f clang` (the raw toolchain binary knows no SDK: CI run
+# 38315838361, gmp "could not find a working compiler"). SDKROOT is exported as well.
 if [ -z "${PP_HOST_CC:-}" ]; then
-  PP_HOST_CC="${PP_CC:-$(xcrun -f clang 2>/dev/null || command -v clang || echo clang)}"
-  PP_HOST_CXX="${PP_CXX:-$(xcrun -f clang++ 2>/dev/null || command -v clang++ || echo clang++)}"
+  if [ -x /usr/bin/clang ] && [ "$(uname -s)" = Darwin ]; then
+    PP_HOST_CC="${PP_CC:-/usr/bin/clang}"; PP_HOST_CXX="${PP_CXX:-/usr/bin/clang++}"
+    if [ -z "${SDKROOT:-}" ]; then SDKROOT="$(xcrun --show-sdk-path 2>/dev/null || true)"; [ -n "$SDKROOT" ] && export SDKROOT; fi
+  else
+    PP_HOST_CC="${PP_CC:-$(command -v clang || echo clang)}"; PP_HOST_CXX="${PP_CXX:-$(command -v clang++ || echo clang++)}"
+  fi
   export PP_HOST_CC PP_HOST_CXX
 fi
 

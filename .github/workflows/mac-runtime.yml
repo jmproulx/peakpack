@@ -231,7 +231,7 @@ jobs:
           # Steam client probe so G-B1 needs no Xcode CLT on the test Mac.
           x86_64-w64-mingw32-clang -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
             -ld3d11 -ldxgi -ldxguid -luser32
-          "$(xcrun -f clang)" -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
+          /usr/bin/clang -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
           lipo -archs "$pe/steam_client_probe-macos-x86_64"
           python3 -m venv "$W/venv-steam"
           "$W/venv-steam/bin/pip" install --quiet "pefile==2024.8.26"
