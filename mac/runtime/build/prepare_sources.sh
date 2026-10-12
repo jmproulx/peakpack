@@ -33,9 +33,17 @@ mv "$PP_SRC.tmp/sources/wine"            "$PP_SRC/wine"
 mv "$PP_SRC.tmp/sources/dxvk"            "$PP_SRC/dxvk"
 mv "$PP_SRC.tmp/sources/freetype"        "$PP_SRC/freetype"
 mv "$PP_SRC.tmp/sources/gnutls/gmp"      "$PP_SRC/gmp"
-mv "$PP_SRC.tmp/sources/gnutls/nettle"   "$PP_SRC/nettle"
 mv "$PP_SRC.tmp/sources/gnutls/gnutls"   "$PP_SRC/gnutls"
 rm -rf "$PP_SRC.tmp"
+
+# nettle: the GNU 3.10 release instead of CrossOver's copy, which lacks the release files
+# (Makefile.in, configure, config.h.in); every file it has is identical to the release (pins.env).
+nettle_tgz="$PP_DL/$(basename "$NETTLE_URL")"
+[ -s "$nettle_tgz" ] || die "missing $nettle_tgz (run fetch_sources.sh)"
+mkdir -p "$PP_SRC/nettle"
+tar -xzf "$nettle_tgz" -C "$PP_SRC/nettle" --strip-components=1
+[ -f "$PP_SRC/nettle/Makefile.in" ] && [ -x "$PP_SRC/nettle/configure" ] || die "nettle release is missing Makefile.in/configure"
+grep -q "AC_INIT(\[nettle\], \[$NETTLE_VERSION\]" "$PP_SRC/nettle/configure.ac" || die "unexpected nettle version"
 
 grep -q '^Wine version 11\.0' "$PP_SRC/wine/VERSION" || die "unexpected Wine version: $(cat "$PP_SRC/wine/VERSION")"
 [ -f "$PP_SRC/wine/dlls/ntdll/unix/msync.c" ] || die "msync not present in the Wine source"

@@ -13,7 +13,7 @@
 | **MoltenVK** | v1.4.2 binary (Khronos release, thinned to x86_64), gh digest `f95765a6…024e` | Apache-2.0 | Ship (repackaged binary) | dylib | Licence text included; NOTICE says it was modified (thinned with `lipo`, install name changed) |
 | **FreeType** | 2.13.3 (from the CX tarball) | FTL (dual-licensed with GPLv2; we choose FTL) | Ship | dylib, dlopened | Credit in the docs: "Portions of this software are copyright © The FreeType Project (www.freetype.org)". `NOTICE.md` + `LICENSES/freetype/` |
 | **GnuTLS** | 3.8.3 (CX tarball) | LGPL-2.1-or-later | Ship | dylib, dlopened | LGPL source: the same tarball; text in `LICENSES/gnutls/` |
-| **Nettle** | 3.10 (CX tarball) | LGPL-3.0-or-later OR GPL-2.0-or-later (we take LGPL-3) | Ship | dylib | LGPL-3 §4: source, a replaceable library, licence text. It's a separate dylib, so a user can replace it (no TiVo issue: nothing we ship is signed or locked) |
+| **Nettle** | 3.10 (GNU release; the CX copy lacks its release files) | LGPL-3.0-or-later OR GPL-2.0-or-later (we take LGPL-3) | Ship | dylib | LGPL-3 §4: source, a replaceable library, licence text. It's a separate dylib, so a user can replace it (no TiVo issue: nothing we ship is signed or locked) |
 | **GMP** | 6.3.0 (CX tarball) | LGPL-3.0-or-later OR GPL-2.0-or-later | Ship | dylib | Same as Nettle |
 | **libinotify-kqueue** | 20240724 | MIT | Ship | dylib (linked by wineserver) | Notice |
 | **winetricks** | — | LGPL-2.1 | **Not used** | — | — |

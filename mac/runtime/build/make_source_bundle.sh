@@ -37,8 +37,9 @@ mkdir -p "$B/dxmt-$head"
 (cd "$PP_DL/dxmt.git" && find . -path ./.git -prune -o -type f -print | grep -v '/\.git/' | grep -v '/\.git$' | tar -cf - -T -) \
   | (cd "$B/dxmt-$head" && tar -xf -)
 
-log "libinotify release"
+log "libinotify and nettle releases (unchanged upstream tarballs)"
 cp "$PP_DL/$(basename "$LIBINOTIFY_URL")" "$B/"
+cp "$PP_DL/$(basename "$NETTLE_URL")" "$B/"
 
 if [ -f "$PP_DIST/$RUNTIME_ID/LICENSES/SOURCES.md" ]; then
   cp "$PP_DIST/$RUNTIME_ID/LICENSES/SOURCES.md" "$B/SOURCES.md"

@@ -58,7 +58,7 @@ folder of the same name. Our build scripts and patches are in the PeakPack repos
 | MoltenVK | $MOLTENVK_VERSION | Apache-2.0 | lib/libMoltenVK.dylib |
 | FreeType | 2.13.3 | FreeType License (FTL) | lib/libfreetype.*.dylib |
 | GnuTLS | 3.8.3 | LGPL-2.1-or-later | lib/libgnutls.*.dylib |
-| Nettle | 3.10 | LGPL-3.0-or-later OR GPL-2.0-or-later | lib/libnettle.*.dylib, lib/libhogweed.*.dylib |
+| Nettle (GNU release) | $NETTLE_VERSION | LGPL-3.0-or-later OR GPL-2.0-or-later | lib/libnettle.*.dylib, lib/libhogweed.*.dylib |
 | GMP | 6.3.0 | LGPL-3.0-or-later OR GPL-2.0-or-later | lib/libgmp.*.dylib |
 | libinotify-kqueue | $LIBINOTIFY_VERSION | MIT | lib/libinotify.*.dylib |
 
@@ -76,15 +76,16 @@ cat > "$dest/SOURCES.md" <<EOF
 Every input is pinned by SHA-256 (or git commit) in \`mac/runtime/build/pins.env\` of the PeakPack
 repository (https://github.com/jmproulx/peakpack). The same release that carries this runtime also
 carries \`peakpack-runtime-src-$RUNTIME_ID.tar.xz\` (our patches, build scripts, the DXMT
-source at the exact commit, and libinotify-kqueue).
+source at the exact commit, libinotify-kqueue and nettle).
 
 | Source | Where | SHA-256 / commit |
 |---|---|---|
-| CrossOver $CX_VERSION sources (Wine, DXVK, FreeType, GnuTLS, Nettle, GMP) | $CX_URL, mirrored unchanged at $CX_MIRROR_URL | $CX_SHA256 |
+| CrossOver $CX_VERSION sources (Wine, DXVK, FreeType, GnuTLS, GMP) | $CX_URL, mirrored unchanged at $CX_MIRROR_URL | $CX_SHA256 |
 | DXMT | $DXMT_REPO | $dxmt_head |
 | LLVM $LLVM15_VERSION | $LLVM15_URL | $LLVM15_SHA256 |
 | MoltenVK $MOLTENVK_VERSION (binary release; source at the same tag) | $MOLTENVK_URL | $MOLTENVK_SHA256 |
 | libinotify-kqueue $LIBINOTIFY_VERSION | $LIBINOTIFY_URL | $LIBINOTIFY_SHA256 |
+| Nettle $NETTLE_VERSION (GNU release, unchanged; also in the source bundle) | $NETTLE_URL | $NETTLE_SHA256 |
 
 Written offer (LGPL-2.1 section 6, LGPL-3.0 section 4): for at least three years after we last
 distribute this runtime, anyone may get the complete corresponding source from the links above,

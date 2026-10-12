@@ -20,6 +20,7 @@ fetch_mac() {
   fetch_verify "$LLVM_MINGW_MAC_URL" "$LLVM_MINGW_MAC_SHA256" "$PP_DL/$(basename "$LLVM_MINGW_MAC_URL")"
   fetch_verify "$MOLTENVK_URL" "$MOLTENVK_SHA256" "$PP_DL/MoltenVK-macos-$MOLTENVK_VERSION.tar"
   fetch_verify "$LIBINOTIFY_URL" "$LIBINOTIFY_SHA256" "$PP_DL/$(basename "$LIBINOTIFY_URL")"
+  fetch_verify "$NETTLE_URL" "$NETTLE_SHA256" "$PP_DL/$(basename "$NETTLE_URL")"
   fetch_verify "$LLVM15_URL" "$LLVM15_SHA256" "$PP_DL/$(basename "$LLVM15_URL")"
   git_fetch_commit "$DXMT_REPO" "$DXMT_COMMIT" "$PP_DL/dxmt.git" "$DXMT_TAG"
 }
