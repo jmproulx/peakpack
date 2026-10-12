@@ -65,6 +65,20 @@ t_launch=$(now_s)
 if [ "$modded" = 1 ]; then
   ensure_peakpack || gate_finish_as blocked "PeakPack.exe not available"
   wu=$(wine_user)
+  # R12: if the pack carries PeakPack.MacPreset, switch on its frame-time log (1 s) for exact fps / 1 % low.
+  bep="$PFX/drive_c/users/$wu/AppData/Local/PeakPack/profile/BepInEx"
+  if [ -n "$(find "$bep/plugins" -iname 'PeakPack.MacPreset.dll' 2>/dev/null | head -n 1)" ]; then
+    mp_cfg="$bep/config/peakpack.macpreset.cfg"; mkdir -p "$bep/config"
+    if [ -f "$mp_cfg" ] && grep -q '^FpsLogSeconds' "$mp_cfg"; then
+      sed -i '' 's/^FpsLogSeconds *=.*/FpsLogSeconds = 1/' "$mp_cfg"
+    else
+      printf '\n[Diagnostics]\n\nFpsLogSeconds = 1\n' >> "$mp_cfg"
+    fi
+    rm -f "$bep/PeakPack/macpreset-fps.log"
+    metric macpreset_fps_log 1
+  else
+    metric macpreset_fps_log 0
+  fi
   PP_HUD=1 pp_wine normal 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
      --log 'C:\PeakPackTests\launcher-a2.log' --no-launch --hold-ms 3000000 > "$GLOG/launcher.out" 2>&1 &
   sleep 8
@@ -114,6 +128,32 @@ else
   [ "$cu3" = 1 ] && crit run_ok fail "no crash/freeze on the Shore (agent)" "$CU_NOTE"
 fi
 crit vs_crossover skip "average fps >= 90 % of CrossOver/DXMT on the same Mac" "needs the G-A2-CX baseline (optional, Joshua's call)"
+
+# ---- R12: MacPreset frame-time log (modded runs whose pack carries MacPreset)
+fpslog=""
+[ "$modded" = 1 ] && fpslog="$PFX/drive_c/users/$(wine_user)/AppData/Local/PeakPack/profile/BepInEx/PeakPack/macpreset-fps.log"
+if [ -n "$fpslog" ] && [ -f "$fpslog" ]; then
+  cp "$fpslog" "$GLOG/macpreset-fps.log"
+  # Shore = scene Level_1. avg = frames / seconds; 1 % low (conservative) = 1000 / worst per-interval p99 frame time.
+  lstats=$(awk '/ scene=Level_1 / {
+      delete v; for (i = 1; i <= NF; i++) { k = $i; sub(/=.*/, "", k); x = $i; sub(/^[^=]*=/, "", x); v[k] = x }
+      fr += v["frames"]; secs += v["frames"] * v["frametime_ms"] / 1000; if (v["p99_ms"] + 0 > p99) p99 = v["p99_ms"] + 0; n++ }
+    END { if (n && secs > 0 && p99 > 0) printf "%.1f %.1f %d", fr / secs, 1000 / p99, n }' "$fpslog")
+  if [ -n "$lstats" ]; then
+    # shellcheck disable=SC2086  # three numbers
+    set -- $lstats
+    metric log_fps_avg "$1"; metric log_fps_1pct_low "$2"; metric log_intervals "$3"
+    if awk -v m="$2" 'BEGIN { exit !(m >= 30) }'; then
+      crit fps_1pct_low pass "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "avg $1, 1 % low $2 over $3 s"
+    else
+      crit fps_1pct_low fail "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "avg $1, 1 % low $2 over $3 s"
+    fi
+  else
+    crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "log present but no Level_1 intervals"
+  fi
+else
+  crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "vanilla run, or MacPreset not in the pack (HUD readings above apply)"
+fi
 
 # ---- crash check + memory verdict
 alive=0; pgrep -U "$(id -u)" -f 'PEAK\.exe' >/dev/null 2>&1 && alive=1

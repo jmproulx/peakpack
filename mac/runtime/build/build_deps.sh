@@ -23,12 +23,17 @@ export ac_cv_prog_cc_c23=no
 export CPPFLAGS="-I$PP_DEPS/include"
 export LDFLAGS="$LDFLAGS -L$PP_DEPS/lib"
 
+# Release tarballs ship generated autotools files; never regenerate them (CI run 38305928217:
+# gnutls' make wanted aclocal-1.16, which the runner doesn't have). Sources are also copied with
+# cp -Rp so timestamps don't make them look stale.
+no_autoregen=(ACLOCAL=true AUTOCONF=true AUTOMAKE=true AUTOHEADER=true MAKEINFO=true)
+
 # Fix the install name of a freshly installed dylib to @rpath/<leaf>.
 rpathify() { local f; for f in "$@"; do install_name_tool -id "@rpath/$(basename "$f")" "$f"; done; }
 
 if ! stamp_has deps-gmp; then
   log "gmp"
-  rm -rf "$PP_BLD/deps/gmp" && cp -R "$PP_SRC/gmp" "$PP_BLD/deps/gmp"
+  rm -rf "$PP_BLD/deps/gmp" && cp -Rp "$PP_SRC/gmp" "$PP_BLD/deps/gmp"
   # --enable-fat: runtime CPU dispatch (safe under Rosetta, which hides AVX by default).
   (cd "$PP_BLD/deps/gmp" && ./configure "${common_cfg[@]}" --enable-fat && make -j"$J" && make install)
   stamp_done deps-gmp
@@ -36,7 +41,7 @@ fi
 
 if ! stamp_has deps-nettle; then
   log "nettle"
-  rm -rf "$PP_BLD/deps/nettle" && cp -R "$PP_SRC/nettle" "$PP_BLD/deps/nettle"
+  rm -rf "$PP_BLD/deps/nettle" && cp -Rp "$PP_SRC/nettle" "$PP_BLD/deps/nettle"
   (cd "$PP_BLD/deps/nettle" && { [ -x configure ] || ./.bootstrap; } \
      && ./configure "${common_cfg[@]}" --enable-fat --disable-documentation --disable-openssl \
      && make -j"$J" && make install)
@@ -45,13 +50,13 @@ fi
 
 if ! stamp_has deps-gnutls; then
   log "gnutls"
-  rm -rf "$PP_BLD/deps/gnutls" && cp -R "$PP_SRC/gnutls" "$PP_BLD/deps/gnutls"
+  rm -rf "$PP_BLD/deps/gnutls" && cp -Rp "$PP_SRC/gnutls" "$PP_BLD/deps/gnutls"
   (cd "$PP_BLD/deps/gnutls" && ./configure "${common_cfg[@]}" \
       --with-included-libtasn1 --with-included-unistring --without-p11-kit --without-idn \
       --without-brotli --without-zstd --without-tpm --without-tpm2 --disable-doc --disable-manpages \
       --disable-tests --disable-tools --disable-cxx --disable-nls --disable-libdane \
       --disable-full-test-suite \
-     && make -j"$J" && make install)
+     && make -j"$J" "${no_autoregen[@]}" && make install "${no_autoregen[@]}")
   stamp_done deps-gnutls
 fi
 
@@ -70,7 +75,7 @@ if ! stamp_has deps-inotify; then
   rm -rf "$PP_BLD/deps/libinotify" && mkdir -p "$PP_BLD/deps/libinotify"
   tar -xzf "$PP_DL/$(basename "$LIBINOTIFY_URL")" -C "$PP_BLD/deps/libinotify" --strip-components=1
   (cd "$PP_BLD/deps/libinotify" && { [ -x configure ] || autoreconf -fvi; } \
-     && ./configure "${common_cfg[@]}" && make -j"$J" && make install)
+     && ./configure "${common_cfg[@]}" && make -j"$J" "${no_autoregen[@]}" && make install "${no_autoregen[@]}")
   stamp_done deps-inotify
 fi
 
