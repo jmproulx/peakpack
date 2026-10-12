@@ -1,0 +1,9 @@
+REGEDIT4
+
+; Graphics backend DXMT (D3D11 -> Metal), PEAK.exe only. pp-backend.sh copies DXMT's
+; d3d11/dxgi/d3d10core into system32 first; "native,builtin" makes PEAK.exe load them while
+; every other program keeps Wine's builtin (wined3d) versions.
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\DllOverrides]
+"d3d11"="native,builtin"
+"dxgi"="native,builtin"
+"d3d10core"="native,builtin"

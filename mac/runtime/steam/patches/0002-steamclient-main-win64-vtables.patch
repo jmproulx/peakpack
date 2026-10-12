@@ -1,0 +1,38 @@
+PeakPack for Mac: keep interfaces and vtables inside lsteamclient.dll on 64-bit.
+
+Upstream copies some vtables (and the SteamClient interface object) into the
+.data section of a loaded Valve steamclient.dll for old 32-bit games. Our
+steamclient64.dll is a small export forwarder with no such section, and on
+64-bit init_rtti() stores the RTTI locator in the slot before each vtable
+relative to lsteamclient.dll's base, which a copy would lose. On _WIN64,
+always use the heap / the original vtable. 32-bit behaviour is unchanged.
+
+--- a/lsteamclient/steamclient_main.c
++++ b/lsteamclient/steamclient_main.c
+@@ -215,6 +215,12 @@
+     unsigned int version;
+     void *ret;
+ 
++#ifdef _WIN64
++    /* PeakPack: the steamclient64.dll in front of us is a small forwarder,
++     * so there is no Valve .data section to borrow; use the heap. */
++    return HeapAlloc(GetProcessHeap(), 0, size);
++#endif
++
+     /* Mafia II depends on SteamClient interface pointer to point inside
+      * native Windows steamclient.dll. */
+     if (strncmp(iface_version, steamclient_iface_name, ARRAY_SIZE(steamclient_iface_name) - 1))
+@@ -249,6 +255,13 @@
+     unsigned int i;
+     char *ret;
+ 
++#ifdef _WIN64
++    /* PeakPack: on 64-bit, init_rtti() stores the RTTI locator in the slot
++     * before each vtable, relative to lsteamclient.dll's image base. A copy
++     * placed elsewhere would lose that slot, so keep the original table. */
++    return vtable;
++#endif
++
+     for (i = 0; i < ARRAY_SIZE(iface_names); ++i)
+         if (!strncmp(iface_version, iface_names[i], strlen(iface_names[i]) - 1))
+             break;

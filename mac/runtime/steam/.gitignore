@@ -1,0 +1,14 @@
+# Build outputs (CI rebuilds them; built bridge ships only as mac-build-* prerelease assets)
+src/forwarder/out/
+src/launcher/out/
+tests/probe/out/
+logs-*/
+# Valve's lsteamclient sources are fetched at build time and must never be committed
+# (Steamworks SDK licence). fetch_lsteamclient.sh keeps them under $PP_WORK/steam,
+# which also gets its own "*" .gitignore; these patterns catch stray local copies.
+_work/
+lsteamclient/
+extra-dlls/
+obj-unix/
+*.orig
+*.rej

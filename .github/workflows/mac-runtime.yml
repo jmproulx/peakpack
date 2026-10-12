@@ -1,0 +1,258 @@
+# PeakPack for Mac: build the pinned Wine runtime (CrossOver 26.3 Wine 11.0 + msync, DXMT,
+# DXVK, MoltenVK) for x86_64 macOS, plus its SDK and LGPL source bundle.
+# Repo path when pushed: .github/workflows/mac-runtime.yml (scripts under mac/runtime/).
+# Manual only. Publishing creates a PRERELEASE tagged mac-build-runtime-<RUNTIME_ID> that is
+# never marked latest, so releases/latest keeps pointing at the newest PeakPack pack release.
+name: mac-runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create prerelease mac-build-runtime-<id> with the artifacts"
+        type: boolean
+        default: false
+      runner:
+        description: "macOS runner (Intel builds natively; arm64 builds under Rosetta)"
+        type: choice
+        options: [macos-15-intel, macos-15]
+        default: macos-15-intel
+      allow_unpinned:
+        description: "First-download mode: accept FILL hashes and report them (never with publish)"
+        type: boolean
+        default: false
+      optional_patches:
+        description: "Space-separated files from mac/runtime/build/patches/wine/optional/"
+        type: string
+        default: ""
+      steam_bridge:
+        description: "Also build the Steam bridge (Valve's lsteamclient fetched at build time from the pinned commit) in this Wine tree"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-runtime
+  cancel-in-progress: false
+
+env:
+  PP_ALLOW_UNPINNED: ${{ inputs.allow_unpinned && '1' || '0' }}
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse unpinned publish
+        if: ${{ inputs.publish && inputs.allow_unpinned }}
+        run: |
+          echo "::error::publish=true cannot be combined with allow_unpinned=true"
+          exit 1
+
+  dxvk:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/runtime
+          persist-credentials: false
+      - name: Toolchain (mingw-w64 GCC posix, meson, glslang)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mingw-w64 g++-mingw-w64-x86-64-posix \
+            ninja-build glslang-tools python3-pip
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          . mac/runtime/build/pins.env
+          pip3 install --user --break-system-packages "meson==${MESON_VERSION}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Cache downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: _work/downloads
+          key: dl-linux-${{ hashFiles('mac/runtime/build/pins.env') }}
+      - name: Fetch + build DXVK
+        run: |
+          mac/runtime/build/fetch_sources.sh --linux-dxvk
+          mac/runtime/build/build_dxvk.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dxvk-stage
+          path: _work/stage/dxvk
+          retention-days: 7
+
+  mac:
+    needs: dxvk
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 340
+    outputs:
+      runtime_id: ${{ steps.id.outputs.runtime_id }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PP_RUNNER_LABEL: ${{ inputs.runner }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/runtime
+          persist-credentials: false
+      - name: Runtime id
+        id: id
+        run: |
+          . mac/runtime/build/pins.env
+          echo "runtime_id=pp${PP_REVISION}-cx${CX_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Xcode 16 (Metal toolchain for DXMT) and Rosetta
+        run: |
+          x="$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n 1)"
+          [ -n "$x" ] || { echo "::error::no Xcode 16 on this runner"; exit 1; }
+          sudo xcode-select -s "$x"
+          xcodebuild -version
+          if [ "$(uname -m)" = arm64 ]; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+      - name: Build tools
+        run: |
+          brew install autoconf automake libtool pkg-config bison flex cmake ccache xz gnu-tar
+          . mac/runtime/build/pins.env
+          python3 -m pip install --user --break-system-packages "meson==${MESON_VERSION}" "ninja==${NINJA_PIP_VERSION}"
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+      - name: Cache downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: _work/downloads
+          key: dl-mac-${{ hashFiles('mac/runtime/build/pins.env') }}
+      - name: Cache LLVM 15 (DXMT)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: _work/tools/llvm15-darwin-x86_64
+          key: llvm15-${{ inputs.runner }}-${{ hashFiles('mac/runtime/build/pins.env', 'mac/runtime/build/build_dxmt.sh') }}
+      - name: Cache ccache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ inputs.runner }}-${{ github.run_id }}
+          restore-keys: ccache-${{ inputs.runner }}-
+      - name: Fetch + verify sources
+        run: mac/runtime/build/fetch_sources.sh --mac
+      - name: Fetch Valve's lsteamclient (pinned, hash-checked; never committed or published as source)
+        if: ${{ inputs.steam_bridge }}
+        run: mac/runtime/steam/build/fetch_lsteamclient.sh
+      - name: Prepare sources
+        env:
+          OPTIONAL_PATCHES: ${{ inputs.optional_patches }}
+          STEAM_BRIDGE: ${{ inputs.steam_bridge && '1' || '0' }}
+        run: |
+          args=""
+          for p in $OPTIONAL_PATCHES; do
+            case "$p" in *[!A-Za-z0-9._-]*) echo "::error::bad patch name: $p"; exit 1 ;; esac
+            args="$args --with-optional-patch $p"
+          done
+          if [ "$STEAM_BRIDGE" = 1 ]; then args="$args --extra-dll-dir $GITHUB_WORKSPACE/_work/steam/extra-dlls"; fi
+          # shellcheck disable=SC2086
+          mac/runtime/build/prepare_sources.sh $args
+      - name: Dependencies (gmp, nettle, gnutls, freetype, libinotify, MoltenVK)
+        run: mac/runtime/build/build_deps.sh
+      - name: Wine
+        run: mac/runtime/build/build_wine.sh --no-prepare
+      - name: DXMT
+        run: mac/runtime/build/build_dxmt.sh
+      - name: Steam bridge (lsteamclient.so via clang++, forwarder, launcher, probes; binaries only)
+        if: ${{ inputs.steam_bridge }}
+        env:
+          PE_CC: x86_64-w64-mingw32-clang
+          WINDRES: x86_64-w64-mingw32-windres
+        run: |
+          set -euo pipefail
+          W="$GITHUB_WORKSPACE/_work"
+          mac/runtime/steam/build/build_lsteamclient.sh unix collect --out "$W/steam/out"
+          export PATH="$W/tools/llvm-mingw/bin:$PATH"
+          pe="$W/steam/pe"; mkdir -p "$pe"
+          mac/runtime/steam/src/forwarder/build_forwarder.sh "$pe"
+          mac/runtime/steam/src/launcher/build_launcher.sh "$pe"
+          x86_64-w64-mingw32-clang -O1 -Wall -o "$pe/steam_client_probe.exe" mac/runtime/steam/tests/probe/steam_client_probe.c -ladvapi32
+          x86_64-w64-mingw32-clang -O1 -Wall -o "$pe/steam_api_probe.exe" mac/runtime/steam/tests/probe/steam_api_probe.c
+          python3 -m venv "$W/venv-steam"
+          "$W/venv-steam/bin/pip" install --quiet "pefile==2024.8.26"
+          "$W/venv-steam/bin/python" -I mac/runtime/steam/src/forwarder/verify_forwarder.py "$pe/steamclient64.dll" \
+            --spec "$W/steam/src/lsteamclient/lsteamclient.spec" --lsteamclient "$W/steam/out/lsteamclient.dll"
+          mac/runtime/steam/build/package_bridge.sh --bridge "$W/steam/out" --pe "$pe" --dist "$W/dist" --rev "$GITHUB_SHA"
+          # The bridge package must hold binaries + licence texts only (the tests package carries our own MIT probe sources).
+          for t in "$W"/dist/peakpack-steam-bridge-*.tar.xz; do
+            if tar -tJf "$t" | grep -E '\.(cpp|c|h|hpp)$'; then echo "::error::source files in $t"; exit 1; fi
+          done
+          mkdir -p "$W/stage/steam"
+          tar -xJf "$W"/dist/peakpack-steam-bridge-*.tar.xz -C "$W/stage/steam" --strip-components=1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dxvk-stage
+          path: _work/stage/dxvk
+      - name: Assemble runtime
+        run: mac/runtime/build/assemble_runtime.sh
+      - name: SDK + source bundle
+        run: |
+          mac/runtime/build/make_sdk.sh
+          mac/runtime/build/make_source_bundle.sh
+      - name: Verify (static)
+        run: mac/runtime/build/verify_runtime.sh "_work/dist/${{ steps.id.outputs.runtime_id }}"
+      - name: Smoke test (prefix + cmd under the runner's GUI session)
+        continue-on-error: true
+        run: mac/runtime/build/verify_runtime.sh "_work/dist/${{ steps.id.outputs.runtime_id }}" --smoke
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp _work/dist/*.tar.xz _work/dist/*.sha256 _work/dist/manifest-*.json out/
+          [ -f _work/UNPINNED.txt ] && cp _work/UNPINNED.txt out/ || true
+          (cd out && shasum -a 256 *.tar.xz manifest-*.json > SHA256SUMS)
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: peakpack-runtime-${{ steps.id.outputs.runtime_id }}
+          path: out
+          retention-days: 30
+          compression-level: 0
+
+  release:
+    needs: mac
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: peakpack-runtime-${{ needs.mac.outputs.runtime_id }}
+          path: out
+      - name: Create prerelease (never latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ needs.mac.outputs.runtime_id }}
+        run: |
+          set -euo pipefail
+          if [ -f out/UNPINNED.txt ]; then echo "::error::unpinned inputs; refusing to publish"; exit 1; fi
+          tag="mac-build-runtime-${RID}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag exists; bump PP_REVISION in mac/runtime/build/pins.env"; exit 1
+          fi
+          cat > notes.md <<EOF
+          PeakPack for Mac runtime ${RID} (x86_64, runs under Rosetta 2). Not a PeakPack pack release.
+          Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_SHA}.
+          Contents: runtime (includes the built Steam bridge when steam_bridge=true), Wine SDK, LGPL source bundle,
+          Steam bridge package + Mac gate test kit (when built), manifest, SHA256SUMS.
+          Steam bridge: built from Valve's lsteamclient (Proton, pinned commit) fetched at build time; binaries only,
+          Valve's sources are not redistributed. Our own code under mac/ is MIT.
+          Corresponding source: peakpack-runtime-src-${RID}.tar.xz plus the unchanged CrossOver sources
+          in release mac-build-src-cx<version>.
+          EOF
+          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Mac runtime ${RID}" --notes-file notes.md

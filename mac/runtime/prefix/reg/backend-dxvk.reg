@@ -1,0 +1,8 @@
+REGEDIT4
+
+; Graphics backend DXVK (D3D11 -> Vulkan -> MoltenVK -> Metal), PEAK.exe only.
+; Same DLL names as DXMT; pp-backend.sh decides which files sit in system32.
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\DllOverrides]
+"d3d11"="native,builtin"
+"dxgi"="native,builtin"
+"d3d10core"="native,builtin"

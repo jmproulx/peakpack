@@ -1,0 +1,4 @@
+# PeakPack Wine patch series, applied in order by prepare_sources.sh (patch -p1 in sources/wine).
+# Keep this empty unless a gate proves a patch is needed; every patch bumps PP_REVISION and is
+# published with the source bundle (LGPL). Optional patches live in optional/ and are applied
+# only with prepare_sources.sh --with-optional-patch <file>.

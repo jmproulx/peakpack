@@ -1,0 +1,17 @@
+PeakPack optional patch (not in series by default).
+Load Wine unixlibs with RTLD_GLOBAL so DXMT's winemetal.so can dlsym(RTLD_DEFAULT, "macdrv_functions")
+if G-A1 shows the symbol lookup failing (see DXMT issue #170). CrossOver's winemac.drv already
+marks macdrv_functions DECLSPEC_EXPORT; this only changes symbol scope. Generated against CrossOver 26.3.0 sources/wine.
+Apply with: patch -p1 -d src/wine < this file
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -1086,7 +1086,7 @@
+     void *module, *handle;
+     const IMAGE_NT_HEADERS *nt;
+ 
+-    handle = dlopen( so_name, RTLD_NOW );
++    handle = dlopen( so_name, RTLD_NOW | RTLD_GLOBAL );
+     if (!handle)
+     {
+         WARN( "failed to load .so lib %s: %s\n", debugstr_a(so_name), dlerror() );

@@ -1,0 +1,8 @@
+REGEDIT4
+
+; Wine's own wined3d (D3D11 -> OpenGL). Diagnostic baseline only; expected to be slow.
+; Removing the PEAK.exe values restores the default builtin load order.
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\DllOverrides]
+"d3d11"=-
+"dxgi"=-
+"d3d10core"=-

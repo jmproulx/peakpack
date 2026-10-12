@@ -1,0 +1,8 @@
+REGEDIT4
+
+; DXVK d3d11 with Wine's builtin dxgi (Gcenx's DXVK-macOS ships no dxgi.dll, saying it
+; should not be used on macOS). A G-A2 tuning row only.
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\DllOverrides]
+"d3d11"="native,builtin"
+"dxgi"=-
+"d3d10core"="native,builtin"

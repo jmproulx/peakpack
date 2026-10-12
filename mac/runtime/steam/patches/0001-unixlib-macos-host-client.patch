@@ -1,0 +1,83 @@
+PeakPack for Mac: lsteamclient unix side on macOS (written by the PeakPack project).
+
+- Define NOMINMAX before the Wine headers: upstream Wine's windef.h defines
+  min()/max() macros in C++ too, which breaks std::max() in collapse_path().
+- If STEAM_COMPAT_CLIENT_INSTALL_PATH is unset, look for steamclient.dylib in
+  the stock Mac Steam location under $HOME before the old DYLD fallback.
+- Log the path and dlerror() when the native steamclient fails to load.
+- Steam_IsKnownInterface / Steam_NotifyMissingInterface become optional:
+  if the native client lacks them, every version is reported as known (the
+  real CreateInterface still decides) and the notification is dropped.
+
+Applies to ValveSoftware/Proton lsteamclient at the commit pinned in
+build/proton-pin.env.
+
+--- a/lsteamclient/unixlib.cpp
++++ b/lsteamclient/unixlib.cpp
+@@ -1,3 +1,8 @@
++/* PeakPack: upstream Wine's windef.h defines min()/max() macros for C++ as
++ * well, which breaks std::max() in collapse_path(). */
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
+ #include "ntstatus.h"
+ #define WIN32_NO_STATUS
+ #include "unix_private.h"
+@@ -750,6 +755,13 @@
+ #ifdef __APPLE__
+     if (getenv( "STEAM_COMPAT_CLIENT_INSTALL_PATH" ))
+         snprintf( path, PATH_MAX, "%s/steamclient.dylib", getenv( "STEAM_COMPAT_CLIENT_INSTALL_PATH" ) );
++    else if (getenv( "HOME" ))
++    {
++        /* PeakPack: no Steam-provided path; use the stock Mac Steam install. */
++        snprintf( path, PATH_MAX, "%s/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib",
++                  getenv( "HOME" ) );
++        WARN( "STEAM_COMPAT_CLIENT_INSTALL_PATH not set, trying %s\n", path );
++    }
+     else
+     {
+         WARN( "Old Steam client, falling back to DYLD environment to locate native steamclient "
+@@ -779,7 +791,7 @@
+ 
+     if (!(steamclient = dlopen( path, RTLD_NOW )))
+     {
+-        ERR( "unable to load native steamclient library\n" );
++        ERR( "unable to load native steamclient library %s: %s\n", path, dlerror() );
+         return -1;
+     }
+ 
+@@ -795,8 +807,13 @@
+     LOAD_FUNC( Steam_GetAPICallResult );
+     LOAD_FUNC( Steam_FreeLastCallback );
+     LOAD_FUNC( Steam_ReleaseThreadLocalMemory );
+-    LOAD_FUNC( Steam_IsKnownInterface );
+-    LOAD_FUNC( Steam_NotifyMissingInterface );
++
++    /* PeakPack: these two are newer and not guaranteed in every native
++     * steamclient build; missing ones are handled in the thunks below. */
++    p_Steam_IsKnownInterface = (decltype(p_Steam_IsKnownInterface))dlsym( steamclient, "Steam_IsKnownInterface" );
++    p_Steam_NotifyMissingInterface = (decltype(p_Steam_NotifyMissingInterface))dlsym( steamclient, "Steam_NotifyMissingInterface" );
++    if (!p_Steam_IsKnownInterface) WARN( "native steamclient lacks Steam_IsKnownInterface\n" );
++    if (!p_Steam_NotifyMissingInterface) WARN( "native steamclient lacks Steam_NotifyMissingInterface\n" );
+ 
+     TRACE( "Loaded host steamclient from %s\n", debugstr_a(path) );
+     return 0;
+@@ -851,14 +868,16 @@
+ template< typename Params >
+ static NTSTATUS steamclient_Steam_IsKnownInterface( Params *params, bool wow64 )
+ {
+-    params->_ret = p_Steam_IsKnownInterface( params->version );
++    /* Without the native check, report every version as known and let
++     * CreateInterface() decide. */
++    params->_ret = p_Steam_IsKnownInterface ? p_Steam_IsKnownInterface( params->version ) : true;
+     return 0;
+ }
+ 
+ template< typename Params >
+ static NTSTATUS steamclient_Steam_NotifyMissingInterface( Params *params, bool wow64 )
+ {
+-    p_Steam_NotifyMissingInterface( params->pipe, params->version );
++    if (p_Steam_NotifyMissingInterface) p_Steam_NotifyMissingInterface( params->pipe, params->version );
+     return 0;
+ }
+ 

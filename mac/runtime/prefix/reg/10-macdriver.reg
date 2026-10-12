@@ -1,0 +1,28 @@
+REGEDIT4
+
+; Mac driver (winemac.drv) settings. Key names and defaults verified in CrossOver 26.3
+; sources (dlls/winemac.drv/macdrv_main.c, setup_options). Values are y/n strings.
+
+; Global key. RetinaMode is read ONLY from here (never from AppDefaults) and applies to the
+; whole prefix. Off: PEAK renders at the requested -screen-width/-height and macOS scales,
+; which is what the 8 GB M1/M2 budget needs.
+[HKEY_CURRENT_USER\Software\Wine\Mac Driver]
+"RetinaMode"="n"
+
+; PEAK only (AppDefaults\PEAK.exe\Mac Driver overrides the global key).
+; Wine's default maps Command to Alt (VK_LMENU) and leaves Option as a character modifier.
+; For a game on a MacBook keyboard we use the "game" profile (TUNING.md K1):
+;   left Command  -> Ctrl  (the key beside the space bar; Ctrl-combos in mods such as the
+;                           Companion's Ctrl+F9 work as Cmd+F9 or Control+F9; a stray Cmd+Q
+;                           reaches the game as Ctrl+Q instead of quitting)
+;   left Option   -> Alt   (Alt+Enter fullscreen toggle = Option+Return)
+;   right Command -> Alt   (Wine default; keeps an Alt on the right)
+;   right Option  -> Option (Wine default; characters)
+; The physical Control key is always Ctrl.
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\Mac Driver]
+"LeftCommandIsCtrl"="y"
+"LeftOptionIsAlt"="y"
+"RightCommandIsCtrl"="n"
+"RightOptionIsAlt"="n"
+; Keep the game window from floating over other apps when the friend switches away.
+"WindowsFloatWhenInactive"="none"

@@ -1,0 +1,26 @@
+REGEDIT4
+
+; PeakPack prefix base settings. Imported by pp-create-prefix.sh with "wine reg import".
+; ASCII REGEDIT4 on purpose (diff-friendly; Wine's reg.exe accepts it).
+
+[HKEY_CURRENT_USER\Software\Wine]
+"Version"="win10"
+
+; Global: never install wine-mono/wine-gecko (Unity ships its own Mono; PeakPack is a
+; self-contained .NET 10 app; nothing we run needs MSHTML) and never create Mac menu items.
+[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"mscoree"=""
+"mshtml"=""
+"winemenubuilder.exe"=""
+
+; BepInEx/Doorstop proxy: PEAK.exe only (other programs keep Wine's builtin winhttp, which
+; PeakPack's .NET HttpClient uses).
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\PEAK.exe\DllOverrides]
+"winhttp"="native,builtin"
+
+[HKEY_CURRENT_USER\Software\Wine\Drivers]
+"Audio"="coreaudio"
+
+; 96 DPI (100 %). RetinaMode is off (10-macdriver.reg), so Windows sees 1x points.
+[HKEY_CURRENT_USER\Control Panel\Desktop]
+"LogPixels"=dword:00000060

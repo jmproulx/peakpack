@@ -1,0 +1,22 @@
+PeakPack for Mac: build Steam Input's native key code helper on macOS.
+
+Upstream has an X11 keysym table for Linux and #errors elsewhere. macOS has
+no X11 keysyms, so report 0 (no native key) for every virtual key.
+
+--- a/lsteamclient/unix_steam_input_manual.cpp
++++ b/lsteamclient/unix_steam_input_manual.cpp
+@@ -192,6 +192,14 @@
+         return vk_to_xkeysym[win_vk];
+     return 0;
+ }
++#elif defined(__APPLE__)
++/* PeakPack: macOS has no X11 keysyms. Report "no native key" (0) for every
++ * virtual key; Steam Input then falls back to its own glyphs. */
++uint32_t manual_convert_nNativeKeyCode( uint32_t win_vk )
++{
++    (void)win_vk;
++    return 0;
++}
+ #else
+ #error You must implement VK<->Native keysym conversion for this platform.
+ #endif

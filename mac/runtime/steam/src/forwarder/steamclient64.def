@@ -1,0 +1,59 @@
+; steamclient64.def - PeakPack for Mac Steam bridge forwarder.
+; Copyright (c) 2026 the PeakPack project. MIT licence (see docs/README.md).
+;
+; steam_api64.dll loads the DLL named in HKCU\Software\Valve\Steam\ActiveProcess
+; \SteamClientDll64 and resolves these names with GetProcAddress. Every export
+; is a PE forwarder to Wine's builtin lsteamclient.dll (built from Valve's
+; Proton lsteamclient at build time), which bridges to the native Mac
+; steamclient.dylib.
+;
+; The set is exactly the 40 names Valve's Windows steamclient64.dll exports
+; that lsteamclient.dll also exports (checked against Valve's client build
+; 1788399258 and lsteamclient.spec at the pinned Proton commit). The only one
+; left out is Breakpad_SteamSendMiniDump, which lsteamclient does not have;
+; steam_api treats breakpad entry points as optional.
+; Names lsteamclient marks "stub" are forwarded too, so the export table
+; matches Proton's (where steamclient64.dll is a copy of lsteamclient.dll).
+
+LIBRARY steamclient64.dll
+EXPORTS
+    Breakpad_SteamMiniDumpInit = lsteamclient.Breakpad_SteamMiniDumpInit
+    Breakpad_SteamSetAppID = lsteamclient.Breakpad_SteamSetAppID
+    Breakpad_SteamSetSteamID = lsteamclient.Breakpad_SteamSetSteamID
+    Breakpad_SteamWriteMiniDumpSetComment = lsteamclient.Breakpad_SteamWriteMiniDumpSetComment
+    Breakpad_SteamWriteMiniDumpUsingExceptionInfoWithBuildId = lsteamclient.Breakpad_SteamWriteMiniDumpUsingExceptionInfoWithBuildId
+    CreateInterface = lsteamclient.CreateInterface
+    Steam_BConnected = lsteamclient.Steam_BConnected
+    Steam_BGetCallback = lsteamclient.Steam_BGetCallback
+    Steam_BLoggedOn = lsteamclient.Steam_BLoggedOn
+    Steam_BReleaseSteamPipe = lsteamclient.Steam_BReleaseSteamPipe
+    Steam_ConnectToGlobalUser = lsteamclient.Steam_ConnectToGlobalUser
+    Steam_CreateGlobalUser = lsteamclient.Steam_CreateGlobalUser
+    Steam_CreateLocalUser = lsteamclient.Steam_CreateLocalUser
+    Steam_CreateSteamPipe = lsteamclient.Steam_CreateSteamPipe
+    Steam_FreeLastCallback = lsteamclient.Steam_FreeLastCallback
+    Steam_GSBLoggedOn = lsteamclient.Steam_GSBLoggedOn
+    Steam_GSBSecure = lsteamclient.Steam_GSBSecure
+    Steam_GSGetSteam2GetEncryptionKeyToSendToNewClient = lsteamclient.Steam_GSGetSteam2GetEncryptionKeyToSendToNewClient
+    Steam_GSGetSteamID = lsteamclient.Steam_GSGetSteamID
+    Steam_GSLogOff = lsteamclient.Steam_GSLogOff
+    Steam_GSLogOn = lsteamclient.Steam_GSLogOn
+    Steam_GSRemoveUserConnect = lsteamclient.Steam_GSRemoveUserConnect
+    Steam_GSSendSteam2UserConnect = lsteamclient.Steam_GSSendSteam2UserConnect
+    Steam_GSSendSteam3UserConnect = lsteamclient.Steam_GSSendSteam3UserConnect
+    Steam_GSSendUserDisconnect = lsteamclient.Steam_GSSendUserDisconnect
+    Steam_GSSendUserStatusResponse = lsteamclient.Steam_GSSendUserStatusResponse
+    Steam_GSSetServerType = lsteamclient.Steam_GSSetServerType
+    Steam_GSSetSpawnCount = lsteamclient.Steam_GSSetSpawnCount
+    Steam_GSUpdateStatus = lsteamclient.Steam_GSUpdateStatus
+    Steam_GetAPICallResult = lsteamclient.Steam_GetAPICallResult
+    Steam_GetGSHandle = lsteamclient.Steam_GetGSHandle
+    Steam_InitiateGameConnection = lsteamclient.Steam_InitiateGameConnection
+    Steam_IsKnownInterface = lsteamclient.Steam_IsKnownInterface
+    Steam_LogOff = lsteamclient.Steam_LogOff
+    Steam_LogOn = lsteamclient.Steam_LogOn
+    Steam_NotifyMissingInterface = lsteamclient.Steam_NotifyMissingInterface
+    Steam_ReleaseThreadLocalMemory = lsteamclient.Steam_ReleaseThreadLocalMemory
+    Steam_ReleaseUser = lsteamclient.Steam_ReleaseUser
+    Steam_SetLocalIPBinding = lsteamclient.Steam_SetLocalIPBinding
+    Steam_TerminateGameConnection = lsteamclient.Steam_TerminateGameConnection

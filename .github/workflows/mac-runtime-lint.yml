@@ -1,0 +1,49 @@
+# Fast static checks for mac/runtime (no builds, no secrets, read-only).
+# Repo path when pushed: .github/workflows/mac-runtime-lint.yml
+name: mac-runtime-lint
+
+on:
+  push:
+    paths:
+      - "mac/runtime/**"
+      - ".github/workflows/mac-runtime*.yml"
+  pull_request:
+    paths:
+      - "mac/runtime/**"
+      - ".github/workflows/mac-runtime*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: bash -n + shellcheck
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          files="$(find mac/runtime -name '*.sh')"   # includes mac/runtime/steam (R5)
+          for f in $files; do bash -n "$f"; done
+          # ShellCheck comes preinstalled on the ubuntu runner image
+          shellcheck -x -S warning $files
+      - name: yamllint
+        run: |
+          pip3 install --user --break-system-packages yamllint==1.35.1
+          cfg='{extends: default, rules: {line-length: {max: 140}, truthy: {check-keys: false}, document-start: disable}}'
+          ~/.local/bin/yamllint -d "$cfg" .github/workflows/mac-runtime*.yml
+      - name: python compile
+        run: |
+          python3 -I -m py_compile mac/runtime/build/manifest.py
+          python3 -I -m py_compile mac/runtime/steam/src/forwarder/verify_forwarder.py
+      - name: .reg files are REGEDIT4 ASCII
+        run: |
+          for f in mac/runtime/prefix/reg/*.reg; do
+            head -n 1 "$f" | grep -qx 'REGEDIT4' || { echo "$f: bad header"; exit 1; }
+          done
+          python3 -I -c 'import sys; [open(f, "rb").read().decode("ascii") for f in sys.argv[1:]]' mac/runtime/prefix/reg/*.reg
