@@ -433,7 +433,7 @@ Unchanged because they already work on a Mac: ItemTuner `F`, HeliPilot flight ke
 
 Risks:
 
-- **Existing collision on Windows too:** HeliPilot's `[Rope] RopeKey` defaults to **G**, which PEAK uses for ScrollBackward (cycling items). Suggest moving it to a free key (e.g. **L**) in HeliPilot's own default, rather than in a Mac-only override.
+- **Intentional, safe overlap:** HeliPilot's `[Rope] RopeKey` is **G**, which PEAK also uses for ScrollBackward. This is safe, as verified by the HeliPilot agent: PEAK samples ScrollBackward only while `playerMovementActive`, and HeliPilot forces that false while piloting or riding, which is the only time the rope key does anything. Keep G. HeliPilot 0.3.3 also blocks hotbar switching while flying.
 - Checked against the real PEAK list above (12 Oct 2026): H, P, Y, Z, U are free. Re-check this list after PEAK updates.
 - Punctuation positions assume a US layout.
 - If Wine maps Command to Ctrl, HeliPilot's "down" (LeftCtrl) is Command on Mac.
