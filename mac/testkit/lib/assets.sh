@@ -165,9 +165,22 @@ ensure_peakpack() {
     else log "downloading PeakPack.exe ($url)"; fetch_url "$url" "$DL/PeakPack.exe" || return 1
     fi
   fi
+  # Pack releases since app 0.4.2 carry PeakPack.exe.sha256 ("<sha256>  PeakPack.exe"); verify when present.
+  local have want=""
+  have=$(sha256_of "$DL/PeakPack.exe")
+  if [ -n "${PP_ASSETS_DIR:-}" ] && [ -f "$PP_ASSETS_DIR/PeakPack.exe.sha256" ]; then cp "$PP_ASSETS_DIR/PeakPack.exe.sha256" "$DL/PeakPack.exe.sha256"
+  elif [ ! -s "$DL/PeakPack.exe.sha256" ]; then fetch_url "$url.sha256" "$DL/PeakPack.exe.sha256" >/dev/null 2>&1 || rm -f "$DL/PeakPack.exe.sha256"
+  fi
+  [ -s "$DL/PeakPack.exe.sha256" ] && want=$(awk 'NR == 1 { print tolower($1) }' "$DL/PeakPack.exe.sha256" | tr -d '\r')
+  if [ -n "$want" ] && [ "$want" != "$have" ]; then
+    log "PeakPack.exe SHA-256 mismatch: got $have, release says $want"
+    rm -f "$DL/PeakPack.exe"
+    return 1
+  fi
   mkdir -p "$d"
   [ -f "$d/PeakPack.exe" ] || cp "$DL/PeakPack.exe" "$d/PeakPack.exe"
-  version_set peakpack_exe_sha256 "$(sha256_of "$DL/PeakPack.exe")"
+  version_set peakpack_exe_sha256 "$have"
+  if [ -n "$want" ]; then version_set peakpack_exe_verified "yes (PeakPack.exe.sha256)"; else version_set peakpack_exe_verified "no (release has no PeakPack.exe.sha256)"; fi
   return 0
 }
 # Newest PEAK Player.log in the prefix (Unity: AppData/LocalLow/LandCrab/PEAK/Player.log)

@@ -56,7 +56,7 @@ peakpack() {  # peakpack NAME TIMEOUT_S ARGS... -> exit code; status JSON copied
   [ -f "$tests_dir/$name.json" ] && cp "$tests_dir/$name.json" "$GLOG/$name.status.json"
   return "$rc"
 }
-st() { local v; v=$(json_get "$GLOG/$1.status.json" "$2"); [ -n "$v" ] || v=$(json_get "$GLOG/$1.status.json" "$3"); printf '%s' "$v"; }
+st() { json_get "$GLOG/$1.status.json" "$2"; }   # status file keys are camelCase (FriendInstaller DESIGN 18.8)
 start_steam_hold() {
   pp_wine normal 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
     --log "C:\\PeakPackTests\\launcher-$1.log" --no-launch --hold-ms 1500000 > "$GLOG/launcher-$1.out" 2>&1 &
@@ -65,18 +65,18 @@ start_steam_hold() {
 
 # ---- 1. status
 peakpack status 300 --status; rc=$?
-metric status_exit "$rc"; metric peakpack_app_version "$(st status appVersion AppVersion)" str
-version_set peakpack_app "$(st status appVersion AppVersion)"
-case $rc in 0) crit pp_status pass "PeakPack --headless --status under Wine" "$(st status message Message)" ;;
-  *) crit pp_status fail "PeakPack --headless --status under Wine" "exit $rc: $(st status message Message) $(head -c 300 "$GLOG/status.out")"; gate_end ;; esac
+metric status_exit "$rc"; metric peakpack_app_version "$(st status appVersion)" str
+version_set peakpack_app "$(st status appVersion)"
+case $rc in 0) crit pp_status pass "PeakPack --headless --status under Wine" "$(st status message)" ;;
+  *) crit pp_status fail "PeakPack --headless --status under Wine" "exit $rc: $(st status message) $(head -c 300 "$GLOG/status.out")"; gate_end ;; esac
 
 # ---- 2. sync
 peakpack sync "$sync_to" --sync; rc=$?
 if [ "$rc" = 3 ]; then note "sync exit 3 (foreign mod loader in the game folder); re-running with --adopt"; peakpack sync-adopt "$sync_to" --sync --adopt; rc=$?; fi
-metric sync_exit "$rc"; metric installed_revision "$(st sync installedRevision InstalledRevision)"
-version_set pack_revision "$(st sync installedRevision InstalledRevision)"
-case $rc in 0) crit pp_sync pass "PeakPack --headless --sync" "revision $(st sync installedRevision InstalledRevision): $(st sync message Message)" ;;
-  *) crit pp_sync fail "PeakPack --headless --sync" "exit $rc: $(st sync message Message) / $(st sync problem.heading Problem.Heading)"; gate_end ;; esac
+metric sync_exit "$rc"; metric installed_revision "$(st sync installedRevision)"
+version_set pack_revision "$(st sync installedRevision)"
+case $rc in 0) crit pp_sync pass "PeakPack --headless --sync" "revision $(st sync installedRevision): $(st sync message)" ;;
+  *) crit pp_sync fail "PeakPack --headless --sync" "exit $rc: $(st sync message) / $(st sync problem.heading)"; gate_end ;; esac
 [ -f "$ppdir/profile/BepInEx/core/BepInEx.Preloader.dll" ] && crit profile pass "profile has BepInEx core" || crit profile fail "profile has BepInEx core"
 find "$ppdir/profile/BepInEx/plugins" -name '*.dll' 2>/dev/null | sed "s#^$ppdir/##" | sort > "$GLOG/profile-plugin-dlls.txt"
 metric plugin_dlls "$(wc -l < "$GLOG/profile-plugin-dlls.txt" | tr -d ' ')"
@@ -86,9 +86,9 @@ start_steam_hold modded
 t_mod=$(now_s)
 peakpack launch-modded 300 --launch --launch-method direct; rc=$?
 metric launch_modded_exit "$rc"
-cmdline=$(st launch-modded commandLine CommandLine); metric launch_modded_cmdline "$cmdline" str
-case $rc in 0) crit launch_modded pass "PeakPack --launch (modded, direct)" "launched=$(st launch-modded launched Launched)" ;;
-  *) crit launch_modded fail "PeakPack --launch (modded, direct)" "exit $rc: $(st launch-modded message Message)"; gate_end ;; esac
+cmdline=$(st launch-modded commandLine); metric launch_modded_cmdline "$cmdline" str
+case $rc in 0) crit launch_modded pass "PeakPack --launch (modded, direct)" "launched=$(st launch-modded launched)" ;;
+  *) crit launch_modded fail "PeakPack --launch (modded, direct)" "exit $rc: $(st launch-modded message)"; gate_end ;; esac
 case "$cmdline" in *-force-d3d11*) crit mac_extra_args pass "Mac extra args from the signed manifest (-force-d3d11)" ;;
   *) crit mac_extra_args info "Mac extra args from the signed manifest (-force-d3d11)" "not in the command line: the current pack revision has no platforms.mac.extraArgs?" ;; esac
 if wait_for_file_text "$bep_log" "Chainloader startup complete" "$launch_to" "$t_mod"; then
@@ -139,8 +139,8 @@ start_steam_hold vanilla
 t_van=$(now_s)
 peakpack launch-vanilla 300 --launch --vanilla --launch-method direct; rc=$?
 metric launch_vanilla_exit "$rc"
-case $rc in 0) crit launch_vanilla pass "PeakPack --launch --vanilla" "launched=$(st launch-vanilla launched Launched)" ;;
-  *) crit launch_vanilla fail "PeakPack --launch --vanilla" "exit $rc: $(st launch-vanilla message Message)" ;; esac
+case $rc in 0) crit launch_vanilla pass "PeakPack --launch --vanilla" "launched=$(st launch-vanilla launched)" ;;
+  *) crit launch_vanilla fail "PeakPack --launch --vanilla" "exit $rc: $(st launch-vanilla message)" ;; esac
 if wait_for_file_text "$plog" "Steam runtime manager initialized" "$launch_to" "$t_van"; then
   crit vanilla_started pass "vanilla PEAK started (new Player.log, Steam initialised)"
 else
