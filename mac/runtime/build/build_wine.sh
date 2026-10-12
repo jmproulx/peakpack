@@ -55,12 +55,14 @@ export FREETYPE_CFLAGS="-I$PP_DEPS/include/freetype2" FREETYPE_LIBS="-L$PP_DEPS/
 export GNUTLS_CFLAGS="-I$PP_DEPS/include" GNUTLS_LIBS="-L$PP_DEPS/lib -lgnutls"
 export INOTIFY_CFLAGS="-I$PP_DEPS/include" INOTIFY_LIBS="-L$PP_DEPS/lib -linotify"
 
+# No --with-opengl: on macOS winemac.drv draws OpenGL through CGL; with the flag, the EGL check
+# (X11/Wayland only) becomes a hard error (CI run 38316710000). PEAK uses D3D11 via DXMT (Metal).
 # Configure flags: start from Gcenx's MacPorts wine-stable 11.0 port, adapted (DECISIONS.md D2).
 CONFIGURE_ARGS="--prefix=/ \
  --build=x86_64-apple-darwin --host=x86_64-apple-darwin \
  --enable-archs=i386,x86_64 $mingw_arg \
  --disable-tests --disable-winemenubuilder \
- --with-coreaudio --with-freetype --with-gnutls --with-inotify --with-vulkan --with-opengl \
+ --with-coreaudio --with-freetype --with-gnutls --with-inotify --with-vulkan \
  --with-pthread --with-unwind \
  --without-alsa --without-capi --without-cups --without-dbus --without-ffmpeg --without-fontconfig \
  --without-gettext --without-gettextpo --without-gphoto --without-gssapi --without-gstreamer \
