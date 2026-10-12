@@ -107,7 +107,7 @@ namespace PeakPack.Companion
             {
                 // Only once the player is actually in the scene (joiners are still loading at OnJoinedRoom).
                 // Re-check only when the host's pack or revision changes (not on every live-setting change).
-                var key = PhotonNetwork.CurrentRoom.Name + "#" + RoomPack() + "#" + RoomRev();
+                var key = PhotonNetwork.CurrentRoom.Name + "#" + RoomPack() + "#" + RoomRev() + "#" + _info.revision;
                 if (_evaluatedFor != key) { _evaluatedFor = key; EvaluateAsClient(); }
             }
 

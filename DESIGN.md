@@ -255,6 +255,9 @@ Out of scope by Joshua's decision (11 Oct 2026): all friends are on Windows with
 4. **Live settings:** JetpackBoost's thrust and forward push follow the host. Add more keys?
 5. **modsRequiredToJoin:** set to false for the first pack (both mods are client-side; vanilla friends can join). Turn on when a mod needs everyone.
 6. **Signing later?** SignPath (free, public repo) is worth trying once the pack is in regular use.
+7. **Test lobby (v0.4):** turn it on for playtest sessions, and mark which of his mods are reload-safe (ScoutmasterMode, HeliPilot, JetpackBoost, ElytraGlider all have OnDestroy + embedded PDB builds? the hotfix tool checks each build). Keep it off for normal play.
+8. **Log sharing default:** on (explained in the installer), as requested. Friends can turn it off at any time.
+9. **Host id:** host one lobby with the v0.4 companion installed (it writes `host-id.txt`), then publish, so friends only relay to him.
 
 ## 17. Testing with friends (v0.4): remote logs, live updates, hotfixes
 
@@ -272,7 +275,9 @@ Goal: Joshua playtests his own mods (ScoutmasterMode, HeliPilot v2, JetpackBoost
 - **Scrubbing:** the Windows profile path, user name and PC name are replaced by `%USERPROFILE%`, `<user>` and `<pc>` before anything leaves the PC.
 - **Who receives it:** only the lobby host (Photon master client), and only if the room's pack id matches the friend's signed pack AND the master's Photon user id is in `lobby.hostIds` from the signed manifest.
   - The host's companion records its own id in `BepInEx\PeakPack\host-id.txt`, and the publisher puts it into the next manifest automatically.
-  - Until that has happened once, only the pack id is matched, and the publisher prints a note.
+  - Until that has happened once, **nothing is relayed** (the publisher prints a note). So the first release has log sharing effectively off until Joshua hosts once with the v0.4 companion and publishes again.
+  - Limit: Photon user ids are claimed by the client, not authenticated, so a deliberately modded client could impersonate Joshua's id. The worst it gets is a scrubbed error log and mod list. It can never push code, because live updates are verified against the signed manifest.
+  - The host only accepts logs from players whose companion runs the same pack. It also caps 400K characters per sender and 1.2M in total per minute, and stops writing at 50 MB in the folder.
 - **Transport:**
   - Photon event 172, targeted to the master only, as 3,000-character chunks.
   - Rate-limited to about 8 KB/s per friend, with a bounded queue (60 chunks) and 60 KB per snapshot.

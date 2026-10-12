@@ -79,9 +79,16 @@ static class Program
         // reload-safe mods if the friend opted in, write the result for the companion's notice, exit.
         if (AppSession.Has(args, "--hot-update"))
         {
-            var loc = AppSession.Get(args, "--manifest") ?? s.LoadState().ManifestUrl ?? s.ManifestLocation;
-            using var dl = s.NewDownloader();
-            HotUpdater.ApplyAsync(s.Paths, dl, loc, s.PublicKey, s.Config.ShortcutName).GetAwaiter().GetResult();
+            // One live update at a time per data folder (the companion could ask again while one is running).
+            using var mutex = new Mutex(false, "PeakPack-hot-update-" + Downloader.Sha256OfBytes(System.Text.Encoding.UTF8.GetBytes(s.Paths.DataDir.ToLowerInvariant()))[..16]);
+            if (!mutex.WaitOne(0)) return;
+            try
+            {
+                var loc = AppSession.Get(args, "--manifest") ?? s.LoadState().ManifestUrl ?? s.ManifestLocation;
+                using var dl = s.NewDownloader();
+                HotUpdater.ApplyAsync(s.Paths, dl, loc, s.PublicKey, s.Config.ShortcutName).GetAwaiter().GetResult();
+            }
+            finally { mutex.ReleaseMutex(); }
             return;
         }
         if (AppSession.Has(args, "--hot-rollback"))

@@ -61,6 +61,7 @@ namespace PeakPack.Companion
                 case "not-allowed":
                     return name(host) + " published mod pack rev " + rev + ". Restart PEAK from the " + shortcut + " icon to get it.";
                 case "up-to-date":
+                case "rolled-back":
                     return null;
                 default:
                     return "Couldn't apply " + name(host) + "'s update. Restart PEAK from the " + shortcut + " icon to get it.";

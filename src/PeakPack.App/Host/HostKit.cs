@@ -119,6 +119,23 @@ static class HostKit
         Margin = ui.Pad(0, top, 0, bottom), UseMnemonic = false, TextAlign = ContentAlignment.TopLeft,
     };
 
+    /// <summary>Wrapping label whose height is measured for its actual width. Use inside auto-sized GroupBoxes,
+    /// which measure an AutoSize label as one long line and then clip the rows below it.</summary>
+    public static Label WrapText(Ui ui, string text, bool muted = false)
+    {
+        var l = new Label { Text = text, AutoSize = false, Dock = DockStyle.Fill, ForeColor = muted ? Theme.Muted : Theme.Text, UseMnemonic = false, Margin = ui.Pad(0) };
+        void Fit()
+        {
+            if (l.Width <= 0) return;
+            var h = TextRenderer.MeasureText(l.Text, l.Font, new Size(l.Width, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + ui.Px(2);
+            if (l.Height != h) l.Height = h;
+        }
+        l.SizeChanged += (_, _) => Fit();
+        l.TextChanged += (_, _) => Fit();
+        l.FontChanged += (_, _) => Fit();
+        return l;
+    }
+
     /// <summary>Field label in a form grid: vertically centred with its text box.</summary>
     public static Label Field(Ui ui, string text) => new()
     {

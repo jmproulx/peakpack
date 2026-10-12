@@ -40,6 +40,8 @@ powershell -ExecutionPolicy Bypass -File tools\make-sandbox.ps1            # fak
 powershell -ExecutionPolicy Bypass -File tools\sandbox-test.ps1            # 39 v0.2 end-to-end checks (downloads real packages)
 powershell -ExecutionPolicy Bypass -File tools\v3-test.ps1                 # v0.3: pack-info, update check, host options, self-install
                                                                            #   without Mark-of-the-Web, pipeline dry run, stamp, lobby logic
+powershell -ExecutionPolicy Bypass -File tools\v4-test.ps1                 # v0.4: live updates via the real PeakPack.exe --hot-update,
+                                                                           #   refusals, consent -> pack-info, hotfix dry run, IlScan
 powershell -ExecutionPolicy Bypass -File tools\gui-selftest.ps1 -Published # friend window at 100/125/150 %: screenshots in sandbox\shots\<scale>
 powershell -ExecutionPolicy Bypass -File tools\host-selftest.ps1           # Host window at 100/125/150 % with a dry-run publish
 powershell -ExecutionPolicy Bypass -File tools\shortcut-launch-test.ps1    # runs the created desktop shortcut before/after a new publish
@@ -63,6 +65,16 @@ $cfg = "$env:LOCALAPPDATA\PeakPack-publisher\publish.json"
 & $cli release --config $cfg --notes "..." --dry-run           # print the exact gh command, upload nothing
 & $cli release --config $cfg --notes "..." --stamp "D:\SteamLibrary\steamapps\common\PEAK\BepInEx"   # upload + update own lobby check
 # or: .\tools\publish-release.ps1 -Config $cfg [-DryRun]
+```
+
+**Testing with friends (v0.4, DESIGN.md section 17):**
+
+```powershell
+& $cli lobby snapshot                                       # ask everyone in your lobby for fresh logs (or Ctrl+F9 in game)
+#   -> D:\SteamLibrary\steamapps\common\PEAK\BepInEx\PeakPack-remote-logs\<friend>.log and _lobby.txt
+& $cli hotfix --mod HeliPilot --dll <new build> --notes "..."             # dry run: checks the DLL, shows the release
+& $cli hotfix --mod HeliPilot --dll <new build> --notes "..." --publish   # release + tell the lobby (live update in a test lobby)
+& $cli hotfix --mod HeliPilot --rollback --publish                        # republish the previous build
 ```
 
 `release` needs the GitHub CLI logged in (found at `%LOCALAPPDATA%\Programs\gh\bin\gh.exe` or on PATH) and the repo to exist.

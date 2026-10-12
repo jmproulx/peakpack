@@ -96,8 +96,10 @@ namespace PeakPack.Companion
                 sb.Append(char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.' ? c : '_');
             var s = sb.ToString().Trim('.', '_');
             if (s.Length > 40) s = s.Substring(0, 40);
-            var upper = s.ToUpperInvariant();
-            if (s.Length == 0 || upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" || upper.StartsWith("COM") && s.Length == 4 || upper.StartsWith("LPT") && s.Length == 4)
+            // Windows reserves device names before the first dot too ("con.x" means CON).
+            var stem = (s.IndexOf('.') >= 0 ? s.Substring(0, s.IndexOf('.')) : s).ToUpperInvariant();
+            if (s.Length == 0 || stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL"
+                || stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal)) && char.IsDigit(stem[3]))
                 s = "player-" + actor;
             return s;
         }

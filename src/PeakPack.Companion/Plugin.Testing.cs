@@ -70,10 +70,15 @@ namespace PeakPack.Companion
             _diag?.Dispose();
             _diag = null;
             _outbox.Clear();
+            _hotProcess?.Dispose(); // never killed: a running update finishes on its own
+            _hotProcess = null;
         }
 
-        void OnJoinedRoomTesting() { _diagSentFor = null; _gotLogsNotice.Clear(); }
-        void OnLeftRoomTesting() { _outbox.Clear(); _diag?.ClearLive(); }
+        void OnJoinedRoomTesting() { _diagSentFor = null; _gotLogsNotice.Clear(); _remote?.Reset(); _lastRequestAt = -100f; }
+        void OnLeftRoomTesting() { _outbox.Clear(); _diag?.ClearLive(); _remote?.Reset(); }
+        float _lastRequestAt = -100f;
+        int _lastHotRevStarted;
+        Process _hotProcess;
 
         static DateTime SafeTime(string f) { try { return File.Exists(f) ? File.GetLastWriteTimeUtc(f) : DateTime.MinValue; } catch { return DateTime.MinValue; } }
 
@@ -85,10 +90,12 @@ namespace PeakPack.Companion
             if (kb == null) return;
             try
             {
-                if (_requestKey.Value != Key.None && kb[_requestKey.Value].wasPressedThisFrame && (kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed))
+                if (_requestKey.Value == Key.None) return;
+                var key = kb[_requestKey.Value]; // may be null for keys missing on this layout
+                if (key != null && key.wasPressedThisFrame && (kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed))
                     RequestSnapshots();
             }
-            catch (ArgumentException) { }
+            catch (Exception) { _requestKey = null; } // never let a bad key break Update every frame
         }
 
         /// <summary>Once a second.</summary>
@@ -111,7 +118,7 @@ namespace PeakPack.Companion
                 if (live != null) Enqueue("live", live);
                 PumpOutbox();
             }
-            else _diag.ClearLive();
+            else { _diag.ClearLive(); _outbox.Clear(); }
             CheckHotResult();
         }
 
@@ -126,7 +133,8 @@ namespace PeakPack.Companion
             return _info.hostIds.Count == 0 || _info.hostIds.Contains(master.UserId ?? "");
         }
 
-        bool CanRelay() => _info.diagnostics && HostVerified();
+        // Logs go only to a host named in the signed pack: with no host ids yet, nothing is relayed.
+        bool CanRelay() => _info.diagnostics && _info.hostIds.Count > 0 && HostVerified();
 
         void RecordHostId()
         {
@@ -150,8 +158,16 @@ namespace PeakPack.Companion
             if (t == _packInfoTime) return;
             _packInfoTime = t;
             var fresh = PackInfoDto.Load(_packInfoPath, Logger);
-            if (fresh == null) return;
+            if (fresh == null)
+            {
+                // Missing or unreadable: fail closed for anything that shares or changes things.
+                _info.diagnostics = false;
+                _info.liveUpdates = false;
+                _outbox.Clear();
+                return;
+            }
             bool revChanged = fresh.revision != _info.revision;
+            if (revChanged) _evaluatedFor = null; // re-run the lobby check (also cancels a pending "block" leave once we match)
             _info = fresh;
             if (_diag != null) _diag.OwnModFolders = fresh.ownModFolders;
             Logger.LogInfo($"pack-info.json changed: rev {fresh.revision}, diagnostics {(fresh.diagnostics ? "on" : "off")}, live updates {(fresh.liveUpdates ? "on" : "off")}");
@@ -236,7 +252,9 @@ namespace PeakPack.Companion
                 {
                     case EvSnapshotRequest:
                         if (IsHost || master == null || e.Sender != master.ActorNumber || !HostVerified()) return;
-                        if (_info.diagnostics)
+                        if (Time.unscaledTime - _lastRequestAt < 20f) return; // one request per 20 s is plenty
+                        _lastRequestAt = Time.unscaledTime;
+                        if (_info.diagnostics && _info.hostIds.Count > 0)
                         {
                             _feed.Post(Feed.Name(HostNick()) + " asked for your PEAK logs to fix a mod. Sending them now.", warning: false);
                             QueueSnapshot("host asked");
@@ -247,6 +265,8 @@ namespace PeakPack.Companion
                     case EvLogChunk:
                         if (!IsHost || d.Length < 5) return;
                         var p = PhotonNetwork.CurrentRoom?.GetPlayer(e.Sender);
+                        // Only from players running our pack (their companion publishes pp.pack); others are ignored.
+                        if (p == null || !string.Equals(p.CustomProperties[KPack] as string, _info.packId, StringComparison.OrdinalIgnoreCase)) return;
                         var nick = LobbyCheck.SafeName(p?.NickName);
                         var kind = d[1] as string ?? "live";
                         _remote.Write(e.Sender, nick, kind == "snapshot" ? "snapshot" : "live", d[3] as string ?? "", d[4] as string ?? "");
@@ -275,11 +295,13 @@ namespace PeakPack.Companion
                 _feed.Post(LobbyCheck.UpdateMessage("restart-needed", HostNick(), null, rev, _info.shortcutName, Feed.Name), warning: true);
                 return;
             }
-            if (_hotWaitUntil > 0) return; // one at a time
+            if (_hotWaitUntil > 0 || (_hotProcess != null && !_hotProcess.HasExited)) return; // one at a time
+            if (rev <= _lastHotRevStarted) return;                                              // each revision once
             var exe = _info.appExe;
             // Only PeakPack's own installed app, sitting next to this profile (<data>\PeakPack.exe, <data>\profile\BepInEx).
             var dataDir = Directory.GetParent(Directory.GetParent(Paths.BepInExRootPath).FullName).FullName;
             if (string.IsNullOrEmpty(exe) || !File.Exists(exe) ||
+                !string.Equals(Path.GetFileName(exe), "PeakPack.exe", StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(Path.GetDirectoryName(Path.GetFullPath(exe)), dataDir, StringComparison.OrdinalIgnoreCase))
             {
                 Logger.LogWarning("Live update: PeakPack.exe not found next to the profile (" + exe + ").");
@@ -288,9 +310,11 @@ namespace PeakPack.Companion
             }
             _hotResultBefore = SafeTime(HotResultPath);
             var args = string.Join(" ", _info.appArgs.Concat(new[] { "--hot-update" }).Select(a => a.IndexOf(' ') >= 0 ? "\"" + a + "\"" : a));
-            Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir })?.Dispose();
+            _hotProcess?.Dispose();
+            _hotProcess = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir });
             _hotWaitUntil = Time.unscaledTime + HotUpdateTimeout;
             _hotRev = rev;
+            _lastHotRevStarted = rev;
             Logger.LogInfo($"Live update to rev {rev}: started {exe} {args}");
         }
 
@@ -307,8 +331,9 @@ namespace PeakPack.Companion
                 var msg = LobbyCheck.UpdateMessage(status, HostNick(), r?.mods, r?.revision ?? _hotRev, _info.shortcutName, Feed.Name);
                 if (msg != null) _feed.Post(msg, warning: status != "applied");
             }
-            else if (Time.unscaledTime > _hotWaitUntil)
+            else if (Time.unscaledTime > _hotWaitUntil && (_hotProcess == null || _hotProcess.HasExited))
             {
+                // Only give up once PeakPack has really finished (a slow download just takes longer).
                 _hotWaitUntil = -1f;
                 _feed.Post(LobbyCheck.UpdateMessage("failed", HostNick(), null, _hotRev, _info.shortcutName, Feed.Name), warning: true);
             }

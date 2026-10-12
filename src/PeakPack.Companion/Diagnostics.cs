@@ -135,7 +135,16 @@ namespace PeakPack.Companion
         /// <summary>Header (pack revision, game, mods) + recent captured lines + errors from the end of Player.log.</summary>
         public string BuildSnapshot(PackInfoDto info, string nick, string reason)
         {
+            var head = new StringBuilder();
             var sb = new StringBuilder();
+            BuildSnapshotParts(info, nick, reason, head, sb);
+            // Trim the BODY (oldest lines first) so the header with pack revision and mod list always survives.
+            var h = Scrub(head.ToString());
+            return h + DiagLogic.KeepTail(Scrub(sb.ToString()), Math.Max(4000, DiagLogic.SnapshotMaxChars - h.Length));
+        }
+
+        void BuildSnapshotParts(PackInfoDto info, string nick, string reason, StringBuilder sb, StringBuilder body)
+        {
             sb.Append("===== PeakPack diagnostics from ").Append(nick).Append(" at ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")).Append(" (").Append(reason).Append(") =====\n");
             sb.Append("Pack: ").Append(info.packId).Append(" revision ").Append(info.revision).Append('\n');
             sb.Append("Game: PEAK ").Append(Application.version).Append(", Unity ").Append(Application.unityVersion)
@@ -146,12 +155,11 @@ namespace PeakPack.Companion
                 var folder = Path.GetFileName(Path.GetDirectoryName(pi.Location ?? "") ?? "");
                 sb.Append("  ").Append(pi.Metadata.Name).Append(' ').Append(pi.Metadata.Version).Append("  (").Append(pi.Metadata.GUID).Append(", ").Append(folder).Append(")\n");
             }
-            sb.Append("--- recent lines (host's mods, PeakPack, all errors) ---\n");
-            lock (_lock) foreach (var l in _ring) sb.Append(l).Append('\n');
-            sb.Append("--- errors from the end of Player.log ---\n");
-            foreach (var l in PlayerLogErrorLines()) sb.Append(l).Append('\n');
-            sb.Append("===== end =====\n");
-            return DiagLogic.KeepTail(Scrub(sb.ToString()));
+            body.Append("--- errors from the end of Player.log ---\n");
+            foreach (var l in PlayerLogErrorLines()) body.Append(l).Append('\n');
+            body.Append("--- recent lines (host's mods, PeakPack, all errors) ---\n");
+            lock (_lock) foreach (var l in _ring) body.Append(l).Append('\n');
+            body.Append("===== end =====\n");
         }
 
         static IEnumerable<string> PlayerLogErrorLines()
@@ -185,7 +193,15 @@ namespace PeakPack.Companion
     internal sealed class RemoteLogWriter
     {
         const long MaxFileBytes = 2 * 1024 * 1024;
-        const int MaxCharsPerMinute = 400000;
+        const int MaxCharsPerMinute = 400000;        // per sender
+        const int MaxTotalCharsPerMinute = 1200000;  // all senders together
+        const long MaxDirBytes = 50L * 1024 * 1024;  // stop writing past this (old files can be deleted by hand)
+        float _totalWindow = -100f;
+        int _totalChars;
+        long _dirBytes = -1;
+
+        /// <summary>New lobby: actor numbers are reused, so forget per-actor budgets and the index.</summary>
+        public void Reset() { _budget.Clear(); _index.Clear(); }
         readonly string _dir = Path.Combine(Paths.BepInExRootPath, "PeakPack-remote-logs");
         readonly Dictionary<int, (float Window, int Chars)> _budget = new Dictionary<int, (float, int)>();
         readonly Dictionary<int, string> _index = new Dictionary<int, string>();
@@ -202,9 +218,16 @@ namespace PeakPack.Companion
                 var now = Time.unscaledTime;
                 if (!_budget.TryGetValue(actor, out var b) || now - b.Window > 60f) b = (now, 0);
                 if (b.Chars + text.Length > MaxCharsPerMinute) { _budget[actor] = b; return; } // flood guard
-                _budget[actor] = (b.Window, b.Chars + text.Length);
-
+                if (now - _totalWindow > 60f) { _totalWindow = now; _totalChars = 0; }
+                if (_totalChars + text.Length > MaxTotalCharsPerMinute) return;
                 Directory.CreateDirectory(_dir);
+                if (_dirBytes < 0) _dirBytes = new DirectoryInfo(_dir).GetFiles().Sum(f => f.Length);
+                if (_dirBytes + text.Length > MaxDirBytes) return;
+                _budget[actor] = (b.Window, b.Chars + text.Length);
+                _totalChars += text.Length;
+                _dirBytes += text.Length;
+                packRev = new string((packRev ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
+
                 var file = Path.Combine(_dir, DiagLogic.SafeFileName(nick, actor) + ".log");
                 if (File.Exists(file) && new FileInfo(file).Length > MaxFileBytes)
                 {

@@ -233,6 +233,7 @@ public sealed partial class HostForm
         if (_busyDepth > 0) return;
         _prepareWarnings.Clear();
         _released = null;
+        _notice = null;
         BeginBusy("Checking what friends will get", "Loading the Thunderstore mod list...");
         try
         {
@@ -359,6 +360,7 @@ public sealed partial class HostForm
                     try { pipe.StampHost(p.Manifest, p.StagingDir, bep); }
                     catch (Exception ex) { Log("Couldn't update your own game's lobby check: " + ex.Message); }
                 }
+                TellLobby(n);
                 // The note belongs to this revision (it's in its changelog now); start the next one empty.
                 _cfg.Notes = null;
                 _populating = true;
@@ -498,7 +500,6 @@ public sealed partial class HostForm
             _tabs.SelectedIndex = 3;
             await Settle();
             HostKit.Capture(this, Path.Combine(dir, "6-checked.png"));
-            report.AppendLine($"After check: busy={_busyDepth} friend.Enabled={_friend.Enabled} publish.Enabled={_publish.Enabled} hint='{_friendHint.Text}'");
 
             await PublishAsync(); // test run forced on in self-test
             await Settle();
@@ -507,6 +508,35 @@ public sealed partial class HostForm
             await PlayAsFriendAsync(); // dry: syncs the friend view, never launches
             await Settle();
             HostKit.Capture(this, Path.Combine(dir, "8-play-as-friend.png"));
+
+            // v0.4: hotfix TEST RUN for the first own DLL (the sandbox one isn't a real plugin: the error must show plainly).
+            if (_cfg.CustomFiles.FirstOrDefault(IsDll) is { } hf)
+            {
+                _tabs.SelectedIndex = 1;
+                using (var d = new HotfixDialog(_ui, hf, BuildTitle(hf), null, forceTestRun: true, RunHotfixAsync))
+                {
+                    d.ShowOffscreen();
+                    await d.RunAsync();
+                    await Settle();
+                    HostKit.Capture(d, Path.Combine(dir, "d4-hotfix-test-run.png"));
+                    report.AppendLine("Hotfix test run: " + (_hotfixResult ?? "(no result)") + (d.Error is { } he ? $"  [shown as error: {he}]" : ""));
+                    d.Close();
+                }
+                await Settle();
+                HostKit.Capture(this, Path.Combine(dir, "9-after-hotfix.png"));
+            }
+
+            // v0.4: "Request logs from everyone now" into the (sandbox) host BepInEx folder.
+            _tabs.SelectedIndex = 2;
+            if (HostBepInExDir is not null)
+            {
+                RequestLogs();
+                report.AppendLine("Request logs: " + (_requestResult ?? "(no result)"));
+                if (_requestResult is { } cmdFile && File.Exists(cmdFile)) report.AppendLine("  " + File.ReadAllText(cmdFile).ReplaceLineEndings(" "));
+            }
+            else report.AppendLine("Request logs: no host BepInEx folder (buttons disabled)");
+            await Settle();
+            HostKit.Capture(this, Path.Combine(dir, "10-lobby-after-request.png"));
         }
         catch (Exception ex) { report.AppendLine("SELF-TEST EXCEPTION: " + ex); }
         finally

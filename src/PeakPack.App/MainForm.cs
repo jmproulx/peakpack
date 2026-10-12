@@ -121,10 +121,13 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = false, Padding = _ui.Pad(20, 16, 20, 10), BackColor = Theme.Face,
         };
-        foreach (var c in new Control[] { _status, _bar, _actions, _modsHeader, _mods, _whatsNew, _options, _modeInfo })
+        // Fixed cells: with automatic placement, hiding/showing a control can move it to another row.
+        Control[] rows = [_status, _bar, _actions, _modsHeader, _mods, _whatsNew, _options, _modeInfo];
+        _body.RowCount = rows.Length;
+        for (int r = 0; r < rows.Length; r++)
         {
             _body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            _body.Controls.Add(c);
+            _body.Controls.Add(rows[r], 0, r);
         }
 
         // Bottom bar: links on the left, standard buttons on the right (installer style).

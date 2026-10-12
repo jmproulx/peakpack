@@ -1,6 +1,7 @@
-# Drives the Host / Publisher window (PeakPack.exe --host-selftest) against the sandbox at 100%, 125% and 150%:
+﻿# Drives the Host / Publisher window (PeakPack.exe --host-selftest) against the sandbox at 100%, 125% and 150%:
 # screenshots of every tab and dialog, then "Check what friends will get", a forced test-run Publish (gh dry run)
 # and a dry "Play as a friend" sync. Never uploads, never launches PEAK, never touches the real game folder.
+# Also (v0.4): a hotfix test run for the sandbox HeliPilot build and a "request logs" command into sandbox\host\game\BepInEx.
 # Output: sandbox\host\shots\<100|125|150>\*.png and status.txt. Thunderstore downloads are cached in sandbox\host\work.
 param([double[]]$Scales = @(1.0, 1.25, 1.5))
 $ErrorActionPreference = 'Stop'
@@ -25,6 +26,15 @@ $cfg | Add-Member -Force NoteProperty signingKey (Join-Path $sb 'publisher\test-
 $cfg | Add-Member -Force NoteProperty app ([pscustomobject]@{ version = ''; source = $app })
 $cfg | Add-Member -Force NoteProperty notes 'Sandbox host test'
 $cfg | Add-Member -Force NoteProperty xTestUnknownField 'kept'
+# v0.4: a sandbox "own game" with a BepInEx folder (host BepInEx for lobby commands), test lobby on, HeliPilot reload-safe.
+$game = Join-Path $hostDir 'game'
+if (-not (Test-Path (Join-Path $game 'PEAK.exe'))) { Copy-Item (Join-Path $sb 'PEAK') $game -Recurse -Force }
+New-Item -ItemType Directory -Force (Join-Path $game 'BepInEx\plugins') | Out-Null
+$commands = Join-Path $game 'BepInEx\PeakPack\commands'
+if (Test-Path $commands) { Remove-Item -Recurse -Force $commands }
+$cfg | Add-Member -Force NoteProperty gameDir $game
+$cfg | Add-Member -Force NoteProperty lobby ([pscustomobject]@{ mismatchPolicy = 'warn'; testLobby = $true; diagnostics = $true })
+($cfg.customFiles | Where-Object { $_.dest -like '*.dll' } | Select-Object -First 1) | Add-Member -Force NoteProperty reloadSafe $true
 $config = Join-Path $hostDir 'publish.json'
 $cfg | ConvertTo-Json -Depth 10 | Set-Content $config -Encoding utf8
 
@@ -48,7 +58,8 @@ foreach ($s in $Scales) {
     if (-not (Test-Path $status)) { Write-Host 'NO status.txt'; $failed = $true; continue }
     Get-ChildItem $out -Filter *.png | ForEach-Object { "  " + $_.FullName }
     $lines = Get-Content $status
-    if ($pct -eq 100) { $lines | Select-Object -First 60 } else { $lines | Select-Object -First 3 }
+    if ($pct -eq 100) { $lines | Select-Object -First 70 } else { $lines | Select-Object -First 3 }
+    if ($pct -ne 100) { $lines | Where-Object { $_ -like 'Hotfix test run:*' -or $_ -like 'Request logs:*' } | ForEach-Object { '  ' + $_ } }
     if ($lines -match 'SELF-TEST EXCEPTION') { $failed = $true }
     $saved = Join-Path $out 'saved-publish.json'
     if ((Test-Path $saved) -and ((Get-Content $saved -Raw) -match '"xTestUnknownField"')) { Write-Host '  saved publish.json keeps unknown fields: OK' }

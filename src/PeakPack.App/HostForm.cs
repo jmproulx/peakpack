@@ -243,6 +243,7 @@ public sealed partial class HostForm : Form
         if (_prepared is not null) _preparedStale = true;
         _released = null;
         _error = null;
+        _notice = null;
         UpdateStatus();
     }
 
@@ -415,14 +416,16 @@ public sealed partial class HostForm : Form
         var intro = HostKit.Text(_ui, "Your own DLLs and configs, shipped exactly as they are on disk when you publish. \"Built\" shows when each file last changed.", muted: true, bottom: 10);
         t.Controls.Add(intro, 0, 0);
 
-        _builds = HostKit.List(_ui, ("Title", 200), ("Id", 130), ("Version", 60), ("Built", 90), ("Source file", 210), ("Goes to (in BepInEx)", -1));
+        _builds = HostKit.List(_ui, ("Title", 175), ("Id", 115), ("Version", 58), ("Live updates", 92), ("Built", 80), ("Source file", 170), ("Goes to (in BepInEx)", -1));
         t.Controls.Add(_builds, 0, 1);
 
         _buildAdd = HostKit.Button(_ui, "&Add DLL...", (_, _) => AddDll());
         _buildSource = HostKit.Button(_ui, "&Change source...", (_, _) => ChangeSource());
         _buildRemove = HostKit.Button(_ui, "&Remove", (_, _) => RemoveBuild());
         _buildShow = HostKit.Button(_ui, "Show in &folder", (_, _) => { if (SelectedBuild() is { } cf) HostKit.OpenFolderOf(cf.Source); });
-        t.Controls.Add(ButtonRow([_buildAdd], [_buildShow, _buildSource, _buildRemove]), 0, 2);
+        _buildHotfix = HostKit.Button(_ui, "Publish &hotfix...", async (_, _) => await HotfixAsync(rollback: false));
+        _buildRollback = HostKit.Button(_ui, "Roll &back...", async (_, _) => await HotfixAsync(rollback: true));
+        t.Controls.Add(ButtonRow([_buildAdd, _buildHotfix, _buildRollback], [_buildShow, _buildSource, _buildRemove]), 0, 2);
 
         var edit = HostKit.Grid(_ui, 4);
         edit.AutoSize = true;
@@ -443,7 +446,16 @@ public sealed partial class HostForm : Form
         edit.Controls.Add(HostKit.Field(_ui, "What it &does:"), 0, 1);
         edit.Controls.Add(_buildDesc, 1, 1);
         edit.SetColumnSpan(_buildDesc, 3);
+        _buildReload = new CheckBox { Text = "Re&load-safe (live updates): friends in a test lobby can get new builds while playing", AutoSize = true, FlatStyle = FlatStyle.System, Margin = _ui.Pad(0, 5, 0, 2) };
+        edit.Controls.Add(HostKit.Field(_ui, "Live updates:"), 0, 2);
+        edit.Controls.Add(_buildReload, 1, 2);
+        edit.SetColumnSpan(_buildReload, 3);
+        _buildCheck = HostKit.Text(_ui, "");
+        _buildCheck.Margin = _ui.Pad(0, 0, 0, 0);
+        edit.Controls.Add(_buildCheck, 1, 3);
+        edit.SetColumnSpan(_buildCheck, 3);
         t.Controls.Add(edit, 0, 3);
+        _buildReload.CheckedChanged += (_, _) => SetReloadSafe();
 
         _builds.SelectedIndexChanged += (_, _) => OnBuildSelected();
         _builds.KeyDown += (_, e) => { if (e.KeyCode == Keys.Delete) RemoveBuild(); };
@@ -458,26 +470,31 @@ public sealed partial class HostForm : Form
     {
         var t = HostKit.Grid(_ui, 1);
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        Rows(t, SizeType.AutoSize, SizeType.Percent);
+        Rows(t, SizeType.AutoSize, SizeType.AutoSize, SizeType.Percent);
 
         var policy = new GroupBox { Text = "When a friend's pack doesn't match your lobby", Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = _ui.Pad(12, 6, 12, 10), Margin = _ui.Pad(0, 0, 0, 12), FlatStyle = FlatStyle.System };
         var pg = HostKit.Grid(_ui, 1);
         pg.AutoSize = true;
-        Rows(pg, SizeType.AutoSize, SizeType.AutoSize, SizeType.AutoSize, SizeType.AutoSize);
+        pg.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        pg.Dock = DockStyle.Top;
+        Rows(pg, SizeType.AutoSize, SizeType.AutoSize);
         pg.Controls.Add(HostKit.Text(_ui, "The lobby check (PeakPack's companion plugin) compares everyone's pack revision with yours when they join.", muted: true, bottom: 6), 0, 0);
-        _warn = new RadioButton { Text = "&Warn them, and let them stay", AutoSize = true, Margin = _ui.Pad(0, 2, 0, 2), FlatStyle = FlatStyle.System };
-        _block = new RadioButton { Text = "&Block: warn them, then leave the lobby after a few seconds (only players on an older revision)", AutoSize = true, Margin = _ui.Pad(0, 2, 0, 2), FlatStyle = FlatStyle.System };
-        pg.Controls.Add(_warn, 0, 1);
-        pg.Controls.Add(_block, 0, 2);
+        _warn = new RadioButton { Text = "&Warn them, and let them stay", AutoSize = true, Margin = _ui.Pad(0, 2, 24, 2), FlatStyle = FlatStyle.System };
+        _block = new RadioButton { Text = "&Block: they leave after a few seconds (only players on an older revision)", AutoSize = true, Margin = _ui.Pad(0, 2, 0, 2), FlatStyle = FlatStyle.System };
+        var radios = HostKit.Flow(_ui);
+        radios.Controls.Add(_warn);
+        radios.Controls.Add(_block);
+        pg.Controls.Add(radios, 0, 1);
         policy.Controls.Add(pg);
         t.Controls.Add(policy, 0, 0);
+        t.Controls.Add(BuildTestingGroup(), 0, 1);
 
         var live = new GroupBox { Text = "Live settings", Dock = DockStyle.Fill, Padding = _ui.Pad(12, 6, 12, 12), Margin = _ui.Pad(0), FlatStyle = FlatStyle.System };
         var lg = HostKit.Grid(_ui, 2);
         lg.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         lg.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         Rows(lg, SizeType.AutoSize, SizeType.Percent, SizeType.AutoSize);
-        var note = HostKit.Text(_ui, "While friends are in your lobby, your values for these BepInEx config entries are used by everyone (for example a jetpack's boost strength). Only entries listed here are ever accepted from the network.", muted: true, bottom: 8);
+        var note = HostKit.Text(_ui, "Your values for these BepInEx config entries apply to everyone in your lobby. Only listed entries are accepted from the network.", muted: true, bottom: 8);
         lg.Controls.Add(note, 0, 0);
         lg.SetColumnSpan(note, 2);
         _live = HostKit.List(_ui, ("Plugin GUID", 260), ("Section", 150), ("Key", -1));
@@ -519,7 +536,7 @@ public sealed partial class HostForm : Form
         _liveAdd.Margin = _ui.Pad(10, 0, 0, 3);
         lg.Controls.Add(_liveAdd, 1, 2);
         live.Controls.Add(lg);
-        t.Controls.Add(live, 0, 1);
+        t.Controls.Add(live, 0, 2);
 
         _warn.CheckedChanged += (_, _) => SetPolicy();
         _block.CheckedChanged += (_, _) => SetPolicy();
@@ -530,7 +547,10 @@ public sealed partial class HostForm : Form
             b.TextChanged += (_, _) => UpdateButtons();
             b.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; AddLiveSetting(); } };
         }
-        return Page("Lobby", t);
+        var lobbyPage = Page("Lobby", t);
+        lobbyPage.AutoScroll = true;
+        lobbyPage.AutoScrollMinSize = new Size(0, _ui.Px(450)); // scrolls rather than squashing the live-settings list
+        return lobbyPage;
     }
 
     // ---- Publish ----
@@ -599,8 +619,10 @@ public sealed partial class HostForm : Form
         var opts = HostKit.Flow(_ui, FlowDirection.TopDown);
         _testRun = new CheckBox { Text = "&Test run only (don't upload)", AutoSize = true, Margin = _ui.Pad(0, 0, 0, 2), FlatStyle = FlatStyle.System };
         _stamp = new CheckBox { Text = "&Update my own game's lobby check after publishing", AutoSize = true, Margin = _ui.Pad(0), FlatStyle = FlatStyle.System };
+        _tellLobby = new CheckBox { Text = "Te&ll my lobby now (your game must be running and hosting)", AutoSize = true, Margin = _ui.Pad(0, 2, 0, 0), FlatStyle = FlatStyle.System };
         opts.Controls.Add(_testRun);
         opts.Controls.Add(_stamp);
+        opts.Controls.Add(_tellLobby);
         bottom.Controls.Add(opts, 0, 0);
         _publish = HostKit.Primary(_ui, "Publish", async (_, _) => await PublishAsync());
         _publish.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
@@ -611,6 +633,7 @@ public sealed partial class HostForm : Form
         _notes.TextChanged += (_, _) => { if (_populating) return; _cfg.Notes = NullIfEmpty(_notes.Text); Changed(); };
         _testRun.CheckedChanged += (_, _) => { if (_populating) return; _publishTestRun = _testRun.Checked; UpdateButtons(); };
         _stamp.CheckedChanged += (_, _) => { if (_populating) return; _stampHost = _stamp.Checked; };
+        _tellLobby.CheckedChanged += (_, _) => { if (_populating) return; _tellLobbyChoice = _tellLobby.Checked; };
         return Page("Publish", t);
     }
 
@@ -707,7 +730,7 @@ public sealed partial class HostForm : Form
         _repo.TextChanged += (_, _) => { if (_populating) return; _cfg.GithubRepo = NullIfEmpty(_repo.Text); Changed(); UpdateManifestUrl(); };
         _loader.TextChanged += (_, _) => { if (_populating) return; _cfg.Loader = NullIfEmpty(_loader.Text) ?? "BepInEx-BepInExPack_PEAK"; Changed(); };
         _key.TextChanged += (_, _) => { if (_populating) return; _cfg.SigningKey = NullIfEmpty(_key.Text); Changed(); };
-        _gameDir.TextChanged += (_, _) => { if (_populating) return; _cfg.GameDir = NullIfEmpty(_gameDir.Text); Changed(); UpdateButtons(); };
+        _gameDir.TextChanged += (_, _) => { if (_populating) return; _cfg.GameDir = NullIfEmpty(_gameDir.Text); Changed(); UpdateHostId(); UpdateButtons(); };
         _appSource.TextChanged += (_, _) =>
         {
             if (_populating) return;
@@ -753,6 +776,7 @@ public sealed partial class HostForm : Form
         RefreshMods();
         RefreshBuilds();
         RefreshLive();
+        PopulateTesting();
         RefreshChanges();
         UpdateManifestUrl();
         UpdateHeader();
@@ -876,12 +900,13 @@ public sealed partial class HostForm : Form
         {
             var exists = File.Exists(cf.Source);
             var it = HostKit.Row(cf.Title ?? _cfg.ModInfo.GetValueOrDefault(cf.Id)?.Title ?? ThunderstoreIndex.Friendly(cf.Id.Contains('-') ? cf.Id[(cf.Id.IndexOf('-') + 1)..] : cf.Id),
-                cf.Id, cf.Version ?? "", exists ? HostKit.Ago(File.GetLastWriteTime(cf.Source)) : "file missing", HostKit.ShortPath(cf.Source), cf.Dest);
+                cf.Id, cf.Version ?? "", LiveColumn(cf).Item1, exists ? HostKit.Ago(File.GetLastWriteTime(cf.Source)) : "file missing", HostKit.ShortPath(cf.Source), cf.Dest);
             it.Tag = new BuildRow(cf, false);
             it.SubItems[1].ForeColor = Theme.Muted;
-            it.SubItems[3].ForeColor = exists ? Theme.Text : Theme.Bad;
-            it.SubItems[4].ForeColor = exists ? Theme.Muted : Theme.Bad;
-            it.SubItems[5].ForeColor = Theme.Muted;
+            it.SubItems[3].ForeColor = LiveColumn(cf).Item2;
+            it.SubItems[4].ForeColor = exists ? Theme.Text : Theme.Bad;
+            it.SubItems[5].ForeColor = exists ? Theme.Muted : Theme.Bad;
+            it.SubItems[6].ForeColor = Theme.Muted;
             it.ToolTipText = exists ? $"{cf.Source}\nLast changed {File.GetLastWriteTime(cf.Source):g}" : $"Not found: {cf.Source}";
             if (ReferenceEquals(cf, selected)) { it.Selected = true; it.Focused = true; }
             _builds.Items.Add(it);
@@ -901,10 +926,10 @@ public sealed partial class HostForm : Form
                 source = HostKit.ShortPath(comp);
             }
             else { built = "not found"; source = "Build src/PeakPack.Companion (Release) - without it friends get no in-game lobby check"; }
-            var it = HostKit.Row("Lobby check (PeakPack companion)", PublishConfig.CompanionId, version, built, source, PublishConfig.CompanionDest);
+            var it = HostKit.Row("Lobby check (PeakPack companion)", PublishConfig.CompanionId, version, "-", built, source, PublishConfig.CompanionDest);
             it.Tag = new BuildRow(null, true);
             foreach (ListViewItem.ListViewSubItem s in it.SubItems) s.ForeColor = SystemColors.GrayText;
-            if (!ok) { it.SubItems[3].ForeColor = Theme.Bad; it.SubItems[4].ForeColor = Theme.Bad; }
+            if (!ok) { it.SubItems[4].ForeColor = Theme.Bad; it.SubItems[5].ForeColor = Theme.Bad; }
             it.ToolTipText = "Added automatically to every revision (read-only here).";
             _builds.Items.Add(it);
         }
@@ -917,7 +942,7 @@ public sealed partial class HostForm : Form
         if (_builds is null || _builds.IsDisposed) return;
         foreach (ListViewItem it in _builds.Items)
             if (it.Tag is BuildRow { File: { } cf } && File.Exists(cf.Source))
-                it.SubItems[3].Text = HostKit.Ago(File.GetLastWriteTime(cf.Source));
+                it.SubItems[4].Text = HostKit.Ago(File.GetLastWriteTime(cf.Source));
     }
 
     PublishConfig.CustomFile? SelectedBuild() => _builds?.SelectedItems.Count == 1 && _builds.SelectedItems[0].Tag is BuildRow { File: { } f } ? f : null;
@@ -935,6 +960,7 @@ public sealed partial class HostForm : Form
             _buildDesc.PlaceholderText = cf is null ? "" : "One line: what it does";
         }
         finally { _populating = false; }
+        ShowBuildCheck(cf);
         UpdateButtons();
     }
 
@@ -1011,6 +1037,7 @@ public sealed partial class HostForm : Form
     {
         if (_busyDepth > 0) return (StatusKind.Busy, _busyHeading, _busyDetail);
         if (_error is { } e) return (StatusKind.Bad, e.Heading, e.Detail);
+        if (_notice is { } nt) return (nt.Kind, nt.Heading, nt.Detail);
         if (_loadError is not null) return (StatusKind.Bad, "publish.json couldn't be read", _loadError + " Showing a new pack instead; saving will replace that file.");
         if (_released is { Dry: false } r) return (StatusKind.Good, $"Published revision {r.Revision}", "Friends get it the next time they start PEAK (Modded). \"What's new\" was cleared for the next revision.");
         if (_released is { Dry: true } d && _prepared is not null && !_preparedStale)
@@ -1072,6 +1099,7 @@ public sealed partial class HostForm : Form
         _publish.Text = fresh ? $"Publish revision {_prepared!.Manifest.Revision}" : "Publish";
         _publish.Enabled = idle && fresh && !alreadyReleased && (_prepared!.CanRelease || _testRun.Checked) && _cfg.HasRealRepo;
         _stamp.Enabled = HostBepInExDir is not null && !_testRun.Checked;
+        UpdateTestingButtons(idle);
 
         _openBtn.Enabled = _saveBtn.Enabled = idle;
         _tabs.Cursor = idle ? Cursors.Default : Cursors.AppStarting;
