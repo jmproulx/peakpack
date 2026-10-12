@@ -54,6 +54,9 @@ public sealed class PackManifest
     public List<ChangelogEntry> Changelog { get; set; } = new();
     /// <summary>Settings for the in-game companion plugin (lobby revision check, live settings).</summary>
     public LobbySettings? Lobby { get; set; }
+    /// <summary>Per-platform additions (signed like the rest). Only "mac" so far: friends running PeakPack inside
+    /// our Wine prefix on macOS (MacPort Track D). Windows ignores it.</summary>
+    public PlatformSettings? Platforms { get; set; }
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -101,6 +104,24 @@ public sealed class PackManifest
             if (!dests.Add(f.Path))
                 throw new InvalidDataException($"File '{f.Path}' is listed twice.");
         }
+        if (Platforms?.Mac is { } mac)
+        {
+            foreach (var a in mac.ExtraArgs)
+                if (string.IsNullOrWhiteSpace(a) || !a.StartsWith('-') || a.Contains("doorstop", StringComparison.OrdinalIgnoreCase) || a.IndexOfAny(['"', '\n', '\r']) >= 0)
+                    throw new InvalidDataException($"Mac launch argument '{a}' isn't allowed.");
+            var macDests = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in mac.Files)
+            {
+                if (string.IsNullOrWhiteSpace(f.Url) || !IsSha256(f.Sha256))
+                    throw new InvalidDataException($"Mac file entry '{f.Path}' is incomplete.");
+                f.Path = SafePath.NormalizeRelative(f.Path);
+                if (!f.Path.StartsWith("config/", StringComparison.OrdinalIgnoreCase) || f.Path.Split('/').Length < 2)
+                    throw new InvalidDataException($"Mac file '{f.Path}' must go under config/.");
+                f.Overwrite = OverwriteMode.IfMissing; // never overwrite a friend's own settings
+                f.HotReload = false;
+                if (!macDests.Add(f.Path)) throw new InvalidDataException($"Mac file '{f.Path}' is listed twice.");
+            }
+        }
         foreach (var ls in Lobby?.LiveSettings ?? [])
             if (string.IsNullOrWhiteSpace(ls.Plugin) || string.IsNullOrWhiteSpace(ls.Section) || string.IsNullOrWhiteSpace(ls.Key)
                 || (ls.Plugin + ls.Section + ls.Key).IndexOfAny(BadSettingChars) >= 0)
@@ -115,6 +136,15 @@ public sealed class PackManifest
         var chars = s.Replace("'", "").Replace("’", "").ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-').ToArray();
         var slug = string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
         return slug.Length == 0 ? "pack" : slug.Length > 40 ? slug[..40] : slug;
+    }
+
+    /// <summary>The loose files to install on this platform: on Mac, the Mac config defaults replace (same path) or add to
+    /// the Windows ones.</summary>
+    public List<FileEntry> FilesFor(Platform.Kind platform)
+    {
+        if (platform != Platform.Kind.WineMac || Platforms?.Mac?.Files is not { Count: > 0 } mac) return Files;
+        var macPaths = mac.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Files.Where(f => !macPaths.Contains(f.Path)).Concat(mac).ToList();
     }
 
     public static bool IsSha256(string? s) =>
@@ -169,6 +199,22 @@ public sealed class LobbySettings
     /// <summary>Photon user ids of the pack's host(s) (Joshua). Friends relay logs and accept live-update signals only
     /// from a lobby host on this list. Empty = pack id match only (weaker; the publisher fills it from the host's game).</summary>
     public List<string> HostIds { get; set; } = new();
+}
+
+public sealed class PlatformSettings
+{
+    public MacSettings? Mac { get; set; }
+}
+
+public sealed class MacSettings
+{
+    /// <summary>Extra game arguments on Mac, e.g. "-force-d3d11" (the DXMT path). Never Doorstop arguments.</summary>
+    public List<string> ExtraArgs { get; set; } = new();
+    /// <summary>Mac defaults for friends' config files (laptop-friendly keys, natural-scroll zoom...). Always
+    /// "ifMissing" under config/: a friend's own changes are never overwritten. Same path as a Windows file = replaces it on Mac.</summary>
+    public List<FileEntry> Files { get; set; } = new();
+    /// <summary>Lowest Mac front-end version that understands this pack (informational for the front end).</summary>
+    public string? MinFrontEnd { get; set; }
 }
 
 public sealed class LiveSetting

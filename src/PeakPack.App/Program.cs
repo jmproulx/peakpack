@@ -97,6 +97,13 @@ static class Program
             return;
         }
 
+        // The Mac front end (and agents) drive PeakPack without any window. See Headless.cs for commands and exit codes.
+        if (AppSession.Has(args, "--headless"))
+        {
+            Environment.ExitCode = Headless.Run(s, args);
+            return;
+        }
+
         if (AppSession.Has(args, "--launch"))
         {
             Application.Run(new QuickLaunchContext(s));

@@ -27,6 +27,13 @@ public static class Launcher
     public static string Launch(LaunchMode mode, AppPaths paths, InstallState state, string gameDir, Method method)
     {
         var psi = new ProcessStartInfo { UseShellExecute = false };
+        if (Platform.IsWine)
+        {
+            // Doorstop's winhttp.dll must win over Wine's builtin one: per-app registry override (lasts, survives Steam
+            // relaunching the game) plus the environment variable for processes we start directly.
+            if (mode == LaunchMode.Modded && method != Method.DryRun) Platform.EnsureWineDllOverride(paths);
+            psi.Environment["WINEDLLOVERRIDES"] = Platform.WineDllOverridesEnv;
+        }
         if (method == Method.DirectExe)
         {
             psi.FileName = Path.Combine(gameDir, "PEAK.exe");
@@ -44,6 +51,7 @@ public static class Launcher
             psi.ArgumentList.Add(SteamLocator.PeakAppId.ToString());
         }
         foreach (var a in GameArgs(mode, paths)) psi.ArgumentList.Add(a);
+        if (Platform.IsWine) foreach (var a in state.LaunchExtraArgs) psi.ArgumentList.Add(a); // e.g. -force-d3d11 on Mac
 
         var cmd = $"\"{psi.FileName}\" " + string.Join(' ', psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
         if (method != Method.DryRun)

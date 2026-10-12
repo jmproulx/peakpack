@@ -12,7 +12,7 @@
     <AssemblyName>PeakPack.Companion</AssemblyName>
     <RootNamespace>PeakPack.Companion</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GenerateDependencyFile>false</GenerateDependencyFile>

@@ -33,6 +33,9 @@ public static class HotUpdater
         public int FromRevision { get; set; }
         /// <summary>Friendly titles of the mods that changed ("Scoutmaster Mode").</summary>
         public List<string> Mods { get; set; } = new();
+        /// <summary>"pluginGuid|version|plugins/..path.dll" of each new build, read from the DLL. The companion checks that a NEW instance of
+        /// each of these plugins is running (AutoReload actually reloaded it) before it says "updated".</summary>
+        public List<string> Plugins { get; set; } = new();
         public string Message { get; set; } = "";
         public DateTimeOffset Time { get; set; } = DateTimeOffset.Now;
     }
@@ -127,15 +130,42 @@ public static class HotUpdater
                 if (state.Files.TryGetValue(f.Path, out var h)) rb.PreviousHashes[f.Path] = h;
             }
 
-            foreach (var (f, src, dest) in fetched)
+            foreach (var (f, src, _) in fetched)
             {
-                WriteInPlace(src, dest);
-                state.Files[f.Path] = f.Sha256.ToLowerInvariant();
                 var title = f.Title ?? PackDiff.FriendlyFileTitle(f.Id);
                 if (!r.Mods.Contains(title)) r.Mods.Add(title);
+                var info = Hotfix.Inspect(src);
+                if (info.PluginGuid is not null) r.Plugins.Add($"{info.PluginGuid}|{info.PluginVersion}|{f.Path}");
             }
             rb.Mods = r.Mods.ToList();
+            // The undo record exists BEFORE any DLL is replaced, so a crash mid-way can still be undone.
             File.WriteAllText(LastRollback(paths), JsonSerializer.Serialize(rb, PackManifest.JsonOptions));
+
+            var written = new List<(string Rel, string Dest)>();
+            try
+            {
+                foreach (var (f, src, dest) in fetched)
+                {
+                    WriteInPlace(src, dest);
+                    written.Add((f.Path, dest));
+                }
+            }
+            catch (Exception ex)
+            {
+                // Put back what was already replaced; nothing else changed (state, manifest, pack-info untouched).
+                foreach (var (rel, dest) in written)
+                {
+                    try
+                    {
+                        if (rb.Files[rel] is { } backup && File.Exists(backup)) WriteInPlace(backup, dest);
+                        else if (File.Exists(dest)) File.Delete(dest);
+                    }
+                    catch (Exception rex) { paths.Log($"Live update: couldn't restore {rel}: {rex.Message}"); }
+                }
+                try { Directory.Delete(paths.RollbackDir, true); } catch { }
+                throw new IOException($"Couldn't replace a mod file ({ex.Message}); the previous builds were put back.", ex);
+            }
+            foreach (var (f, _, _) in fetched) state.Files[f.Path] = f.Sha256.ToLowerInvariant();
 
             state.InstalledRevision = m.Revision;
             state.LastSyncTime = DateTimeOffset.Now;
@@ -195,10 +225,11 @@ public static class HotUpdater
         try { Setup.CopyBytesOnly(src, dest); } // src is the verified cache file; no temp file in the watched folder
         catch (IOException)
         {
-            var tmp = dest + ".pp-new";            // not a .dll, so AutoReload ignores it
+            var tmp = $"{dest}.pp-new-{Guid.NewGuid():N}";   // unique, and not a .dll, so AutoReload ignores it
             Setup.CopyBytesOnly(src, tmp);
+            if (File.Exists(old)) old = $"{dest}.pp-old-{Guid.NewGuid():N}";
             File.Move(dest, old);
-            File.Move(tmp, dest);                  // rename to *.dll: AutoReload's "renamed" event
+            File.Move(tmp, dest);                            // AutoReload ignores renames; the companion then queues the reload itself
         }
     }
 

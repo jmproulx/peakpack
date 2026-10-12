@@ -85,6 +85,8 @@ public sealed class InstallState
     public bool ShareDiagnostics { get; set; } = true;
     /// <summary>Friend's opt-in: in the host's test lobby, accept live updates of the host's own reload-safe mods. Off by default.</summary>
     public bool AcceptLiveUpdates { get; set; }
+    /// <summary>Extra game arguments for this platform from the signed manifest (Mac: e.g. -force-d3d11). Empty on Windows.</summary>
+    public List<string> LaunchExtraArgs { get; set; } = new();
 
     public static InstallState Load(AppPaths p)
     {

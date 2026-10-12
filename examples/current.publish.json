@@ -2,7 +2,7 @@
     "packName":  "Joshua\u0027s PEAK mods",
     "hostName":  "Joshua",
     "packId":  "joshuas-peak-mods",
-    "notes":  "Joshua\u0027s own mods join the pack: Heli Pilot, Elytra Glider and Item Tuner. Test lobby is on.",
+    "notes":  "Heli Pilot 0.3.2 with the cockpit model; Mac keyboard defaults for Mac friends.",
     "loader":  "BepInEx-BepInExPack_PEAK",
     "mods":  [
                  "Sapphire009-InfiniteJetpack-1.0.1"
@@ -28,10 +28,10 @@
                         },
                         {
                             "id":  "Joshua-HeliPilot",
-                            "version":  "0.2.4",
+                            "version":  "0.3.2",
                             "title":  "Heli Pilot",
-                            "description":  "Fly a helicopter, use the Heli Flare item, and ride along with friends.",
-                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\HeliPilot.dll",
+                            "description":  "Fly a helicopter (with a cockpit view), use the Heli Flare item, and ride along with friends.",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\HeliPilot.dll",
                             "dest":  "plugins/Joshua-HeliPilot/HeliPilot.dll",
                             "reloadSafe":  true
                         },
@@ -40,25 +40,31 @@
                             "version":  "0.1.0",
                             "title":  "Elytra Glider",
                             "description":  "Minecraft-style glider flight.",
-                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\ElytraGlider.dll",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev3\\ElytraGlider.dll",
                             "dest":  "plugins/Joshua-ElytraGlider/ElytraGlider.dll",
                             "reloadSafe":  true
                         },
                         {
                             "id":  "Joshua-ItemTuner",
-                            "version":  "0.1.0",
+                            "version":  "0.2.1",
                             "title":  "Item Tuner",
                             "description":  "In-game settings menu for Joshua\u0027s mods.",
-                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\ItemTuner.dll",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev3\\ItemTuner.dll",
                             "dest":  "plugins/Joshua-ItemTuner/ItemTuner.dll",
                             "reloadSafe":  true
                         },
                         {
                             "id":  "Joshua-ItemTuner",
-                            "version":  "0.1.0",
-                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\config\\com.joshua.itemtuner.cfg",
+                            "version":  "0.2.1",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev3\\config\\com.joshua.itemtuner.cfg",
                             "dest":  "config/com.joshua.itemtuner.cfg",
                             "overwrite":  "ifMissing"
+                        },
+                        {
+                            "id":  "Joshua-HeliPilot",
+                            "version":  "0.3.2",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\HeliPilot_cockpit.bundle",
+                            "dest":  "plugins/Joshua-HeliPilot/HeliPilot_cockpit.bundle"
                         }
                     ],
     "companion":  "auto",
@@ -81,9 +87,41 @@
               },
     "githubRepo":  "jmproulx/peakpack",
     "app":  {
-                "version":  "0.4.0",
+                "version":  "0.4.1",
                 "source":  "C:\\Users\\joshu\\PeakMods\\FriendInstaller\\publish-out\\PeakPack.exe"
             },
     "gameDir":  "D:\\SteamLibrary\\steamapps\\common\\PEAK",
-    "signingKey":  "C:\\Users\\joshu\\PeakPack-keys\\peakpack-signing.pem"
+    "signingKey":  "C:\\Users\\joshu\\PeakPack-keys\\peakpack-signing.pem",
+    "mac":  {
+                "extraArgs":  [
+                                  "-force-d3d11"
+                              ],
+                "minFrontEnd":  "0.1.0",
+                "configFiles":  [
+                                    {
+                                        "id":  "Joshua-JetpackBoost",
+                                        "version":  "mac-1",
+                                        "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\mac\\com.joshua.jetpackboost.cfg",
+                                        "dest":  "config/com.joshua.jetpackboost.cfg"
+                                    },
+                                    {
+                                        "id":  "Joshua-ElytraGlider",
+                                        "version":  "mac-1",
+                                        "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\mac\\com.joshua.elytraglider.cfg",
+                                        "dest":  "config/com.joshua.elytraglider.cfg"
+                                    },
+                                    {
+                                        "id":  "Joshua-HeliPilot",
+                                        "version":  "mac-1",
+                                        "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\mac\\com.joshua.helipilot.cfg",
+                                        "dest":  "config/com.joshua.helipilot.cfg"
+                                    },
+                                    {
+                                        "id":  "Joshua-ItemTuner",
+                                        "version":  "mac-1",
+                                        "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\next\\mac\\com.joshua.itemtuner.cfg",
+                                        "dest":  "config/com.joshua.itemtuner.cfg"
+                                    }
+                                ]
+            }
 }

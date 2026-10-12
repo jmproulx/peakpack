@@ -205,6 +205,10 @@ static async Task<PublishPipeline.Prepared> PrepareOnly(Args a, PublishConfig cf
     Console.WriteLine($"What friends will get ({PackDiff.Summary(p.Changes)}):");
     foreach (var c in p.Changes) Console.WriteLine("  " + c);
     if (p.Changes.Count == 0) Console.WriteLine("  (no mod changes)");
+    if (p.Manifest.Platforms?.Mac is { } mac)
+        Console.WriteLine($"Mac friends also get: launch args [{string.Join(" ", mac.ExtraArgs)}], {mac.Files.Count} config default(s): " +
+                          string.Join(", ", mac.Files.Select(f => Path.GetFileName(f.Path))) + " (only where they have no config yet)");
+    if (p.Manifest.App is { } app) Console.WriteLine($"Friend app: {app.Version} (friends on an older PeakPack update themselves)");
     Console.WriteLine("Assets:");
     foreach (var f in p.Assets) Console.WriteLine("  " + f);
     foreach (var pr in p.Problems) Console.WriteLine("NOT READY: " + pr);

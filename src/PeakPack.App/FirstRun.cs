@@ -21,6 +21,7 @@ public static class FirstRun
     /// <summary>Install on first open: a real install location, or a test data dir with an explicit shortcut dir.</summary>
     public static bool ShouldInstall(AppSession s) =>
         IsSingleFile && !IsRunningInstalledCopy(s) && !AppSession.Has(s.RawArgs, "--no-self-install")
+        && !Platform.IsWine // Mac: the front end owns install, Dock icon and updates; PeakPack runs as a headless CLI
         && (s.Paths.IsDefaultLocation || s.ShortcutDirOverride is not null);
 
     public static Setup.SelfInstallResult Install(AppSession s)

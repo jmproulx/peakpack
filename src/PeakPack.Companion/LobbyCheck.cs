@@ -60,6 +60,9 @@ namespace PeakPack.Companion
                 case "restart-needed":
                 case "not-allowed":
                     return name(host) + " published mod pack rev " + rev + ". Restart PEAK from the " + shortcut + " icon to get it.";
+                case "needs-restart":
+                    return name(host) + " updated " + (mods != null && mods.Count > 0 ? string.Join(", ", mods) : "a mod") +
+                           ". Restart PEAK from the " + shortcut + " icon to load it.";
                 case "up-to-date":
                 case "rolled-back":
                     return null;

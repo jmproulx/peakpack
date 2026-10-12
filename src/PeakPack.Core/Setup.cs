@@ -82,6 +82,7 @@ public static class Setup
     /// </summary>
     public static void CreateShortcuts(AppPaths paths, string? gameDir, Options opt, string? extraArgs = null, bool desktopAppShortcut = false)
     {
+        if (Platform.IsWine) { paths.Log("Under Wine: no .lnk shortcuts or uninstall entry (the Mac front end owns those)."); return; }
         var exe = paths.InstalledExePath;
         var icon = gameDir is not null && File.Exists(Path.Combine(gameDir, "PEAK.exe")) ? Path.Combine(gameDir, "PEAK.exe") : exe;
         var lnkName = opt.ShortcutName + ".lnk";

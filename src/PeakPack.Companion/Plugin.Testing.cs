@@ -102,6 +102,7 @@ namespace PeakPack.Companion
         void TickTesting()
         {
             ReloadPackInfoIfChanged();
+            ConfirmReload(); // also outside a lobby: an update can finish after leaving
             _diag?.RefreshOwnSources();
             if (!PhotonNetwork.InRoom || _diag == null) return;
             RecordHostId();
@@ -311,11 +312,89 @@ namespace PeakPack.Companion
             _hotResultBefore = SafeTime(HotResultPath);
             var args = string.Join(" ", _info.appArgs.Concat(new[] { "--hot-update" }).Select(a => a.IndexOf(' ') >= 0 ? "\"" + a + "\"" : a));
             _hotProcess?.Dispose();
+            // Remember which plugin instances run now, to tell afterwards whether AutoReload really loaded the new builds.
+            _pluginsBefore = new Dictionary<string, BepInEx.PluginInfo>(BepInEx.Bootstrap.Chainloader.PluginInfos);
             _hotProcess = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir });
             _hotWaitUntil = Time.unscaledTime + HotUpdateTimeout;
             _hotRev = rev;
             _lastHotRevStarted = rev;
             Logger.LogInfo($"Live update to rev {rev}: started {exe} {args}");
+        }
+
+        // ---------- friend: did the live update really load? ----------
+
+        sealed class PendingConfirm
+        {
+            public float Since;
+            public bool Kicked;
+            public List<string> Mods;
+            public int Rev;
+            public string Host;
+            public readonly List<(string Guid, string Version, string Path)> Expect = new List<(string, string, string)>();
+        }
+
+        const string AutoReloadGuid = "com.github.Hamunii.AutoReload";
+        const float KickAfter = 6f, GiveUpAfter = 25f;
+        PendingConfirm _confirm;
+        Dictionary<string, BepInEx.PluginInfo> _pluginsBefore = new Dictionary<string, BepInEx.PluginInfo>();
+        System.Reflection.FieldInfo _pendingReloadsField; // cached AccessTools handle into AutoReload
+
+        /// <summary>A new build counts as loaded when BepInEx's registry holds a NEW PluginInfo for its GUID (AutoReload
+        /// replaces it on reload) with a live instance and the expected version.</summary>
+        bool IsLoaded((string Guid, string Version, string Path) e)
+        {
+            if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue(e.Guid, out var pi) || pi?.Instance == null) return false;
+            if (_pluginsBefore.TryGetValue(e.Guid, out var old) && ReferenceEquals(old, pi)) return false;
+            return string.IsNullOrEmpty(e.Version) || pi.Metadata.Version.ToString() == e.Version;
+        }
+
+        /// <summary>Once a second. AutoReload reacts to file-change events; under Wine on macOS those may never arrive.
+        /// After a few seconds without a reload, queue it in AutoReload ourselves (the same queue its file watcher fills);
+        /// if that doesn't work either, tell the player to restart from the icon instead of claiming success.</summary>
+        void ConfirmReload()
+        {
+            if (_confirm == null) return;
+            var pending = _confirm.Expect.Where(e => !IsLoaded(e)).ToList();
+            var mods = _confirm.Mods ?? new List<string>();
+            if (pending.Count == 0)
+            {
+                Logger.LogInfo("Live update confirmed: " + string.Join(", ", _confirm.Expect.Select(e => e.Guid + " " + e.Version)));
+                _feed.Post(LobbyCheck.UpdateMessage("applied", _confirm.Host, mods, _confirm.Rev, _info.shortcutName, Feed.Name), warning: false);
+                _confirm = null;
+                return;
+            }
+            var age = Time.unscaledTime - _confirm.Since;
+            if (!_confirm.Kicked && age >= KickAfter)
+            {
+                _confirm.Kicked = true;
+                var queued = QueueAutoReload(pending.Select(e => e.Path));
+                Logger.LogInfo($"Live update not loaded after {KickAfter:0} s; asked AutoReload directly: {(queued ? "queued" : "AutoReload not available")}.");
+            }
+            if (age >= GiveUpAfter)
+            {
+                Logger.LogWarning("Live update files are in place but didn't load: " + string.Join(", ", pending.Select(e => e.Guid)));
+                _feed.Post(LobbyCheck.UpdateMessage("needs-restart", _confirm.Host, mods, _confirm.Rev, _info.shortcutName, Feed.Name), warning: true);
+                _confirm = null;
+            }
+        }
+
+        bool QueueAutoReload(IEnumerable<string> packPaths)
+        {
+            try
+            {
+                if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue(AutoReloadGuid, out var ar) || ar?.Instance == null) return false;
+                if (_pendingReloadsField == null) _pendingReloadsField = HarmonyLib.AccessTools.Field(ar.Instance.GetType(), "pendingReloads");
+                if (!(_pendingReloadsField?.GetValue(null) is System.Collections.Concurrent.ConcurrentDictionary<string, bool> queue)) return false;
+                foreach (var rel in packPaths)
+                {
+                    if (!rel.StartsWith("plugins/", StringComparison.OrdinalIgnoreCase)) continue;
+                    // Same spelling as AutoReload's FileSystemWatcher (Paths.PluginPath + relative path), or it won't match.
+                    var full = Path.GetFullPath(Path.Combine(Paths.PluginPath, rel.Substring("plugins/".Length).Replace('/', Path.DirectorySeparatorChar)));
+                    queue.TryAdd(full, true);
+                }
+                return true;
+            }
+            catch (Exception e) { Logger.LogWarning("Couldn't ask AutoReload to reload: " + e.Message); return false; }
         }
 
         void CheckHotResult()
@@ -329,7 +408,17 @@ namespace PeakPack.Companion
                 var status = r?.status ?? "failed";
                 Logger.LogInfo($"Live update result: {status} {r?.message}");
                 var msg = LobbyCheck.UpdateMessage(status, HostNick(), r?.mods, r?.revision ?? _hotRev, _info.shortcutName, Feed.Name);
-                if (msg != null) _feed.Post(msg, warning: status != "applied");
+                if (status == "applied" && r.plugins != null && r.plugins.Count > 0)
+                {
+                    // Files are in place; only say "updated" once the new builds are actually running (ConfirmReload).
+                    _confirm = new PendingConfirm { Since = Time.unscaledTime, Mods = r.mods, Rev = r.revision, Host = HostNick() };
+                    foreach (var p in r.plugins)
+                    {
+                        var parts = p.Split('|');
+                        if (parts.Length == 3) _confirm.Expect.Add((parts[0], parts[1], parts[2]));
+                    }
+                }
+                else if (msg != null) _feed.Post(msg, warning: status != "applied");
             }
             else if (Time.unscaledTime > _hotWaitUntil && (_hotProcess == null || _hotProcess.HasExited))
             {
@@ -356,6 +445,7 @@ namespace PeakPack.Companion
         public int revision;
         public List<string> mods = new List<string>();
         public string message = "";
+        public List<string> plugins = new List<string>();
     }
 #pragma warning restore CS0649
 }

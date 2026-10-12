@@ -30,7 +30,7 @@ namespace PeakPack.Companion
     /// BepInEx\PeakPack\live-originals.txt while the host's are active, so they come back even if the game crashes
     /// in a lobby or AutoReload starts the new instance before the old one is destroyed.
     /// </summary>
-    [BepInPlugin(Guid, "PeakPack Companion", "0.4.0")]
+    [BepInPlugin(Guid, "PeakPack Companion", "0.4.1")]
     public partial class Plugin : BaseUnityPlugin, IInRoomCallbacks, IMatchmakingCallbacks, IOnEventCallback
     {
         public const string Guid = "peakpack.companion";

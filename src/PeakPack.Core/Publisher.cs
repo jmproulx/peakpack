@@ -50,6 +50,17 @@ public sealed class PublishConfig
     /// <summary>Lobby check policy and the live settings the lobby host's values apply to everyone in that lobby.</summary>
     public LobbySettings? Lobby { get; set; }
 
+    /// <summary>Mac friends (PeakPack inside our Wine prefix): extra game args and Mac config defaults (ifMissing, config/ only).</summary>
+    public MacSource? Mac { get; set; }
+
+    public sealed class MacSource
+    {
+        public List<string> ExtraArgs { get; set; } = new();
+        /// <summary>{ id, version, source, dest: "config/&lt;guid&gt;.cfg" }. Always installed "ifMissing".</summary>
+        public List<CustomFile> ConfigFiles { get; set; } = new();
+        public string? MinFrontEnd { get; set; }
+    }
+
     /// <summary>Fields this version doesn't know (e.g. added by hand or by a newer tool). Kept on load and written
     /// back on Save, so the Host window and the CLI can both edit the same publish.json without losing anything.</summary>
     [System.Text.Json.Serialization.JsonExtensionData]
@@ -228,6 +239,26 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
                 Sha256 = sha, Size = new FileInfo(cf.Source).Length,
             });
             log($"  custom file {cf.Id} -> {assetName}");
+        }
+
+        if (cfg.Mac is { } mac)
+        {
+            var ms = new MacSettings { ExtraArgs = mac.ExtraArgs.ToList(), MinFrontEnd = mac.MinFrontEnd };
+            foreach (var cf in mac.ConfigFiles)
+            {
+                if (!File.Exists(cf.Source)) throw new FileNotFoundException($"Mac config file not found: {cf.Source}");
+                var sha = Downloader.Sha256OfFile(cf.Source);
+                var assetName = $"mac-{cf.Id}-{sha[..8]}-{Path.GetFileName(cf.Source)}";
+                File.Copy(cf.Source, Path.Combine(outDir, assetName), true);
+                ms.Files.Add(new FileEntry
+                {
+                    Id = cf.Id, Version = cf.Version, Path = cf.Dest, Overwrite = OverwriteMode.IfMissing,
+                    Url = string.IsNullOrEmpty(baseUrl) ? assetName : baseUrl.TrimEnd('/') + "/" + assetName,
+                    Sha256 = sha, Size = new FileInfo(cf.Source).Length,
+                });
+                log($"  mac config {cf.Dest} -> {assetName}");
+            }
+            m.Platforms = new PlatformSettings { Mac = ms };
         }
 
         if (cfg.App is { } app && File.Exists(app.Source))

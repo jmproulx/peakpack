@@ -10,7 +10,11 @@ public sealed record SyncProgress(string Message, double? Fraction = null, bool 
 /// <param name="ManageGameFolder">Write winhttp.dll + doorstop_config.ini into the game folder and refuse foreign loaders.
 /// Off = never touch the game folder (the host's "friend view" profile on a PC that already has its own Doorstop).</param>
 /// <param name="ShortcutName">Used in the companion's in-game notices ("restart PEAK from the PEAK (Modded) icon").</param>
-public sealed record SyncOptions(bool Strict = true, bool ManageGameFolder = true, string ShortcutName = "PEAK (Modded)");
+public sealed record SyncOptions(bool Strict = true, bool ManageGameFolder = true, string ShortcutName = "PEAK (Modded)", Platform.Kind? PlatformOverride = null)
+{
+    /// <summary>The platform to install for (Mac: Mac config defaults + Mac launch args).</summary>
+    public Platform.Kind Target => PlatformOverride ?? Platform.Current;
+}
 
 public sealed class SyncResult
 {
@@ -130,7 +134,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
 
         // 4. Loose files (Joshua's own DLLs / configs).
         var wantedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in m.Files)
+        foreach (var f in m.FilesFor(options.Target))
         {
             ct.ThrowIfCancellationRequested();
             var dest = SafePath.Combine(paths.BepInExDir, f.Path);
@@ -180,6 +184,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         state.ModsRequiredToJoin = m.ModsRequiredToJoin;
         state.PackGameVersion = m.GameVersion;
         state.LastSyncTime = DateTimeOffset.Now;
+        state.LaunchExtraArgs = options.Target == Platform.Kind.WineMac ? (m.Platforms?.Mac?.ExtraArgs ?? []).ToList() : [];
         state.Save(paths);
         progress?.Report(new SyncProgress(result.Changed ? $"Updated to revision {m.Revision}." : "Mods are up to date.", 1));
         paths.Log($"Sync rev {m.Revision}: +{result.Installed.Count} -{result.Removed.Count} {string.Join(", ", result.Installed.Concat(result.Removed.Select(r => "-" + r)))}");
@@ -265,7 +270,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         var removed = new List<string>();
         var allowedTop = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in m.Packages) allowedTop.Add(PackageId.Parse(p.Id).FullName);
-        foreach (var f in m.Files)
+        foreach (var f in m.FilesFor(Platform.Current))
         {
             var segs = f.Path.Split('/');
             if (segs.Length >= 2) allowedTop.Add(segs[0] + "/" + segs[1]);

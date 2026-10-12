@@ -31,28 +31,35 @@ public sealed class PublishPipeline(Action<string> log)
     public async Task<PackManifest?> LoadPreviousAsync(PublishConfig cfg, string workDir, Downloader dl, string? previousPath = null, CancellationToken ct = default)
     {
         if (previousPath is not null) return File.Exists(previousPath) ? PackManifest.Parse(await File.ReadAllTextAsync(previousPath, ct)) : null;
+        PackManifest? live = null, local = null;
         if (cfg.EffectiveManifestUrl is { } url)
         {
             try
             {
                 var bytes = await dl.GetSmallAsync(url, ct);
-                var live = PackManifest.Parse(Encoding.UTF8.GetString(bytes));
+                live = PackManifest.Parse(Encoding.UTF8.GetString(bytes));
                 log($"Previous revision (live, {url}): {live.Revision}");
-                return live;
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("(404)"))
             {
-                log($"No live manifest yet at {url} (first publish).");
+                log($"No live manifest at {url} (first publish, or \"latest\" isn't a pack release).");
             }
         }
-        var local = Path.Combine(workDir, "current", "manifest.json");
-        if (File.Exists(local))
+        var localPath = Path.Combine(workDir, "current", "manifest.json");
+        if (File.Exists(localPath))
         {
-            var m = PackManifest.Parse(await File.ReadAllTextAsync(local, ct));
-            log($"Previous revision (local {local}): {m.Revision}");
-            return m;
+            local = PackManifest.Parse(await File.ReadAllTextAsync(localPath, ct));
+            log($"Last release from this PC (local {localPath}): {local.Revision}");
         }
-        return null;
+        // The repo also holds non-pack releases (mac-build-* prereleases). If "latest" ever points elsewhere, the live
+        // manifest is missing or stale: never reuse a revision number, take the higher of the two.
+        if (live is not null && local is not null && local.Revision > live.Revision)
+        {
+            log($"WARNING: \"latest\" serves revision {live.Revision}, but revision {local.Revision} was released from this PC. " +
+                "Using that; check that the newest rev-N release is marked Latest on GitHub.");
+            return local;
+        }
+        return live ?? local;
     }
 
     public async Task<Prepared> PrepareAsync(PublishConfig cfg, string workDir, ThunderstoreIndex index, Downloader dl, PackManifest? previous, CancellationToken ct = default)
@@ -67,7 +74,7 @@ public sealed class PublishPipeline(Action<string> log)
 
         var assets = new List<string> { Path.Combine(staging, "manifest.json") };
         if (File.Exists(Path.Combine(staging, "manifest.json.sig"))) assets.Add(Path.Combine(staging, "manifest.json.sig"));
-        foreach (var f in m.Files) assets.Add(Path.Combine(staging, f.Url.Split('/')[^1]));
+        foreach (var f in m.Files.Concat(m.Platforms?.Mac?.Files ?? [])) assets.Add(Path.Combine(staging, f.Url.Split('/')[^1]));
         if (m.App is not null) assets.Add(Path.Combine(staging, m.App.Url.Split('/')[^1]));
         if (File.Exists(Path.Combine(staging, "PeakPack.exe"))) assets.Add(Path.Combine(staging, "PeakPack.exe"));
         assets = assets.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -148,7 +155,30 @@ public sealed class PublishPipeline(Action<string> log)
         if (Directory.Exists(current)) Directory.Delete(current, true);
         CopyDir(p.StagingDir, current);
         log($"Released revision {p.Manifest.Revision}. Friends get it the next time they start PEAK (Modded).");
+        await VerifyLatestAsync(repo, p.Manifest.Revision, ct);
         return 0;
+    }
+
+    /// <summary>Friends read .../releases/latest/download/manifest.json, so "latest" must always be the newest pack
+    /// release (rev-N). Checks it right after a release (GitHub can take a few seconds) and warns loudly if not.</summary>
+    public async Task<bool> VerifyLatestAsync(string repo, int revision, CancellationToken ct = default)
+    {
+        var url = $"https://github.com/{repo}/releases/latest/download/manifest.json";
+        for (int attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                using var dl = new Downloader(Path.Combine(Path.GetTempPath(), "peakpack-verify"));
+                var m = PackManifest.Parse(Encoding.UTF8.GetString(await dl.GetSmallAsync(url, ct)));
+                if (m.Revision == revision) { log($"Checked: friends' link ({url}) serves revision {revision}."); return true; }
+                log($"  \"latest\" still serves revision {m.Revision}; waiting...");
+            }
+            catch (Exception ex) { log($"  couldn't read {url} yet: {ex.Message}"); }
+            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        }
+        log($"WARNING: friends' link doesn't serve revision {revision}. On GitHub, mark release rev-{revision} as Latest " +
+            "(non-pack releases such as mac-build-* must be prereleases and never Latest).");
+        return false;
     }
 
     /// <summary>Puts the companion and a pack-info.json into a BepInEx folder (the host's own game), so the host's
