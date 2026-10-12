@@ -87,7 +87,7 @@ public sealed class PublishConfig
             log?.Invoke($"  host id from {file}: {id}");
             return [id];
         }
-        log?.Invoke("  NOTE: no host id yet (host a lobby once with the companion installed, then publish again). Friends will only match the pack id.");
+        log?.Invoke("  NOTE: no host id yet (host a lobby once with the companion installed, then publish again). Until then friends share no logs.");
         return [];
     }
 
