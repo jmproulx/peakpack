@@ -1,0 +1,89 @@
+{
+    "packName":  "Joshua\u0027s PEAK mods",
+    "hostName":  "Joshua",
+    "packId":  "joshuas-peak-mods",
+    "notes":  "Joshua\u0027s own mods join the pack: Heli Pilot, Elytra Glider and Item Tuner. Test lobby is on.",
+    "loader":  "BepInEx-BepInExPack_PEAK",
+    "mods":  [
+                 "Sapphire009-InfiniteJetpack-1.0.1"
+             ],
+    "hostOnly":  [
+                     "glarmer-PEAK_Unlimited"
+                 ],
+    "modInfo":  {
+                    "Sapphire009-InfiniteJetpack":  {
+                                                        "title":  "Infinite Jetpack",
+                                                        "description":  "The jetpack never runs out of fuel."
+                                                    }
+                },
+    "customFiles":  [
+                        {
+                            "id":  "Joshua-JetpackBoost",
+                            "version":  "0.1.0",
+                            "title":  "Jetpack Boost",
+                            "description":  "Joshua\u0027s mod: stronger jetpack thrust plus a push in the direction you\u0027re moving.",
+                            "source":  "C:\\Users\\joshu\\PeakMods\\JetpackBoost\\bin\\Release\\JetpackBoost.dll",
+                            "dest":  "plugins/Joshua-JetpackBoost/JetpackBoost.dll",
+                            "reloadSafe":  true
+                        },
+                        {
+                            "id":  "Joshua-HeliPilot",
+                            "version":  "0.2.4",
+                            "title":  "Heli Pilot",
+                            "description":  "Fly a helicopter, use the Heli Flare item, and ride along with friends.",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\HeliPilot.dll",
+                            "dest":  "plugins/Joshua-HeliPilot/HeliPilot.dll",
+                            "reloadSafe":  true
+                        },
+                        {
+                            "id":  "Joshua-ElytraGlider",
+                            "version":  "0.1.0",
+                            "title":  "Elytra Glider",
+                            "description":  "Minecraft-style glider flight.",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\ElytraGlider.dll",
+                            "dest":  "plugins/Joshua-ElytraGlider/ElytraGlider.dll",
+                            "reloadSafe":  true
+                        },
+                        {
+                            "id":  "Joshua-ItemTuner",
+                            "version":  "0.1.0",
+                            "title":  "Item Tuner",
+                            "description":  "In-game settings menu for Joshua\u0027s mods.",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\ItemTuner.dll",
+                            "dest":  "plugins/Joshua-ItemTuner/ItemTuner.dll",
+                            "reloadSafe":  true
+                        },
+                        {
+                            "id":  "Joshua-ItemTuner",
+                            "version":  "0.1.0",
+                            "source":  "C:\\Users\\joshu\\AppData\\Local\\PeakPack-publisher\\builds\\rev2\\config\\com.joshua.itemtuner.cfg",
+                            "dest":  "config/com.joshua.itemtuner.cfg",
+                            "overwrite":  "ifMissing"
+                        }
+                    ],
+    "companion":  "auto",
+    "lobby":  {
+                  "mismatchPolicy":  "warn",
+                  "liveSettings":  [
+                                       {
+                                           "plugin":  "com.joshua.jetpackboost",
+                                           "section":  "Boost",
+                                           "key":  "ThrustMultiplier"
+                                       },
+                                       {
+                                           "plugin":  "com.joshua.jetpackboost",
+                                           "section":  "Boost",
+                                           "key":  "ForwardPush"
+                                       }
+                                   ],
+                  "testLobby":  true,
+                  "diagnostics":  true
+              },
+    "githubRepo":  "jmproulx/peakpack",
+    "app":  {
+                "version":  "0.4.0",
+                "source":  "C:\\Users\\joshu\\PeakMods\\FriendInstaller\\publish-out\\PeakPack.exe"
+            },
+    "gameDir":  "D:\\SteamLibrary\\steamapps\\common\\PEAK",
+    "signingKey":  "C:\\Users\\joshu\\PeakPack-keys\\peakpack-signing.pem"
+}

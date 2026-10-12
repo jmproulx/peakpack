@@ -22,6 +22,7 @@ try
         "hot-update" => await HotUpdateCmd(a),
         "hot-rollback" => HotRollbackCmd(a),
         "options" => OptionsCmd(a),
+        "inspect" => InspectCmd(a),
         "install" or "sync" => await Install(a),
         "launch" => await Launch(a),
         "status" => Status(a),
@@ -70,6 +71,7 @@ static int Help()
       hot-update   [--manifest M] [--data-dir D] [--allow-local] [--public-key K]   apply a live update if allowed
       hot-rollback [--data-dir D]                                                  undo the last live update
       options      [--diagnostics on|off] [--live-updates on|off] [--data-dir D]   friend consent switches
+      inspect <dll>...                     plugin GUID/version, embedded PDB, OnDestroy (reload-safe check)
 
     Friend actions (headless; the GUI does the same):
       install   --manifest <url|path> [--game-dir D] [--data-dir D] [--adopt] [--allow-local] [--public-key K]
@@ -314,6 +316,19 @@ static int HotRollbackCmd(Args a)
     var r = HotUpdater.RollBack(new AppPaths(a.Get("--data-dir")));
     Console.WriteLine($"{r.Status}: {r.Message}");
     return r.Status == HotUpdater.Status.RolledBack ? 0 : 1;
+}
+
+static int InspectCmd(Args a)
+{
+    int bad = 0;
+    foreach (var dll in a.Positional.Skip(1).Concat(a.Get("--dll") is { } d ? [d] : Array.Empty<string>()))
+    {
+        var c = Hotfix.Inspect(dll);
+        Console.WriteLine($"{Path.GetFileName(dll)}: plugin {c.PluginGuid} \"{c.PluginName}\" {c.PluginVersion}; embedded PDB {c.HasEmbeddedPdb}; OnDestroy {c.HasOnDestroy}; sha256 {Downloader.Sha256OfFile(dll)[..12]}");
+        Console.WriteLine(c.LiveReloadOk ? "  reload-safe: yes" : "  reload-safe: NO (" + string.Join(" ", c.Problems) + ")");
+        if (!c.LiveReloadOk) bad++;
+    }
+    return bad;
 }
 
 static int OptionsCmd(Args a)
