@@ -235,7 +235,7 @@ Out of scope by Joshua's decision (11 Oct 2026): all friends are on Windows with
 **Works and tested:**
 
 - Real PC: launch method verified (§2.1).
-- `tools/sandbox-test.ps1`: the 39 v0.2 end-to-end checks.
+- `tools/sandbox-test.ps1`: the 38 v0.2 end-to-end checks.
 - `tools/v3-test.ps1`: friendly manifest fields, changelog, companion inclusion, pack-info, update check with plain-language changes, `--keep-extra` / `--no-game-folder`, self-install without Mark-of-the-Web and correct shortcuts, pipeline dry run (exact gh command, stable PeakPack.exe, refusal without signature), host stamp, LobbyCheck unit tests.
 - `tools/gui-selftest.ps1 -Published`: drives the real window at 100/125/150 % (welcome, done, ready, update available, error), checks shortcuts → installed copy, no MOTW, launch arguments.
 - `tools/host-selftest.ps1`: Host window at 100/125/150 % with a dry-run publish.
@@ -506,7 +506,7 @@ A thin wrapper; all mod logic stays in the Windows PeakPack inside the prefix. B
   - a bundle change is restart-only;
   - bad Mac entries are refused;
   - a release never reuses a revision when "latest" is stale.
-- All earlier suites still pass (sandbox 39, v3, v4, friend and Host GUI self-tests).
+- All earlier suites still pass (sandbox 38, v3 40, v4 37, friend GUI 23, Host GUI self-test OK).
 - A code review found 14 issues. Fixed:
   - a network timeout in headless mode reported as "existing mods" (exit 3);
   - a half-written file not restored, and temp files left behind;

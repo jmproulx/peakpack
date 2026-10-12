@@ -37,7 +37,7 @@ $dn = "C:\Program Files\dotnet\dotnet.exe"
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\make-sandbox.ps1            # fake PEAK.exe that logs its arguments
-powershell -ExecutionPolicy Bypass -File tools\sandbox-test.ps1            # 39 v0.2 end-to-end checks (downloads real packages)
+powershell -ExecutionPolicy Bypass -File tools\sandbox-test.ps1            # 38 v0.2 end-to-end checks (downloads real packages)
 powershell -ExecutionPolicy Bypass -File tools\v3-test.ps1                 # v0.3: pack-info, update check, host options, self-install
                                                                            #   without Mark-of-the-Web, pipeline dry run, stamp, lobby logic
 powershell -ExecutionPolicy Bypass -File tools\v4-test.ps1                 # v0.4: live updates via the real PeakPack.exe --hot-update,
