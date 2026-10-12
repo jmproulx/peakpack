@@ -400,7 +400,18 @@ Context: `C:\Users\joshu\PeakMods\MacPort\DESIGN.md` (Track D). Mac friends run 
 
 ### 18.2 Mac key defaults (shipped as `platforms.mac.files`, next revision)
 
-Mac laptops have no Insert/Delete (forward)/Home/End/PageUp/PageDown/numpad, and F1-F12 need Fn. PEAK's own keys that are verified or well documented (W A S D, Space, Shift, Ctrl, E, Q, R, V, 1-4, Esc, mouse) and all other mod keys were avoided. Each pair keeps its meaning (`]`/`[` = up/down, `=`/`-` = more/less).
+Mac laptops have no Insert/Delete (forward)/Home/End/PageUp/PageDown/numpad, and F1-F12 need Fn. Each pair keeps its meaning (`]`/`[` = up/down, `=`/`-` = more/less).
+
+**Collision checks use these lists:**
+
+- **PEAK's default keyboard bindings** (extracted from `PEAK_Data/data.unity3d`, 12 Oct 2026):
+  - 1-9 (hotbar), W A S D, E, Q, R, V;
+  - G (ScrollBackward), T (ScrollForward);
+  - `` ` `` (backquote), Tab (UnselectSlot), Space, Enter, Escape, arrow keys, LeftCtrl, LeftShift.
+- **Reserved by Joshua's mods:**
+  - ItemTuner F;
+  - ScoutmasterMode X (catch-up teleport), C (hold for the ability wheel), B (Weeping Angel blink), as of ScoutmasterMode e24e482.
+- **Free for Mac defaults** (not used by PEAK or any mod's default): H, P, Y, Z, U, I, J, K, L, M, N, O and the punctuation `[ ] ; ' , . / \ - =`.
 
 | Mod (config file) | Setting | Windows | Mac |
 |---|---|---|---|
@@ -415,14 +426,15 @@ Mac laptops have no Insert/Delete (forward)/Home/End/PageUp/PageDown/numpad, and
 | | [Debug] DebugSummonKey / DebugFlareKey / DebugDumpKey (still behind EnableDebugKeys = false) | F9 / F9 / F10 | Z / Z (+Shift) / U |
 | ItemTuner (`com.joshua.itemtuner.cfg`) | [Debug] LogLayout | true | false (same as Windows friends) |
 | *later* ScoutBots | [Keys] SpawnBots / ToggleHunter | F4 / F1 | N / J |
-| *later* ScoutmasterMode | [Debug] F5 / F6 / F7 / F11 / F3 | | I / K / Comma / X / O (F3 and F11 should be gated by EnableDebugKeys in code) |
+| *later* ScoutmasterMode | [Debug] F5 / F6 / F7 / F11 / F3 (debug keys off by default) | | I / K / Comma / M / O |
 | Companion (host only, Joshua on Windows) | [Host] RequestLogsKey (+Ctrl) | F9 | unchanged |
 
-Unchanged because they already work on a Mac: ItemTuner `F`, HeliPilot `G` and flight keys, ScoutmasterMode `B`, `T`, `C`.
+Unchanged because they already work on a Mac: ItemTuner `F`, HeliPilot flight keys (only while piloting), ScoutmasterMode `X`, `C`, `B`.
 
 Risks:
 
-- PEAK's full default map lives in serialized assets, so H, P, Y, Z, U, J, N, I, K, O, X were chosen as "free" from documentation. **Check them on PEAK's Controls page before the next revision.**
+- **Existing collision on Windows too:** HeliPilot's `[Rope] RopeKey` defaults to **G**, which PEAK uses for ScrollBackward (cycling items). Suggest moving it to a free key (e.g. **L**) in HeliPilot's own default, rather than in a Mac-only override.
+- Checked against the real PEAK list above (12 Oct 2026): H, P, Y, Z, U are free. Re-check this list after PEAK updates.
 - Punctuation positions assume a US layout.
 - If Wine maps Command to Ctrl, HeliPilot's "down" (LeftCtrl) is Command on Mac.
 
