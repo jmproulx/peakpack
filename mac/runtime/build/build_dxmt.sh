@@ -43,14 +43,16 @@ if [ ! -x "$llvm/bin/llvm-config" ]; then
   rm -rf "$PP_BLD/llvm15-src" "$PP_BLD/llvm15"
 fi
 
-# ---- llvm-mingw (shared with build_wine.sh) -----------------------------------------
-if [ ! -x "$PP_TOOLS/llvm-mingw/bin/x86_64-w64-mingw32-clang" ]; then
-  rm -rf "$PP_TOOLS/llvm-mingw" && mkdir -p "$PP_TOOLS/llvm-mingw"
-  tar -xJf "$PP_DL/$(basename "$LLVM_MINGW_MAC_URL")" -C "$PP_TOOLS/llvm-mingw" --strip-components=1
+# ---- llvm-mingw for DXMT: the version DXMT's own CI uses (pins.env LLVM_MINGW_DXMT_*) ----------
+lm="$PP_TOOLS/llvm-mingw-dxmt"
+if [ ! -x "$lm/bin/x86_64-w64-mingw32-clang" ]; then
+  rm -rf "$lm" && mkdir -p "$lm"
+  tar -xJf "$PP_DL/$(basename "$LLVM_MINGW_DXMT_URL")" -C "$lm" --strip-components=1
 fi
 # llvm-mingw ships x86_64-w64-mingw32-gcc/g++ wrappers that point at clang, which is what
 # DXMT's build-win64.txt names; putting it first in PATH selects clang, like DXMT's CI.
-export PATH="$PP_TOOLS/llvm-mingw/bin:$PATH"
+export PATH="$lm/bin:$PATH"
+log "llvm-mingw for DXMT: $LLVM_MINGW_DXMT_VERSION"
 x86_64-w64-mingw32-gcc --version | grep -qi clang || die "x86_64-w64-mingw32-gcc is not llvm-mingw clang"
 
 # ---- DXMT -----------------------------------------------------------------------------

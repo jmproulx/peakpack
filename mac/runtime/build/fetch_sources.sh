@@ -18,6 +18,7 @@ fetch_cx() {
 fetch_mac() {
   fetch_cx
   fetch_verify "$LLVM_MINGW_MAC_URL" "$LLVM_MINGW_MAC_SHA256" "$PP_DL/$(basename "$LLVM_MINGW_MAC_URL")"
+  fetch_verify "$LLVM_MINGW_DXMT_URL" "$LLVM_MINGW_DXMT_SHA256" "$PP_DL/$(basename "$LLVM_MINGW_DXMT_URL")"
   fetch_verify "$MOLTENVK_URL" "$MOLTENVK_SHA256" "$PP_DL/MoltenVK-macos-$MOLTENVK_VERSION.tar"
   fetch_verify "$LIBINOTIFY_URL" "$LIBINOTIFY_SHA256" "$PP_DL/$(basename "$LIBINOTIFY_URL")"
   fetch_verify "$NETTLE_URL" "$NETTLE_SHA256" "$PP_DL/$(basename "$NETTLE_URL")"

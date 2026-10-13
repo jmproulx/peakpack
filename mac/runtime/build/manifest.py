@@ -151,6 +151,7 @@ def main():
         },
         "toolchain": {
             "llvm_mingw": pins.get("LLVM_MINGW_VERSION"),
+            "llvm_mingw_dxmt": pins.get("LLVM_MINGW_DXMT_VERSION"),
             "dxmt_llvm": pins.get("LLVM15_VERSION"),
             "meson": dxmt.get("meson"),
             "xcode": dxmt.get("xcode"),

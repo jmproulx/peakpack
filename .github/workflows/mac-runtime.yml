@@ -126,6 +126,8 @@ jobs:
         run: |
           . mac/runtime/build/pins.env
           echo "runtime_id=pp${PP_REVISION}-cx${CX_VERSION}" >> "$GITHUB_OUTPUT"
+          # LLVM 15 is keyed on its own pin only, so edits elsewhere don't force a ~1 h rebuild.
+          echo "llvm15_key=llvm15-${{ inputs.runner }}-${LLVM15_VERSION}-$(printf '%s' "$LLVM15_SHA256" | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Xcode 16 (Metal toolchain for DXMT) and Rosetta
         run: |
           # shellcheck disable=SC2012  # Xcode app names are plain; ls + sort -V picks the newest 16.x
@@ -151,13 +153,16 @@ jobs:
         with:
           path: _work/downloads
           key: dl-mac-${{ hashFiles('mac/runtime/build/pins.env') }}
-      - name: Cache LLVM 15 (DXMT)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      # Restore-only here; saved explicitly further down with if: always(), so a later failure
+      # still keeps LLVM 15 and the compiler cache for the next run.
+      - name: Restore LLVM 15 (DXMT)
+        id: llvm15
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: _work/tools/llvm15-darwin-x86_64
-          key: llvm15-${{ inputs.runner }}-${{ hashFiles('mac/runtime/build/pins.env', 'mac/runtime/build/build_dxmt.sh') }}
-      - name: Cache ccache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+          key: ${{ steps.id.outputs.llvm15_key }}
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/Library/Caches/ccache
           key: ccache-${{ inputs.runner }}-${{ github.run_id }}
@@ -201,6 +206,21 @@ jobs:
           mac/runtime/build/build_wine.sh --no-prepare
       - name: DXMT
         run: mac/runtime/build/build_dxmt.sh
+      - name: Save LLVM 15 (even if DXMT failed)
+        if: >-
+          ${{ always() && steps.llvm15.outputs.cache-hit != 'true'
+          && hashFiles('_work/tools/llvm15-darwin-x86_64/lib/cmake/llvm/LLVMConfig.cmake') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: _work/tools/llvm15-darwin-x86_64
+          key: ${{ steps.id.outputs.llvm15_key }}
+      - name: Save ccache (even on failure)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ inputs.runner }}-${{ github.run_id }}
       - name: Steam bridge (lsteamclient.so via clang++, forwarder, launcher, probes; binaries only)
         id: bridge
         if: ${{ inputs.steam_bridge && env.BRIDGE_DISABLED != '1' }}
