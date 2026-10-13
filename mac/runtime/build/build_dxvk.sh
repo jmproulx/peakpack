@@ -18,7 +18,7 @@ fi
 grep -q "version : 'v1.10.3'" "$PP_SRC/dxvk/meson.build" || die "unexpected DXVK version in CrossOver sources"
 
 # mingw-w64 must use the posix thread model for DXVK (std::thread).
-x86_64-w64-mingw32-g++ -v 2>&1 | grep -q 'Thread model: posix' \
+grep -q 'Thread model: posix' <<<"$(x86_64-w64-mingw32-g++ -v 2>&1)" \
   || die "x86_64-w64-mingw32-g++ must be the posix-threads variant (update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix)"
 
 out="$PP_STAGE/dxvk-install"

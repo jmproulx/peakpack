@@ -6,7 +6,7 @@ translate's own temporary directories.
 import os, sys, unittest
 NATIVE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, NATIVE)
-from peakmetal.compute import codec, metalblob, spirv, translate, validate, convert, features
+from peakmetal.compute import codec, metalblob, metalfix, spirv, translate, validate, convert, features
 
 PEAK_DUMP = r"C:\Users\joshu\PeakMods\MacPort\tools\nativework\compute\peak"
 
@@ -107,8 +107,12 @@ class TestConvertPeak(unittest.TestCase):
                        for r in recs if r["status"] != "ok"]
                 self.assertEqual(bad, [])
 
+                # keyword map unchanged, except STP's 16-bit sets -> 32-bit kernels (metalfix.force_32bit)
+                want = [{"name": p["name"], "variantIndices": list(p["variantIndices"])} for p in vk["kernels"]]
+                redirected = metalfix.force_32bit(name, want)
+                self.assertEqual(bool(redirected), name in metalfix.FORCE_32BIT_SHADERS)
                 self.assertEqual([(p["name"], _pairs(p["variantIndices"])) for p in metal["kernels"]],
-                                 [(p["name"], _pairs(p["variantIndices"])) for p in vk["kernels"]])
+                                 [(p["name"], _pairs(p["variantIndices"])) for p in want])
 
     def test_grass_geometry_counter_encoded_in_bindpoint(self):
         _, _, _, metal, _ = _converted("GrassGeometryCompute")

@@ -133,7 +133,12 @@ step_unix() {
     sources=$(sed -E -n 's/^[[:space:]]*([A-Za-z0-9_]+\.cpp)[[:space:]]*\\?[[:space:]]*$/\1/p' "$SRC/Makefile.in")
     count=$(printf '%s\n' "$sources" | wc -l | tr -d ' ')
     [ "$count" -gt 100 ] || die "only $count C++ sources found in Makefile.in"
-    CXXFLAGS_LSC="-arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -std=c++17 -O2 -g -fPIC \
+    # Force-include the C/C++ library headers BEFORE Wine's: winebase.h #defines wcsncpy()/strncpy() as
+    # errors, and Apple's libc++ (<array> -> <algorithm> -> <cwchar>) declares them after that macro exists
+    # (CI run 38331541292: _wchar.h "expected ';' after top level declarator"). Include guards keep them from
+    # being re-read later; direct uses in lsteamclient still hit Wine's macro, as intended.
+    CXXFLAGS_LSC="-include cwchar -include cstring -include cstdlib -include array -include algorithm -include string \
+-arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -std=c++17 -O2 -g -fPIC \
 -fno-strict-aliasing -fasynchronous-unwind-tables -Wno-deprecated-declarations \
 -D__WINESRC__ -DWINE_UNIX_LIB $extradefs -I$SRC -I$WINE_BUILD/include -I$WINE_SRC/include ${LSC_EXTRA_CXXFLAGS:-}"
     export CXX CXXFLAGS_LSC SRC OBJ
@@ -158,8 +163,9 @@ step_unix() {
 verify_so() {
     so=$1
     [ "$(lipo -archs "$so")" = x86_64 ] || die "$so: arch is $(lipo -archs "$so"), want x86_64"
-    nm -gU "$so" | grep -q '___wine_unix_call_funcs' || die "$so: no __wine_unix_call_funcs export"
-    otool -L "$so" | grep -q '@rpath/ntdll.so' || die "$so: not linked to @rpath/ntdll.so"
+    # Search captured output (no "producer | grep -q" under pipefail: SIGPIPE false negatives).
+    grep -q '___wine_unix_call_funcs' <<<"$(nm -gU "$so")" || die "$so: no __wine_unix_call_funcs export"
+    grep -q '@rpath/ntdll.so' <<<"$(otool -L "$so")" || die "$so: not linked to @rpath/ntdll.so"
     if codesign -dv "$so" >/dev/null 2>&1; then
         say "$so is signed; removing the signature (Wine refuses signed x86_64 unixlibs)"
         codesign --remove-signature "$so"
@@ -170,14 +176,14 @@ verify_so() {
 
 verify_dll() {
     dll=$1
-    file "$dll" | grep -q 'PE32+ executable.*x86-64' || die "$dll: not an x86_64 PE"
+    grep -q 'PE32+ executable.*x86-64' <<<"$(file "$dll")" || die "$dll: not an x86_64 PE"
     head -c 128 "$dll" | LC_ALL=C grep -aq 'Wine builtin DLL' || die "$dll: no Wine builtin marker"
     if command -v llvm-objdump >/dev/null 2>&1 || command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then
         od_tool=$(command -v x86_64-w64-mingw32-objdump || command -v llvm-objdump)
         exports=$("$od_tool" -p "$dll" 2>/dev/null || true)
         for e in CreateInterface Steam_BGetCallback Steam_FreeLastCallback Steam_GetAPICallResult \
                  Steam_ReleaseThreadLocalMemory Steam_IsKnownInterface Steam_NotifyMissingInterface; do
-            printf '%s\n' "$exports" | grep -q "$e" || die "$dll: export $e missing"
+            grep -q "$e" <<<"$exports" || die "$dll: export $e missing"
         done
     else
         say "no objdump found; export check skipped"

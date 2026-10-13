@@ -33,6 +33,12 @@
 
 ## Closed
 
+- STP Metal defines (sub-lead, 12 Oct): STP_BUG_SAT_INF recreated as an MSL rewrite and STP_FORCE_32BIT_REDUCTION
+  as a keyword redirect to the 32-bit kernels (`compute/metalfix.py`, README-compute.md). VFX Sort's alternate
+  bitonic network cannot be recreated offline (documented; G-C1 check). `pm.py convert` now also writes
+  `compute_report.txt|json` and dumps kernel MSL to `msl/_compute/`; tool discovery goes through
+  `peakmetal.tools` (no tools/ or .exe paths).
+
 - Item 1: compute already uses `--msl-version 20100` / `-std=macos-metal2.1` (translate.DEFAULT_MSL_VERSION,
   validate.DEFAULT_STD). All 199 PEAK kernel variants pass at macos-metal2.1, metal3.0 and metal3.1.
   Fast-math sensitivity (STP_BUG_SAT_INF) stays an on-device check at G-C1.

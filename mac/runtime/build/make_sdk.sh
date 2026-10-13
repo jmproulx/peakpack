@@ -37,7 +37,7 @@ log "copying pruned build tree"
 for d in src/wine/dlls/lsteamclient build/wine/dlls/lsteamclient; do
   if [ -e "$S/$d" ]; then log "excluding $d (Steamworks-licensed, fetched at build time)"; rm -rf "${S:?}/$d"; fi
 done
-if find "$S" -ipath '*lsteamclient*' -print -quit | grep -q .; then
+if [ -n "$(find "$S" -ipath '*lsteamclient*' -print -quit)" ]; then
   die "SDK still contains lsteamclient files; refusing to pack"
 fi
 

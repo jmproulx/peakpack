@@ -24,7 +24,7 @@ done
 mac_x86_64_env
 need make bison flex pkg-config clang
 # Wine needs bison >= 3.0; Apple's /usr/bin/bison is 2.3.
-bison --version | head -n 1 | grep -Eq ' (3|4)\.' || die "bison >= 3 required first in PATH (brew bison is keg-only: add \$(brew --prefix bison)/bin)"
+grep -Eq ' (3|4)\.' <<<"$(bison --version | head -n 1)" || die "bison >= 3 required first in PATH (brew bison is keg-only: add \$(brew --prefix bison)/bin)"
 
 if [ "$do_prepare" = 1 ]; then
   # shellcheck disable=SC2086
@@ -97,7 +97,7 @@ make install DESTDIR="$PP_STAGE/wine-dev"
 # Checks DXMT relies on: CrossOver exports macdrv_functions from winemac.so (DECISIONS.md D3).
 ws="$PP_STAGE/wine-dev/lib/wine/x86_64-unix/winemac.so"
 [ -f "$ws" ] || die "winemac.so not built"
-nm -gU "$ws" | grep -q ' _macdrv_functions$' || die "winemac.so does not export macdrv_functions (DXMT will fail)"
+grep -q ' _macdrv_functions$' <<<"$(nm -gU "$ws")" || die "winemac.so does not export macdrv_functions (DXMT will fail)"
 log "winemac.so exports macdrv_functions: OK"
 
 # The default visibility rebuild (notpop's approach for upstream Wine) is NOT needed with

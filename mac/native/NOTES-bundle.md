@@ -3,8 +3,8 @@
 Owner of this file: the peakmetal sub-lead (native/). The CI team owns `native/packaging/` and `native/ci/`;
 peakmetal never writes there. Put questions and requests in "Open" at the end of this file.
 
-Status: **draft, being implemented** (12 Oct 2026). The final version is mirrored in `README.md` →
-"Running on macOS".
+Status: **implemented** (peakmetal 0.2.0, 12 Oct 2026). Mirrored in `README.md` → "Running on macOS", which
+also documents the `convert_summary.json` schema for the G-C0 gate.
 
 ## Entry point
 
@@ -44,9 +44,9 @@ only `spirv-cross`. No hard-coded install paths.
 
 ## Python and packages
 
-- Python: tested with **3.13** (this PC: 3.13.14). peakmetal itself parses as 3.8; UnityPy 1.25.4 needs 3.9
-  (`functools.cache`); the pinned `lz4==4.4.5`, `pillow==12.3.0` and `fsspec==2026.9.0` need **3.10+**.
-  Recommendation: python-build-standalone **3.13.x**. (The test kit's G-C0 gate checks `>= 3.11`.)
+- Python: **minimum 3.10** (the floor of the pinned lz4 4.4.5 / Pillow 12.3.0 / fsspec 2026.9.0; peakmetal itself
+  parses as 3.8, UnityPy 1.25.4 needs 3.9 for `functools.cache`). Tested on 3.13.14 on this PC; the bundle's
+  **CPython 3.13.16 is fine**. `doctor` fails with exit 2 below 3.10. (The G-C0 gate's `>= 3.11` is stricter, harmless.)
 - pip set: **agreed with `packaging/requirements.lock`** (seven packages, `--no-deps`), the versions this PC's
   tests ran with. `import UnityPy` imports lz4, brotli, fsspec, attrs, PIL and tpk_ar eagerly, so all seven are
   required; UnityPy's other declared deps (texture2ddecoder, etcpak, astc-encoder-py, fmod_toolkit, archspec)
@@ -80,7 +80,26 @@ validated; a different version can change the emitted MSL.
 
 ## Open
 
-- (none yet)
+- (none)
+
+## Answers to the bundle team (peakmetal sub-lead, 12 Oct 2026)
+
+1. Layout: agreed. Both discovery paths are covered by `tests/test_portability.py` (env var, package `bin/`,
+   `$PEAKMETAL_BIN`, PATH, set-but-missing env var = error).
+2. `pm doctor` with no arguments: needs no data, network or Xcode; exits 0 when python >= 3.10, UnityPy + lz4
+   import and spirv-cross runs. It never searches PATH for `metal` on macOS. Verified here with `python -I -B
+   pm.py doctor` (also as a test, in a fresh interpreter). `--json FILE` writes `peakmetal.doctor/1` if you want
+   to archive it.
+3. Nothing is written inside the bundle: doctor's scratch is a `tempfile.TemporaryDirectory` under `TMPDIR`
+   (removed on exit); `convert` writes only under `--out`. `pm --help` exits 0.
+4. `peakmetal/` stays `.py`-only. New files in this change: `peakmetal/doctor.py`, `peakmetal/selftest.py`,
+   `peakmetal/compute/metalfix.py` (the synthetic self-test SPIR-V is assembled in Python, no data files).
+5. Ack: `peakmetal.__version__` is now **0.2.0**; bump `NT_VERSION` when you sync.
+
+Files to sync into the bundle (the whole tree is `.py`): `native/pm.py` and every `native/peakmetal/**/*.py`
+(28 files: `__init__ __main__ convert doctor golden inject repack selftest spirv tools translate validate`,
+`common/{__init__ binio blob params program shader smolv}`, `compute/{__init__ codec convert features metalblob
+metalfix spirv translate validate}`). Not `tests/`, not the READMEs.
 
 ## Requests from the bundle team
 

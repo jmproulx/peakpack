@@ -13,8 +13,9 @@ translated from their Vulkan SPIR-V (`targetRenderer` 21). It uses only the Pyth
 | `convert.py` | Per-shader conversion, UnityPy injection, the report, and the CLI |
 | `validate.py` | Offline `metal.exe` compile hook. Skips when the Metal Developer Tools are absent |
 | `features.py` | Game feature, fallback and priority for each shader |
+| `metalfix.py` | Metal-only behaviour Unity compiles into STP, recreated on the Vulkan-derived kernels |
 
-Run it:
+Run it (normally through `pm.py convert`, which converts graphics and compute in one pass; standalone:)
 
 ```
 tools\venv\Scripts\python.exe -I -c "import sys; sys.path.insert(0, r'native'); from peakmetal.compute import convert; sys.exit(convert.main())" <data.unity3d> --out tools\nativework\compute\out --validate
@@ -84,11 +85,41 @@ With Unity's own code blobs substituted, the encoded object is byte-identical to
   VFXFillIndirectArgs, VFXCopyBuffer, UpdateStrips), GenSdfRayMap, VrsTexture (only if the device reports VRS)
   and PEAK's LightVolume bakers (only on a rebake). GrassGeometryCompute is dead code in PEAK 2.6.b.
 
+## Metal-only shader code, recreated offline (`metalfix.py`)
+
+Unity's Mac build compiles some compute shaders with `SHADER_API_METAL` branches that the Vulkan build (our
+source) does not have. Sources: the URP/core and VFX Graph packages shipped with the 6000.3.15f1 editor.
+
+- **STP_BUG_SAT_INF: done.** `StpCommon.hlsl` defines it on Metal because fast-math (Metal's default) has no
+  INF. Without it, STP computes `StpGtZero(x) = saturate(x * +INF)` and `StpSigned(x) = saturate(x * -INF)`.
+  With it, they become `(x > 0) ? 1 : 0` and `(x < 0) ? 1 : 0`. `fix_sat_inf` rewrites exactly the multiply by a
+  literal ±INF whose only use is a `[0, 1]` clamp. It handles both MSL shapes: the HLSLcc-style statement pair
+  in the 32-bit variants, and the inline `fast::clamp(e * as_type<float>(0xff800000u), 0.0, 1.0)` in the 16-bit
+  ones. In PEAK it fires only in StpSetup: 32 of 32 variants, one site each. No ±INF literal remains. Every
+  rewritten kernel compiles. It runs on every kernel; nothing else matches.
+- **STP_FORCE_32BIT_REDUCTION: done, by picking an existing kernel.** On desktop Metal, StpSetup keeps a
+  32-bit reduction even in its 16-bit build. The Vulkan build has no such kernel. `force_32bit` therefore
+  points each keyword set that contains `UNITY_DEVICE_SUPPORTS_NATIVE_16BIT` at the 32-bit kernel of the same
+  set (the `STP_32BIT` variant). That variant is full precision throughout, so it also has the 32-bit
+  reduction. This applies to StpSetup, StpPreTaa and StpTaa, 32 keyword sets in all. It also keeps the half-precision
+  ±INF constants (`STP_INFP_H`) off the Mac. The cost is that STP runs at fp32 on Apple GPUs. The unused
+  16-bit kernels stay in the data, so the indices are stable.
+- **VFX Sort, USE_ALTERNATE_BITONIC_NETWORK: not fixable offline; needs the Mac.** `Sort.compute` enables a
+  different bitonic network on Metal, because "BitonicSort128 doesn't behave as expected, actual cause isn't
+  identified yet". The alternate network changes the algorithm: when `subStep == step`, it adds
+  `index1 += step - 2*lsb - 1` and sets `reverse = false`. The network is compiled out of every non-Metal
+  build. No PEAK kernel, variant or keyword contains it: the Vulkan `Sort` has 12 kernels, each with one
+  variant and no keywords. Recreating it means hand-rewriting the sort loop in 10 HLSLcc-shaped kernels, with
+  no golden output to check the result against. The underlying bug is unexplained and may be specific to
+  HLSLcc's Metal output, which we do not use. Both networks sort correctly in principle. So the action is a
+  G-C1 check: watch sorted transparent VFX for flicker or wrong order. `features.py` lists the fallback, which
+  is to disable sorting or the effect.
+- **Fast math:** MSL 2.1 has no per-file fast-math switch. SPIRV-Cross's `#pragma metal fp math_mode` needs
+  MSL 3.2, and Unity's runtime chooses `MTLCompileOptions`. With the STP rewrite above, the only kernels known
+  to depend on INF behave the same with fast math on or off.
+
 ## Risks to check on a Mac
 
-- Unity's Metal build compiles STP with `STP_FORCE_32BIT_REDUCTION` and `STP_BUG_SAT_INF`, and VFX Sort with
-  `USE_ALTERNATE_BITONIC_NETWORK` ("BitonicSort128 doesn't behave as expected" on Metal). Our kernels come
-  from the Vulkan build, which has none of these. If STP or particle sorting shows artifacts, look here first.
+- VFX particle sorting (`Sort` without Unity's alternate bitonic network on Metal; see above).
 - Nothing has been loaded by a real Mac player yet.
-- The Metal language version and fast-math setting of the player's runtime compile are not yet confirmed.
-  See `NOTES-compute-requests.md`.
+- The player's runtime fast-math setting is not confirmed offline (it no longer matters for STP).

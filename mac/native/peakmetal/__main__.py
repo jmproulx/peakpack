@@ -6,7 +6,9 @@
   golden    <file> [<file> ...]                 translate Unity's golden Vulkan programs, diff vs Unity's Metal
   convert   <data.unity3d|file> --out DIR [--mode loose|bundle|both] [--jobs N] [--no-compute] [--only NAME]
   validate  <msl dir> [--metal PATH] [--std macos-metal2.1] [--report FILE]
-Tool paths: --bin-dir or PEAKMETAL_BIN (smolv_decode, spirv-cross); --metal or PEAKMETAL_METAL.
+  doctor    [--data PEAK_Data|FILE] [--json FILE]   environment report + self-test (no game data needed)
+spirv-cross: --spirv-cross PATH, $PEAKMETAL_SPIRV_CROSS, $PEAKMETAL_BIN, <native>/bin, PATH.
+Exit codes: 0 ok, 1 internal error, 2 environment/usage error, 3 finished with fallbacks / self-test failed.
 """
 import argparse
 import collections
@@ -108,7 +110,7 @@ def cmd_translate(a):
     from . import inject, tools, translate
     env = _load(a.file)
     os.makedirs(a.out, exist_ok=True)
-    tc = tools.Toolchain(bin_dir=a.bin_dir, scratch=os.path.join(a.out, "tmp"))
+    tc = tools.Toolchain(bin_dir=a.bin_dir, scratch=os.path.join(a.out, "tmp"), spirv_cross=a.spirv_cross)
     for obj, tt in _shaders(env, a.shader):
         plats = S.load_platforms(tt)
         res = inject.translate_shader(tt, plats, tc, translate.Options(msl_version=a.msl_version))
@@ -128,7 +130,7 @@ def cmd_translate(a):
 def cmd_golden(a):
     from .common import shader as S
     from . import golden, tools, translate
-    tc = tools.Toolchain(bin_dir=a.bin_dir)
+    tc = tools.Toolchain(bin_dir=a.bin_dir, spirv_cross=a.spirv_cross)
     rows = []
     for f in a.files:
         env = _load(f)
@@ -147,8 +149,17 @@ def cmd_golden(a):
 
 def cmd_convert(a):
     from . import convert
-    convert.convert(a.file, a.out, mode=a.mode, jobs=a.jobs, bin_dir=a.bin_dir, msl_version=a.msl_version,
-                    only=a.only, compute=not a.no_compute, packer=a.packer)
+    s = convert.convert(a.file, a.out, mode=a.mode, jobs=a.jobs, bin_dir=a.bin_dir, msl_version=a.msl_version,
+                        only=a.only, compute=not a.no_compute, packer=a.packer, spirv_cross=a.spirv_cross)
+    return s["exit_code"]
+
+
+def cmd_doctor(a):
+    import tempfile
+    from . import doctor
+    with tempfile.TemporaryDirectory(prefix="peakmetal_doctor_") as td:
+        a.scratch = td
+        return doctor.run(a)
 
 
 def cmd_validate(a):
@@ -166,6 +177,7 @@ def main(argv=None):
     def common(p, tools_=True):
         if tools_:
             p.add_argument("--bin-dir")
+            p.add_argument("--spirv-cross")
             p.add_argument("--msl-version", type=int, default=20100)
         return p
 
@@ -202,10 +214,27 @@ def main(argv=None):
     p.add_argument("--jobs", type=int)
     p.add_argument("--report")
     p.set_defaults(fn=cmd_validate)
+    p = sub.add_parser("doctor", help="environment report + self-test (no game data needed)")
+    p.add_argument("--data", help="PEAK_Data folder or a serialized file: also test on Unity's own shaders")
+    p.add_argument("--shader")
+    p.add_argument("--json", help="write the report as JSON")
+    p.add_argument("--spirv-cross")
+    p.add_argument("--bin-dir")
+    p.add_argument("--metal")
+    p.set_defaults(fn=cmd_doctor)
     a = ap.parse_args(argv)
     t0 = time.time()
-    rc = a.fn(a) or 0
-    print(f"[{a.cmd} done in {time.time() - t0:.0f}s]", file=sys.stderr)
+    from .convert import UsageError
+    from .tools import ToolError
+    try:
+        rc = a.fn(a) or 0
+    except (UsageError, ToolError, FileNotFoundError) as ex:
+        print(f"peakmetal {a.cmd}: error: {ex}", file=sys.stderr)
+        rc = 2
+    except ImportError as ex:
+        print(f"peakmetal {a.cmd}: missing Python package: {ex}", file=sys.stderr)
+        rc = 2
+    print(f"[{a.cmd} done in {time.time() - t0:.0f}s, exit {rc}]", file=sys.stderr)
     return rc
 
 

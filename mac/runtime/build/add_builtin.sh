@@ -19,7 +19,7 @@ for f in "$@"; do
   name="$(basename "$f")"
   case "$name" in
     *.so)
-      file -b "$f" | grep -q 'Mach-O 64-bit.*x86_64' || die "$name is not an x86_64 Mach-O"
+      grep -q 'Mach-O 64-bit.*x86_64' <<<"$(file -b "$f")" || die "$name is not an x86_64 Mach-O"
       if codesign -dv "$f" >/dev/null 2>&1; then die "$name is code-signed; Wine unixlibs must stay unsigned"; fi
       dest="lib/wine/x86_64-unix/$name" ;;
     *.dll|*.exe|*.drv|*.sys)

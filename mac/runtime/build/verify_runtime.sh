@@ -10,6 +10,9 @@ set -euo pipefail
 R="${1:?usage: $0 <runtime_dir> [--smoke]}"
 smoke="${2:-}"
 fail=0
+# Never pipe a producer straight into "grep -q": with pipefail, grep exits at the first match, the producer
+# dies of SIGPIPE and the pipeline "fails" (CI run 38331541292: "strings: failed to flush output", then
+# WINEMSYNC reported missing). Search a fully captured output instead: grep -q PAT <<<"$(cmd)".
 ok()   { printf 'PASS %s\n' "$*"; }
 bad()  { printf 'FAIL %s\n' "$*"; fail=1; }
 
@@ -18,10 +21,10 @@ bad()  { printf 'FAIL %s\n' "$*"; fail=1; }
 # 1. Every Mach-O is x86_64 and free of build/brew paths.
 n=0
 while IFS= read -r f; do
-  file -b "$f" | grep -q Mach-O || continue
+  grep -q Mach-O <<<"$(file -b "$f" 2>/dev/null)" || continue
   n=$((n+1))
   lipo "$f" -verify_arch x86_64 2>/dev/null || bad "not x86_64: $f"
-  if otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -Eq '^(/usr/local/|/opt/homebrew/|/opt/local/|/Users/)'; then
+  if grep -Eq '^(/usr/local/|/opt/homebrew/|/opt/local/|/Users/)' <<<"$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}')"; then
     bad "absolute non-system load path in $f"
   fi
 done <<EOF
@@ -34,7 +37,7 @@ signed="$(find "$R/lib/wine/x86_64-unix" -name '*.so' -exec sh -c 'codesign -dv 
 [ -z "$signed" ] && ok "unixlibs unsigned" || bad "signed unixlibs: $signed"
 
 # 3. DXMT prerequisites.
-nm -gU "$R/lib/wine/x86_64-unix/winemac.so" | grep -q ' _macdrv_functions$' && ok "winemac.so exports macdrv_functions" || bad "macdrv_functions not exported"
+grep -q ' _macdrv_functions$' <<<"$(nm -gU "$R/lib/wine/x86_64-unix/winemac.so" 2>/dev/null)" && ok "winemac.so exports macdrv_functions" || bad "macdrv_functions not exported"
 [ -f "$R/lib/wine/x86_64-unix/winemetal.so" ] && [ -f "$R/lib/wine/x86_64-windows/winemetal.dll" ] && ok "winemetal present" || bad "winemetal missing"
 for f in d3d11.dll dxgi.dll d3d10core.dll; do
   [ -f "$R/lib/peakpack/dxmt/x86_64-windows/$f" ] || bad "dxmt/$f missing"
@@ -51,8 +54,8 @@ else
 fi
 
 # 4. msync, inotify, sonames.
-strings "$R/lib/wine/x86_64-unix/ntdll.so" | grep -q WINEMSYNC && ok "msync compiled in" || bad "WINEMSYNC not found in ntdll.so"
-otool -L "$R/bin/wineserver" | grep -q 'libinotify' && ok "wineserver links libinotify (file change notifications)" || bad "wineserver lacks inotify"
+grep -a -q WINEMSYNC "$R/lib/wine/x86_64-unix/ntdll.so" && ok "msync compiled in" || bad "WINEMSYNC not found in ntdll.so"
+grep -q 'libinotify' <<<"$(otool -L "$R/bin/wineserver" 2>/dev/null)" && ok "wineserver links libinotify (file change notifications)" || bad "wineserver lacks inotify"
 for so in libfreetype.6.dylib libgnutls.30.dylib libMoltenVK.dylib; do
   [ -e "$R/lib/$so" ] && ok "bundled $so" || bad "missing lib/$so (Wine dlopens this exact name)"
 done
@@ -82,8 +85,8 @@ if [ "$smoke" = --smoke ]; then
     out="$("$R/bin/wine" cmd /c ver 2>/dev/null | tr -d '\r' || true)"
     case "$out" in *Windows*) ok "cmd /c ver: $(printf '%s' "$out" | tail -n 1)" ;; *) bad "cmd /c ver failed" ;; esac
     q="$("$R/bin/wine" reg query 'HKCU\Software\Wine\AppDefaults\PEAK.exe\DllOverrides' 2>/dev/null | tr -d '\r' || true)"
-    printf '%s' "$q" | grep -q 'winhttp.*native,builtin' && ok "PEAK.exe winhttp override" || bad "PEAK.exe winhttp override missing"
-    printf '%s' "$q" | grep -q 'd3d11.*native,builtin' && ok "PEAK.exe DXMT overrides" || bad "PEAK.exe d3d11 override missing"
+    grep -q 'winhttp.*native,builtin' <<<"$q" && ok "PEAK.exe winhttp override" || bad "PEAK.exe winhttp override missing"
+    grep -q 'd3d11.*native,builtin' <<<"$q" && ok "PEAK.exe DXMT overrides" || bad "PEAK.exe d3d11 override missing"
     cmp -s "$R/lib/peakpack/dxmt/x86_64-windows/d3d11.dll" "$tmp/prefix/drive_c/windows/system32/d3d11.dll" \
       && ok "DXMT d3d11.dll in system32" || bad "system32/d3d11.dll is not DXMT's"
     "$R/bin/wineserver" -k 2>/dev/null || true

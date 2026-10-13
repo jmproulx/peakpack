@@ -82,7 +82,7 @@ def run(args):
     from . import tools
     tc = None
     try:
-        tc = tools.Toolchain(spirv_cross=args.spirv_cross, bin_dir=args.bin_dir)
+        tc = tools.Toolchain(spirv_cross=args.spirv_cross, bin_dir=args.bin_dir, scratch=getattr(args, "scratch", None))
         rep.set("spirv-cross", f"{tc.spirv_cross} (found by {tc.spirv_cross_found_by})")
         rep.set("spirv-cross --revision", tools.spirv_cross_revision(tc.spirv_cross) or "?")
         rep.set("smol-v decoder", tc.smolv_backend)
@@ -147,8 +147,9 @@ def _data_checks(rep, tc, args, UnityPy):
             G.decode_metal(back[G.PLATFORM_METAL].program(i).data).entry == "xlatMtlMain"
             for i in back[G.PLATFORM_METAL].program_idx)
         n_sh += 1
-        n_ok += report.status in ("ok", "empty") and metal_ok
-        if report.status not in ("ok", "empty") or not metal_ok:
+        good = metal_ok and not report.errors and (report.ok > 0 or report.programs == 0)   # unsupported = by design
+        n_ok += good
+        if not good:
             rep.check(f"{name}: translate + inject Metal-only", False, f"{report.status} {report.errors}")
         if args.shader is None and n_sh >= 6:
             break

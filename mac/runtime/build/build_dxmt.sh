@@ -53,7 +53,7 @@ fi
 # DXMT's build-win64.txt names; putting it first in PATH selects clang, like DXMT's CI.
 export PATH="$lm/bin:$PATH"
 log "llvm-mingw for DXMT: $LLVM_MINGW_DXMT_VERSION"
-x86_64-w64-mingw32-gcc --version | grep -qi clang || die "x86_64-w64-mingw32-gcc is not llvm-mingw clang"
+grep -qi clang <<<"$(x86_64-w64-mingw32-gcc --version)" || die "x86_64-w64-mingw32-gcc is not llvm-mingw clang"
 
 # ---- DXMT -----------------------------------------------------------------------------
 src="$PP_BLD/dxmt-src"

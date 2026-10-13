@@ -29,11 +29,16 @@ jobs:
       - name: bash -n + shellcheck
         run: |
           set -euo pipefail
-          files="$(find mac/runtime mac/testkit -name '*.sh' 2>/dev/null)"   # includes mac/runtime/steam (R5) and the test kit
-          for f in $files; do bash -n "$f"; done
-          # ShellCheck comes preinstalled on the ubuntu runner image. Word splitting of $files is intended.
-          # shellcheck disable=SC2086
-          shellcheck -x -S warning $files
+          # Per folder: each folder's `source` directives are relative to it (run from the repo root, shellcheck
+          # cannot follow mac/testkit's lib and reports its variables as unused, SC2034).
+          for d in mac/runtime mac/testkit; do
+            [ -d "$d" ] || continue
+            files="$(cd "$d" && find . -name '*.sh')"   # mac/runtime includes steam/ (R5)
+            for f in $files; do bash -n "$d/$f"; done
+            # ShellCheck comes preinstalled on the ubuntu runner image. Word splitting of $files is intended.
+            # shellcheck disable=SC2086
+            (cd "$d" && shellcheck -x -S warning $files)
+          done
       - name: yamllint
         run: |
           pip3 install --user --break-system-packages yamllint==1.35.1

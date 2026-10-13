@@ -66,7 +66,7 @@ if [ -d "$PP_STAGE/steam" ]; then
   rm -f "$R/lib/wine/i386-windows/lsteamclient.dll"   # PEAK is 64-bit only; in-tree build also makes an i386 PE
   mkdir -p "$R/share/peakpack/steam"
   cp "$S"/share/peakpack/steam/* "$R/share/peakpack/steam/"
-  if find "$R" \( -name '*.cpp' -o -name '*.h' \) -ipath '*steam*' -print -quit | grep -q .; then
+  if [ -n "$(find "$R" \( -name '*.cpp' -o -name '*.h' \) -ipath '*steam*' -print -quit)" ]; then
     die "source files from the Steam bridge in the runtime"
   fi
 else
