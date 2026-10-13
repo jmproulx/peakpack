@@ -11,7 +11,7 @@
     "needs": [
       "Rosetta 2",
       "Mac Steam running under fleet (the kit never reads Steam login/config files)",
-      "Run INSIDE fleet's logged-in GUI (Aqua) session: `launchctl managername` must print Aqua. Start run_slot.sh from Terminal on the desktop, or from the remote shell via `open -a Terminal $JOB/run.command`, or `launchctl asuser $(id -u) /bin/bash -c '...'` if the hub may. From a plain remote shell (managername Background) every gate that opens a Wine/Unity window ends BLOCKED (exit 2)."
+      "Run INSIDE fleet's logged-in GUI (Aqua) session: the hub launches every PEAK slot from a LaunchAgent in gui/501 (verified 13 Oct: G-A1 passed in job slot1b-20261013-0439). `launchctl managername` must print Aqua; from a plain remote shell (Background) every gate that opens a Wine/Unity window ends BLOCKED (exit 2). The LaunchAgent context has no Screen Recording permission, so in-kit screenshots fail and are only logged (never a gate failure)."
     ]
   },
   "release": {
@@ -19,8 +19,8 @@
     "tag": "mac-build-runtime-pp1-cx26.3.0"
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.0.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.2.0/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.1.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.1/mac/testkit",
     "setup": "as slot1.job.json"
   },
   "time_budget_min": 120,

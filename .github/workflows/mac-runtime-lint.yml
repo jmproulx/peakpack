@@ -39,6 +39,8 @@ jobs:
             # shellcheck disable=SC2086
             (cd "$d" && shellcheck -x -S warning $files)
           done
+      - name: test kit's copy of verify_runtime.sh is identical
+        run: cmp mac/runtime/build/verify_runtime.sh mac/testkit/lib/verify_runtime.sh
       - name: yamllint
         run: |
           pip3 install --user --break-system-packages yamllint==1.35.1

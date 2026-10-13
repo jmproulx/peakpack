@@ -43,12 +43,19 @@ for f in lib/wine/x86_64-unix/lsteamclient.so lib/wine/x86_64-windows/lsteamclie
 done
 
 # ---- 2. static runtime checks (needs CLT: lipo/otool/nm/strings/python3)
-if clt_ok && [ -f "$RT/manifest.json" ] && [ -f "${PP_KIT_DIR}/../runtime/build/verify_runtime.sh" ]; then
-  if bash "$PP_KIT_DIR/../runtime/build/verify_runtime.sh" "$RT" > "$GLOG/verify_runtime.log" 2>&1; then crit verify_runtime pass "verify_runtime.sh (static)" "ALL PASS"
+# verify_runtime.sh: the kit's own copy (lib/, kept identical by CI lint), else the repo or runtime copy.
+vr=""
+for c in "$PP_KIT_DIR/lib/verify_runtime.sh" "$PP_KIT_DIR/../runtime/build/verify_runtime.sh" "$RT/share/peakpack/verify_runtime.sh"; do
+  [ -f "$c" ] && { vr=$c; break; }
+done
+if clt_ok && [ -f "$RT/manifest.json" ] && [ -n "$vr" ]; then
+  # CLT tools first on PATH (nm, codesign, python3); a LaunchAgent has a minimal PATH
+  if PATH="$(clt_dir)/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin" bash "$vr" "$RT" > "$GLOG/verify_runtime.log" 2>&1; then
+    crit verify_runtime pass "verify_runtime.sh (static)" "ALL PASS ($(rel_to_job "$vr"))"
   else crit verify_runtime fail "verify_runtime.sh (static)" "$(grep '^FAIL' "$GLOG/verify_runtime.log" | head -3 | tr '\n' ';')"; fi
 else
-  why=""; clt_ok || why="$why no-CLT"; [ -f "$RT/manifest.json" ] || why="$why no-runtime-manifest.json"
-  [ -f "${PP_KIT_DIR}/../runtime/build/verify_runtime.sh" ] || why="$why no-$(cd "$PP_KIT_DIR/.." && pwd)/runtime/build/verify_runtime.sh(kit-only-download)"
+  why=""; clt_ok || why="$why no-CLT(xcode-select -p: $(xcode-select -p 2>/dev/null || echo none))"
+  [ -f "$RT/manifest.json" ] || why="$why no-runtime-manifest.json"; [ -n "$vr" ] || why="$why no-verify_runtime.sh-in-kit"
   crit verify_runtime skip "verify_runtime.sh (static)" "skipped:$why (CI already ran it for this release)"
 fi
 

@@ -23,7 +23,7 @@ Checks that the PeakPack runtime downloads and matches the release's SHA256SUMS,
   - `PP_ASSUME_GUI=1` overrides the check, for diagnostics only.
 - github.com is reachable for SHA256SUMS and the release assets. `PP_ASSETS_DIR` can point to files already downloaded; they are still checked against SHA256SUMS.
 - P0 has passed. P0 expects at least 12 GB free (20 GB recommended).
-- Optional: Xcode Command Line Tools and the kit's `../runtime/build/verify_runtime.sh`. With both, the static runtime check runs. Without them it is skipped.
+- Optional: Xcode Command Line Tools. With them, the static runtime check runs with the kit's own copy, `lib/verify_runtime.sh`. CI lint keeps that copy identical to `mac/runtime/build/verify_runtime.sh`, so no repo checkout is needed. Without the CLT the check is skipped, and the skip names what is missing.
 - Optional: the `d3d11_clear.exe` probe, passed with `--probe` or found in one of the folders listed below.
 
 ## Command
@@ -46,7 +46,7 @@ bash testkit/run_gate.sh G-A1 --job-dir "$JOB" [-- <args>]
 4. Checks that the manifest and the Steam test kit are present. Missing items give a warning only.
 5. Runs `wine --version` and records it. Records the runtime size.
 6. Checks that six runtime files exist (the `rt_*` criteria).
-7. If the Xcode CLT, the runtime `manifest.json` and `verify_runtime.sh` are all present, runs `verify_runtime.sh`. Otherwise it skips and names the missing item. `kit-only-download` means only `testkit/` was unpacked; unpack all of `mac/` from the kit archive.
+7. If the Xcode CLT, the runtime `manifest.json` and `verify_runtime.sh` are all present, runs `verify_runtime.sh`. Otherwise it skips and names the missing item. `kit-only-download` means only `testkit/` was unpacked; the kit's own `lib/verify_runtime.sh` is used first.
 7b. Mac driver diagnostics, recorded before anything needs a window:
    - metrics `gui_session` (`launchctl managername`), `windowserver_running`, `console_user` and `run_user`;
    - with the CLT, every load command of `winemac.so` is resolved on this Mac (`winemac_links`; `logs/G-A1/winemac-links.txt`).
