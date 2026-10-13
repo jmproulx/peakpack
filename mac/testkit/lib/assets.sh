@@ -81,6 +81,19 @@ ensure_tests() {
     if [ ! -d "$JOB/steam-tests/$top" ]; then mkdir -p "$JOB/steam-tests"; tar -xJf "$DL/$name" -C "$JOB/steam-tests" || return 1; fi
     TESTS="$JOB/steam-tests/$top"
     version_set steam_tests "$top"
+    # The kit may carry newer test scripts and probe SOURCES than the release (kit-only fixes, e.g. the
+    # PEAK-style ticket call in kit 0.2.2): overlay them on a copy; prebuilt binaries stay the release's.
+    local ksrc="$PP_KIT_DIR/../runtime/steam/tests"
+    if [ "${PP_STEAM_TESTS:-kit}" != release ] && [ -d "$ksrc/mac" ] && [ -f "$ksrc/probe/steam_client_probe.c" ]; then
+      local merged="$JOB/steam-tests/$top+kit"
+      if [ ! -d "$merged" ]; then
+        cp -R "$TESTS" "$merged" || return 1
+        cp "$ksrc"/mac/*.sh "$merged/mac/" 2>/dev/null
+        cp "$ksrc"/probe/*.c "$ksrc"/probe/*.h "$merged/probe/" 2>/dev/null
+      fi
+      TESTS="$merged"
+      version_set steam_tests "$top + kit $PP_KIT_VERSION scripts/probe sources (PP_STEAM_TESTS=release to disable)"
+    fi
   elif [ -d "$PP_KIT_DIR/../runtime/steam/tests/mac" ]; then
     mkdir -p "$JOB/steam-tests/repo"
     cp -R "$PP_KIT_DIR/../runtime/steam/tests/mac" "$PP_KIT_DIR/../runtime/steam/tests/probe" "$JOB/steam-tests/repo/" 2>/dev/null

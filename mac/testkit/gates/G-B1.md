@@ -80,6 +80,16 @@ bash testkit/run_gate.sh G-B1 --job-dir "$JOB" -- --hold 90
 | `t1_appid` | App id 3527290 | `appid` equals the PEAK app id |
 | `t2_ticket` | Auth session ticket returned | `ticket_len` is above 0 |
 | `t2_ticket_cb` | `GetAuthSessionTicketResponse` is OK | `ticket_callback_result` is 1 (k_EResultOK) |
+
+Since kit 0.2.2 the probe requests the ticket exactly as PEAK does. PEAK's `SteamAuthTicketService` uses a 1024-byte buffer and a `SteamNetworkingIdentity` set to the player's own SteamID. The earlier probe passed NULL and got handle 0 on the iMac.
+
+Diagnosis metrics, not criteria:
+- `subscribed` and `subscribed_app`: `ISteamApps` `BIsSubscribed` and `BIsSubscribedApp(3527290)` as the client sees them.
+- `ticket_identity`.
+- `ticket_null_handle`, `ticket_null_len` and `ticket_null_callback_result`: the same call made with a NULL identity.
+- `callbacks_seen`.
+
+The kit overlays its own test scripts and probe sources on the release's Steam test kit. `PP_STEAM_TESTS=release` turns that off.
 | `playing_peak` | Mac Steam shows "Playing PEAK" during the hold (agent) | Agent answers ok. Agent answers fail gives fail. Any other result gives skip. |
 
 Status: any fail gives fail. A skip on `playing_peak` is recorded but is not a fail. Blocked (exit 2) when Rosetta 2 is missing, `steamclient.dylib` is missing, or no probe is available. Needs-human (exit 3) when Mac Steam is not running. Error (exit 4) when the prebuilt probe is not x86_64 or no probe log is written.

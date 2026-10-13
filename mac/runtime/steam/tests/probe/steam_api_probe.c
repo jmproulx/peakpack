@@ -38,7 +38,7 @@ typedef uint64_t (__cdecl *fn_user_steamid)(void *);
 typedef bool (__cdecl *fn_obj_bool)(void *);
 typedef const char *(__cdecl *fn_obj_str)(void *);
 typedef uint32_t (__cdecl *fn_obj_u32)(void *);
-typedef HAuthTicket (__cdecl *fn_ticket)(void *, void *, int, uint32_t *, const void *);
+typedef HAuthTicket (__cdecl *fn_ticket)(void *, void *, int, uint32_t *, const struct SteamNetworkingIdentity *);
 typedef void (__cdecl *fn_cancel)(void *, HAuthTicket);
 
 static HMODULE api;
@@ -135,10 +135,18 @@ int main(int argc, char **argv)
 
         if (want_ticket && run_frame && next_cb && free_cb)
         {
-            static unsigned char ticket[4096];
+            /* exactly like PEAK's SteamAuthTicketService: 1024-byte buffer, identity = own SteamID */
+            static unsigned char ticket[1024];
+            struct SteamNetworkingIdentity ident;
             uint32_t len = 0;
             int waited, result = -1;
-            HAuthTicket h = ((fn_ticket)sym("SteamAPI_ISteamUser_GetAuthSessionTicket"))(user, ticket, sizeof(ticket), &len, NULL);
+            HAuthTicket h;
+            memset(&ident, 0, sizeof(ident));
+            ident.type = STEAMNETWORKINGIDENTITY_TYPE_STEAMID;
+            ident.size = (int32_t)sizeof(uint64_t);
+            ident.u.steamid64 = id;
+            h = ((fn_ticket)sym("SteamAPI_ISteamUser_GetAuthSessionTicket"))(user, ticket, sizeof(ticket), &len, &ident);
+            printf("RESULT ticket_identity=steamid\n");
             printf("RESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
             for (waited = 0; h && result < 0 && waited < 15000; waited += 100)
             {

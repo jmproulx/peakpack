@@ -67,6 +67,7 @@ enum
     SC_GetISteamUser = 5,             /* void * (HSteamUser, HSteamPipe, const char *) */
     SC_GetISteamFriends = 8,          /* void * (HSteamUser, HSteamPipe, const char *) */
     SC_GetISteamUtils = 9,            /* void * (HSteamPipe, const char *) */
+    SC_GetISteamGenericInterface = 12, /* void * (HSteamUser, HSteamPipe, const char *) */
     SC_BShutdownIfAllPipesClosed = 23 /* bool () */
 };
 
@@ -77,8 +78,26 @@ enum
     SU_BLoggedOn = 1,                 /* bool () */
     SU_GetSteamID = 2,                /* CSteamID () */
     SU_GetAuthSessionTicket = 13,     /* HAuthTicket (void *, int, uint32 *, const SteamNetworkingIdentity *) */
+    SU_GetAuthTicketForWebApi = 14,   /* HAuthTicket (const char *identity) */
     SU_CancelAuthTicket = 17          /* void (HAuthTicket) */
 };
+
+/* SteamNetworkingIdentity (steamnetworkingtypes.h): type, size, 128-byte union = 136 bytes.
+ * PEAK (SteamAuthTicketService) passes one set to the player's own SteamID:
+ *   SteamNetworkingIdentity id = default; id.SetSteamID(SteamUser.GetSteamID());
+ *   SteamUser.GetAuthSessionTicket(buf[1024], 1024, out len, ref id); */
+#define STEAMNETWORKINGIDENTITY_TYPE_STEAMID 16
+struct SteamNetworkingIdentity
+{
+    int32_t type;                     /* ESteamNetworkingIdentityType */
+    int32_t size;                     /* bytes used in the union (8 for a SteamID) */
+    union { uint64_t steamid64; uint8_t raw[128]; } u;
+};
+_Static_assert(sizeof(struct SteamNetworkingIdentity) == 136, "SteamNetworkingIdentity is 136 bytes");
+
+/* ISteamApps, interface "STEAMAPPS_INTERFACE_VERSION008" (via GetISteamGenericInterface) */
+#define STEAMAPPS_VERSION "STEAMAPPS_INTERFACE_VERSION008"
+enum { SA_BIsSubscribed = 0, SA_BIsSubscribedApp = 6 }; /* bool (); bool (AppId_t) */
 
 /* ISteamFriends, interface "SteamFriends017" */
 #define STEAMFRIENDS_VERSION "SteamFriends017"

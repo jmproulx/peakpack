@@ -71,6 +71,13 @@ tl=$(r ticket_len)
 if [ -n "$tl" ] && [ "$tl" -gt 0 ] 2>/dev/null; then crit t2_ticket pass "auth session ticket returned" "$tl bytes"; else crit t2_ticket fail "auth session ticket returned" "ticket_len=$tl"; fi
 [ "$(r ticket_callback_result)" = 1 ] && crit t2_ticket_cb pass "GetAuthSessionTicketResponse = k_EResultOK" || crit t2_ticket_cb fail "GetAuthSessionTicketResponse = k_EResultOK" "result=$(r ticket_callback_result)"
 for e in Steam_IsKnownInterface Steam_NotifyMissingInterface; do metric "export_$e" "$(r "export_$e")"; done
+# Diagnosis (kit 0.2.2 probe): ownership as the client sees it, which identity the ticket used (PEAK's:
+# own SteamID), and the same call with a NULL identity (what the 0.2.1 probe did).
+for k in subscribed subscribed_app ticket_identity ticket_handle ticket_null_handle ticket_null_len ticket_null_callback_result; do
+  v=$(r "$k"); [ -n "$v" ] && metric "$k" "$v" str
+done
+[ "$(r subscribed_app)" = 0 ] && note "client says BIsSubscribedApp($PEAK_APPID)=0 for this account"
+grep -a -c '^callback ' "$probe_log" | { read -r n; metric callbacks_seen "${n:-0}"; }
 case $cu_rc in
   0) crit playing_peak pass "Mac Steam shows 'Playing PEAK' during the hold (agent)" "$CU_NOTE" ;;
   1) crit playing_peak fail "Mac Steam shows 'Playing PEAK' during the hold (agent; DESIGN §7 G-B1)" "agent saw no game: $CU_NOTE" ;;

@@ -19,8 +19,8 @@
     "tag": "mac-build-runtime-pp1-cx26.3.0"
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.1.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.2.1/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.2.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.2/mac/testkit",
     "setup": "as slot1.job.json"
   },
   "time_budget_min": 120,

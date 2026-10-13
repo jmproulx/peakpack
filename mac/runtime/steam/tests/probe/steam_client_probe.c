@@ -13,7 +13,10 @@
  *   -> GetISteamUser(SteamUser023): BLoggedOn, GetSteamID
  *   -> GetISteamFriends(SteamFriends017): GetPersonaName
  *   -> GetISteamUtils(SteamUtils010): GetAppID
- *   -> (T2) GetAuthSessionTicket + wait for GetAuthSessionTicketResponse_t, CancelAuthTicket
+ *   -> GetISteamGenericInterface(STEAMAPPS_INTERFACE_VERSION008): BIsSubscribed, BIsSubscribedApp (info)
+ *   -> (T2) GetAuthSessionTicket exactly like PEAK (1024-byte buffer, identity = own SteamID)
+ *      + wait for GetAuthSessionTicketResponse_t, CancelAuthTicket; then, for diagnosis only,
+ *      the same call with a NULL identity (RESULT ticket_null_*)
  *   -> optional --hold N seconds (pumping callbacks) so Mac Steam shows "Playing PEAK".
  * It uses the player's real login; nothing is spoofed and the Steam client
  * is not modified. Output lines starting with "RESULT " are parsed by the
@@ -61,7 +64,8 @@ typedef void *(*fn_get_iface_pipe)(void *, HSteamPipe, const char *);
 typedef bool (*fn_bool)(void *);
 typedef const char *(*fn_str)(void *);
 typedef uint32_t (*fn_u32)(void *);
-typedef HAuthTicket (*fn_ticket)(void *, void *, int, uint32_t *, const void *);
+typedef HAuthTicket (*fn_ticket)(void *, void *, int, uint32_t *, const struct SteamNetworkingIdentity *);
+typedef bool (*fn_bool_u32)(void *, uint32_t);
 typedef void (*fn_cancel)(void *, HAuthTicket);
 #ifdef _WIN32
 typedef uint64_t *(*fn_steamid)(void *, uint64_t *ret); /* MSVC ABI: hidden result pointer */
@@ -120,7 +124,7 @@ int main(int argc, char **argv)
     lib_t lib;
     pfn_CreateInterface p_CreateInterface;
     pfn_Steam_IsKnownInterface p_IsKnown;
-    void *client, *user_if, *friends_if, *utils_if;
+    void *client, *user_if, *friends_if, *utils_if, *apps_if;
     HSteamPipe pipe;
     HSteamUser user;
     uint64_t steamid = 0;
@@ -230,15 +234,29 @@ int main(int argc, char **argv)
            STEAMID_TYPE(steamid), STEAMID_INSTANCE(steamid));
     if (friends_if) printf("RESULT persona=%s\n", ((fn_str)VFUNC(friends_if, SF_GetPersonaName))(friends_if));
     if (utils_if) printf("RESULT appid=%u\n", ((fn_u32)VFUNC(utils_if, SU10_GetAppID))(utils_if));
+    apps_if = ((fn_get_iface_user)VFUNC(client, SC_GetISteamGenericInterface))(client, user, pipe, STEAMAPPS_VERSION);
+    printf("RESULT iface_apps=%d\n", !!apps_if);
+    if (apps_if)
+        printf("RESULT subscribed=%d\nRESULT subscribed_app=%d\n",
+               ((fn_bool)VFUNC(apps_if, SA_BIsSubscribed))(apps_if),
+               ((fn_bool_u32)VFUNC(apps_if, SA_BIsSubscribedApp))(apps_if, (uint32_t)strtoul(appid, NULL, 10)));
     if (!steamid) rc = 5;
 
     if (want_ticket)
     {
-        static unsigned char ticket[4096];
+        /* PEAK's call (SteamAuthTicketService): 1024-byte buffer, identity = the player's own SteamID */
+        static unsigned char ticket[1024];
+        struct SteamNetworkingIdentity ident;
         uint32_t len = 0;
         int result = -1, waited;
-        HAuthTicket h = ((fn_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, ticket, (int)sizeof(ticket), &len, NULL);
-        printf("RESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
+        HAuthTicket h;
+        for (waited = 0; waited < 1000; waited += 100) { pump(pipe, 0); sleep_ms(100); } /* let the client settle */
+        memset(&ident, 0, sizeof(ident));
+        ident.type = STEAMNETWORKINGIDENTITY_TYPE_STEAMID;
+        ident.size = (int32_t)sizeof(uint64_t);
+        ident.u.steamid64 = steamid;
+        h = ((fn_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, ticket, (int)sizeof(ticket), &len, &ident);
+        printf("RESULT ticket_identity=steamid\nRESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
         for (waited = 0; h && result < 0 && waited < 15000; waited += 100)
         {
             result = pump(pipe, h);
@@ -247,6 +265,22 @@ int main(int argc, char **argv)
         printf("RESULT ticket_callback_result=%d\n", result);
         if (!h || !len || result != 1) rc = rc ? rc : 6;
         if (h) ((fn_cancel)VFUNC(user_if, SU_CancelAuthTicket))(user_if, h);
+
+        /* Diagnosis only: the same call with a NULL identity (what the 0.2.1 probe did). */
+        {
+            HAuthTicket h2;
+            uint32_t len2 = 0;
+            int result2 = -1;
+            h2 = ((fn_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, ticket, (int)sizeof(ticket), &len2, NULL);
+            for (waited = 0; h2 && result2 < 0 && waited < 15000; waited += 100)
+            {
+                result2 = pump(pipe, h2);
+                if (result2 < 0) sleep_ms(100);
+            }
+            printf("RESULT ticket_null_handle=%u\nRESULT ticket_null_len=%u\nRESULT ticket_null_callback_result=%d\n",
+                   h2, len2, result2);
+            if (h2) ((fn_cancel)VFUNC(user_if, SU_CancelAuthTicket))(user_if, h2);
+        }
     }
 
     if (hold > 0)
