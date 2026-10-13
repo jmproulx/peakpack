@@ -47,6 +47,8 @@ pp_env() {
     export WINEDEBUG="-all"
     export DXMT_LOG_LEVEL=none DXMT_LOG_PATH=none
   fi
+  # Diagnostics override (CI smoke, support): PP_WINEDEBUG wins over the mode default.
+  if [ -n "${PP_WINEDEBUG:-}" ]; then export WINEDEBUG="$PP_WINEDEBUG"; fi
 
   export DXMT_CONFIG_FILE="$pfx/peakpack/dxmt.conf"
   if [ -n "${PP_DXMT_CONFIG:-}" ]; then export DXMT_CONFIG="$PP_DXMT_CONFIG"; else unset DXMT_CONFIG; fi

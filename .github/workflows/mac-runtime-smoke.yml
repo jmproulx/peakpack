@@ -73,19 +73,62 @@ jobs:
           # Use the checked-out (newer) prefix scripts, not the copy packed in the runtime.
           rm -rf "$R/share/peakpack/prefix" && cp -R mac/runtime/prefix "$R/share/peakpack/prefix"
           chmod +x "$R"/share/peakpack/prefix/*.sh
-      - name: verify_runtime --smoke (absolute runtime path)
-        continue-on-error: true
-        run: mac/runtime/build/verify_runtime.sh "$R" --smoke
-      - name: Diagnostic prefix creation with WINEDEBUG (absolute and relative paths)
+      - name: Static diagnostics (PE imports/builtin marker, Mach-O load commands)
         if: ${{ always() }}
         continue-on-error: true
         run: |
           set -uo pipefail
           mkdir -p logs
-          WINEDEBUG="$DBG" bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$R" "$RUNNER_TEMP/pfx-abs" > logs/create-abs.log 2>&1
+          {
+            echo "== pe_check"; python3 mac/runtime/build/pe_check.py "$R/lib/wine"; echo "pe_check exit $?"
+            echo "== bin"; ls -la "$R/bin"
+            echo "== lib/wine"; ls -la "$R/lib/wine"
+            echo "== x86_64-unix"; ls -la "$R/lib/wine/x86_64-unix"
+            echo "== i386-windows count"; ls "$R/lib/wine/i386-windows" | wc -l
+            for f in "$R/bin/wine" "$R/bin/wineserver" "$R/lib/wine/x86_64-unix/ntdll.so"; do
+              echo "== $f"; file "$f"; otool -L "$f"
+              otool -l "$f" | grep -A3 -E 'LC_RPATH|LC_SEGMENT_64' | grep -E 'cmd|path|segname|vmaddr|vmsize' | head -40
+              codesign -dv "$f" 2>&1 | head -5
+            done
+            echo "== kernel32 dos stub"; xxd -s 64 -l 32 "$R/lib/wine/x86_64-windows/kernel32.dll"
+          } > logs/static.log 2>&1
+          cat logs/static.log | head -150
+      - name: Raw Wine start (no PeakPack scripts) with WINEDEBUG
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 12
+        run: |
+          set -uo pipefail
+          mkdir -p logs
+          export WINEPREFIX="$RUNNER_TEMP/pfx-raw" WINEDEBUG="$DBG,+process" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }   # macOS has no timeout(1)
+          to 120 "$R/bin/wine" wineboot --init > logs/raw-wineboot.log 2>&1; echo "raw wineboot exit $?"
+          "$R/bin/wineserver" -k 2>/dev/null || true
+          WINEMSYNC=0 WINEESYNC=0 WINEPREFIX="$RUNNER_TEMP/pfx-raw-nosync" to 120 "$R/bin/wine" wineboot --init > logs/raw-wineboot-nosync.log 2>&1; echo "raw (no msync) exit $?"
+          WINEPREFIX="$RUNNER_TEMP/pfx-raw-nosync" "$R/bin/wineserver" -k 2>/dev/null || true
+          WINEDLLPATH="$R/lib/wine" WINEPREFIX="$RUNNER_TEMP/pfx-raw-dllpath" to 120 "$R/bin/wine" wineboot --init > logs/raw-wineboot-dllpath.log 2>&1; echo "raw (WINEDLLPATH) exit $?"
+          WINEPREFIX="$RUNNER_TEMP/pfx-raw-dllpath" "$R/bin/wineserver" -k 2>/dev/null || true
+          WINEPREFIX="$RUNNER_TEMP/pfx-raw-cmd" to 120 "$R/bin/wine" cmd /c ver > logs/raw-cmd.log 2>&1; echo "raw cmd exit $?"
+          WINEPREFIX="$RUNNER_TEMP/pfx-raw-cmd" "$R/bin/wineserver" -k 2>/dev/null || true
+          for l in logs/raw-*.log; do echo "== $l"; grep -v -E '^\s+VK_|Vulkan extensions are supported' "$l" | tail -n 60; done
+      - name: verify_runtime --smoke (absolute runtime path)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 8
+        run: mac/runtime/build/verify_runtime.sh "$R" --smoke
+      - name: Diagnostic prefix creation with WINEDEBUG (absolute and relative paths)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set -uo pipefail
+          mkdir -p logs
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          PP_WINEDEBUG="$DBG" to 180 bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$R" "$RUNNER_TEMP/pfx-abs" > logs/create-abs.log 2>&1
           echo "absolute: exit $?"
           rel="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1]))' "$R")"
-          WINEDEBUG="$DBG" bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$rel" "pfx-rel" > logs/create-rel.log 2>&1
+          "$R/bin/wineserver" -k 2>/dev/null || true
+          PP_WINEDEBUG="$DBG" to 180 bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$rel" "pfx-rel" > logs/create-rel.log 2>&1
           echo "relative ($rel): exit $?"
           "$R/bin/wineserver" -k 2>/dev/null || true
           tail -n 40 logs/create-abs.log
