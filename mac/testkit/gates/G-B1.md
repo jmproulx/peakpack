@@ -16,7 +16,7 @@ Loads Mac Steam's `steamclient.dylib` in an x86_64 probe under Rosetta 2. It che
 
 - Rosetta 2 installed (P0 detects it). Without it the gate is blocked (exit 2).
 - `steamclient.dylib` in the Steam client folder (H-STEAM bootstraps it). Without it the gate is blocked.
-- Mac Steam running and signed in (H-STEAM). If it is not running, the gate exits needs-human (exit 3).
+- Mac Steam running (only the `steam_osx` process is checked; no Steam login or config file is read). This gate's `BLoggedOn` is the proof of a signed-in account. If Steam is not running, the gate exits needs-human (exit 3).
 - One of these probe sources, or the gate is blocked:
   - Xcode CLT and the Steam test kit. The Steam team's `t1_t2_rosetta_probe.sh` builds the probe with clang.
   - A prebuilt `steam_client_probe-macos-x86_64` in the Steam test kit (`probe/`), or in the kit's `probes/out/` folder.
@@ -38,7 +38,7 @@ bash testkit/run_gate.sh G-B1 --job-dir "$JOB" -- --hold 90
 
 1. Starts the gate, checks that it runs on a Mac, and reads the arguments.
 2. Blocks if Rosetta 2 is missing or `steamclient.dylib` is missing.
-3. Exits needs-human if Mac Steam is not running. The message says to open Steam as `fleet`, make sure it is signed in (H-STEAM), then re-run G-B1.
+3. Exits needs-human if Mac Steam is not running. The hub may start it with `open -a Steam` and re-run G-B1.
 4. Ensures the Steam test kit is available. If it is not, it notes that and continues.
 5. Chooses a mode:
    - **Path A** (CLT and test kit): runs `t1_t2_rosetta_probe.sh` in the background with `--hold`. Logs go to `logs/G-B1/t1_t2/`, output to `t1_t2.out`.
@@ -117,7 +117,7 @@ Writes stay in the job dir.
 
 - Rosetta 2 missing: blocked. The hub or Joshua installs it with `softwareupdate --install-rosetta` (P0 message). This kit never installs it.
 - `steamclient.dylib` missing: blocked. Run H-STEAM first.
-- Mac Steam not running: needs-human. Open Steam as `fleet`, make sure it is signed in (H-STEAM), then re-run G-B1.
+- Mac Steam not running: needs-human. Run `open -a Steam` as `fleet`, then re-run G-B1. A sign-in window means Joshua is needed.
 - No CLT and no prebuilt probe: blocked. Either the hub installs the CLT (Joshua's call, see P0), or CI adds the prebuilt probe to `peakpack-steam-tests-*` (`NOTES-for-lead.md` R2). Both are named in the script message.
 - Prebuilt probe is not x86_64: error (exit 4).
 - No probe log: error (exit 4). Check `logs/G-B1/probe.log` or `t1_t2.out`.

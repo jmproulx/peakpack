@@ -31,7 +31,12 @@ jv() { awk -F'\t' -v p="$1" '$1 == p { v = $2 } END { printf "%s", v }' "$flat";
 case "$job_id" in ''|*'{'*|auto) job_id="$(jv slot | tr -cd 'A-Za-z0-9-')"; job_id="${job_id:-slot}-$(date +%Y%m%d-%H%M)" ;; esac
 [ -n "$release" ] || release=$(jv release.tag)
 [ -n "$job_dir" ] || job_dir="$HOME/peakpack-test/$job_id"
+mkdir -p "$job_dir" && job_dir=$(cd "$job_dir" && pwd -P) || { echo "run_slot: cannot create $job_dir" >&2; exit 4; }
+case "$job_dir" in /|"$(cd "$HOME" && pwd -P)") echo "run_slot: refusing job dir $job_dir" >&2; exit 4 ;; esac
 mkdir -p "$job_dir/cu" "$job_dir/results"
+[ -f "$job_dir/.peakpack-testkit-job" ] || printf 'job_id=%s\ncreated=%s\nkit=%s\n' "$(basename "$job_dir")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$KIT" > "$job_dir/.peakpack-testkit-job"
+gs=$(launchctl managername 2>/dev/null || echo unknown)
+[ "$gs" = Aqua ] || echo "run_slot: WARNING launchctl managername = $gs (not the logged-in GUI session): gates that open Wine windows (G-A1, G-B2, G-D2, G-A2-lite, G-C0) will be BLOCKED. Start run_slot inside the desktop session (Terminal, open -a Terminal <file>.command, or launchctl asuser)." >&2
 echo "run_slot: $(jv title) | job $job_id | dir $job_dir | release ${release:-default}"
 
 # early computer-use requests (pre-announced so the agent can start them now)

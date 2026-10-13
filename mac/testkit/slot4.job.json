@@ -7,15 +7,20 @@
   "machine": {
     "host": "M1 iMac",
     "macos_user": "fleet",
-    "screen": "ours for the slot"
+    "screen": "ours for the slot",
+    "needs": [
+      "Rosetta 2",
+      "Mac Steam running under fleet (the kit never reads Steam login/config files)",
+      "Run INSIDE fleet's logged-in GUI (Aqua) session: `launchctl managername` must print Aqua. Start run_slot.sh from Terminal on the desktop, or from the remote shell via `open -a Terminal $JOB/run.command`, or `launchctl asuser $(id -u) /bin/bash -c '...'` if the hub may. From a plain remote shell (managername Background) every gate that opens a Wine/Unity window ends BLOCKED (exit 2)."
+    ]
   },
   "release": {
     "repo": "jmproulx/peakpack",
     "tag": "mac-build-runtime-pp1-cx26.3.0"
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz",
-    "path_in_archive": "peakpack-mac-build-runtime-pp1-cx26.3.0/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.0.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.0/mac/testkit",
     "setup": "as slot1.job.json"
   },
   "time_budget_min": 120,
@@ -76,7 +81,7 @@
       "command": "bash testkit/run_gate.sh H-STEAM --job-dir $JOB",
       "args": "",
       "requires": [],
-      "needs_human": "only if signed out",
+      "needs_human": "only if Steam is not running and a sign-in window appears",
       "expected_min": 1,
       "timeout_min": 3
     },

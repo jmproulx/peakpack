@@ -5,7 +5,7 @@
   "title": "PeakPack for Mac - slot 3: cross-play with a friend, voice, microphone prompt (humans present)",
   "machine": {"host": "M1 iMac", "macos_user": "fleet", "screen": "ours for the slot; Joshua at the iMac for voice"},
   "release": {"repo": "jmproulx/peakpack", "tag": "mac-build-runtime-pp1-cx26.3.0"},
-  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz", "setup": "as slot1.job.json"},
+  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.0.tar.gz", "setup": "as slot1.job.json"},
   "time_budget_min": 150,
   "expected_machine_min": 110,
   "schedule_with": "Joshua (at the iMac) and the pilot friend (own Windows PC, own Steam account, PeakPack synced to the same pack revision) for about 45 min after the setup gates",
@@ -16,7 +16,7 @@
   "run_order": ["P0", "H-STEAM", "G-A1", "G-B5", "G-D2", "H-MIC", "G-X1"],
   "gates": [
     {"id": "P0", "args": "", "requires": [], "needs_human": false, "expected_min": 3},
-    {"id": "H-STEAM", "args": "", "requires": [], "needs_human": "only if signed out", "expected_min": 1},
+    {"id": "H-STEAM", "args": "", "requires": [], "needs_human": "only if Steam is not running and a sign-in window appears", "expected_min": 1},
     {"id": "G-A1", "args": "", "requires": ["P0"], "needs_human": false, "expected_min": 20},
     {"id": "G-B5", "args": "", "requires": ["H-STEAM"], "needs_human": false, "computer_use": ["download"], "expected_min": 30},
     {"id": "G-D2", "args": "", "requires": ["G-A1", "G-B5"], "needs_human": false, "computer_use": ["modded"], "expected_min": 20},

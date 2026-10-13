@@ -33,7 +33,7 @@ Joshua ideally does **one** thing: sign in to Mac Steam under `fleet` once (gate
 | Gate | Slot | What it shows | Needs a human | Machine time (timeout) |
 |---|---|---|---|---|
 | **P0** | 1 | Preflight. Reports macOS, arch, Rosetta, CLT, disk, Steam, screencapture and network. Never installs anything | no | 3 min (10) |
-| **H-STEAM** | 1 | Mac Steam is running and signed in | only if signed out (Joshua signs in once) | 1 min (3) |
+| **H-STEAM** | 1 | Mac Steam is running (never reads login/config files; G-B1 proves the login) | only if a sign-in window appears | 1 min (3) |
 | **G-B0** | 1 | T0: `steamclient.dylib` has an x86_64 slice and the exports lsteamclient needs | no | 1 min (5) |
 | **G-B1** | 1 | T1/T2: an x86_64 probe under Rosetta gets the SteamID, the logged-on state and an auth ticket. Mac Steam shows "Playing PEAK" | no | 3 min (10) |
 | **G-A1** | 1 | Runtime boots. Release assets verified; prefix in the job dir; wineboot, `cmd`, `reg`, `regedit`; D3D11 through DXMT | no | 20 min (45) |
@@ -53,10 +53,11 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-build-runtime-pp1-cx26.3.0/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.0.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.2.0/mac
 cd "$JOB/kit"
-bash testkit/run_slot.sh testkit/slot1.job.json --job-id slot1-20261013-0900 > "$JOB/run_slot-console.txt" 2>&1 &
+launchctl managername                     # must print Aqua (the logged-in desktop session), see below
+bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &
 bash testkit/cu.sh "$JOB" wait            # repeat: do the step in gates/<gate>.md, then answer it
 bash testkit/cu.sh "$JOB" done G-B5.download ok "complete" path="/Users/fleet/…/depot_3527291" manifest=123
 # when run_slot has finished:
@@ -124,7 +125,9 @@ Privacy: SteamIDs and persona names stay in `logs/`. The JSON only records that 
 
 ## Where things are written
 
-Everything goes under `~/peakpack-test/<job-id>/` (the job dir; `run_gate.sh` refuses any other location):
+**GUI session:** run the kit inside the logged-in desktop (Aqua) session: Terminal on the desktop, `open -a Terminal $JOB/run.command`, or `launchctl asuser`. From a remote shell, Wine cannot open windows, so G-A1, G-B2, G-D2, G-A2-lite, G-C0 and G-X1 end blocked (exit 2).
+
+Everything goes under the job dir. The default is `~/peakpack-test/<job-id>/`; any dedicated folder works with `--job-dir` (not `/` or `~`), and the kit writes its marker file there. `cleanup.sh` deletes only folders with the marker, inside `~/peakpack-test` unless `PP_ALLOW_ANY_JOB_DIR=1`:
 
 | Folder | Contents |
 |---|---|

@@ -88,23 +88,45 @@ python3_path() {
   for p in /opt/homebrew/bin/python3 /usr/local/bin/python3; do [ -x "$p" ] && { printf '%s' "$p"; return 0; }; done
   return 1
 }
+# macho_links_resolve FILE -> one line per load command: "ok DEP -> PATH" | "system DEP" (dyld shared
+# cache, not on disk) | "MISSING DEP"; returns 1 if any is missing. Needs the CLT (otool).
+macho_links_resolve() {
+  local f=$1 ot dir dep rp cand found bad=0 self rpaths
+  ot="$(clt_dir)/usr/bin/otool"; [ -x "$ot" ] || return 2
+  dir=$(cd "$(dirname "$f")" && pwd -P); self=$(basename "$f")
+  rpaths=$("$ot" -l "$f" | awk '/cmd LC_RPATH/{getline; getline; print $2}')
+  echo "file $f"; echo "rpaths: $(printf '%s ' $rpaths)"
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    [ "$(basename "$dep")" = "$self" ] && continue
+    case "$dep" in
+      /usr/lib/*|/System/*) echo "system $dep" ;;
+      @loader_path/*) cand="$dir/${dep#@loader_path/}"
+        if [ -e "$cand" ]; then echo "ok $dep -> $cand"; else echo "MISSING $dep ($cand)"; bad=1; fi ;;
+      @rpath/*) found=""
+        while IFS= read -r rp; do
+          [ -n "$rp" ] || continue
+          rp=${rp/@loader_path/$dir}; cand="$rp/${dep#@rpath/}"
+          [ -e "$cand" ] && { found=$cand; break; }
+        done <<EOF
+$rpaths
+EOF
+        if [ -n "$found" ]; then echo "ok $dep -> $found"; else echo "MISSING $dep (rpaths: $(printf '%s ' $rpaths))"; bad=1; fi ;;
+      *) if [ -e "$dep" ]; then echo "ok $dep"; else echo "MISSING $dep"; bad=1; fi ;;
+    esac
+  done <<EOF
+$("$ot" -L "$f" | tail -n +2 | awk '{print $1}')
+EOF
+  echo "--- otool -L"; "$ot" -L "$f"
+  return "$bad"
+}
 rosetta_ok() { [ -e /Library/Apple/usr/share/rosetta/rosetta ] && arch -x86_64 /usr/bin/true >/dev/null 2>&1; }
 steam_app_path() { for a in /Applications/Steam.app "$HOME/Applications/Steam.app"; do [ -d "$a" ] && { printf '%s' "$a"; return 0; }; done; return 1; }
 steam_running() { pgrep -x steam_osx >/dev/null 2>&1 || pgrep -f 'Steam.AppBundle/Steam/Contents/MacOS/steam_osx' >/dev/null 2>&1; }
-# steam_login_state -> "yes <source>" | "no <source>" | "unknown <why>" (best effort; G-B1 is the proof)
-steam_login_state() {
-  local reg="$STEAM_DATA/registry.vdf" lu="$STEAM_DATA/config/loginusers.vdf" au
-  if [ -f "$reg" ]; then
-    au=$(grep -m1 '"ActiveUser"' "$reg" 2>/dev/null | sed 's/.*"ActiveUser"[[:space:]]*"\([0-9]*\)".*/\1/')
-    if [ -n "$au" ] && [ "$au" != 0 ] && steam_running; then echo "yes registry.vdf:ActiveUser"; return; fi
-    if [ "$au" = 0 ] && steam_running; then echo "no registry.vdf:ActiveUser=0"; return; fi
-  fi
-  if [ -f "$lu" ] && awk 'BEGIN{IGNORECASE=1} /"MostRecent"[[:space:]]*"1"/ {m=1} /"(RememberPassword|AllowAutoLogin)"[[:space:]]*"1"/ {r=1} END {exit !(m && r)}' "$lu"; then
-    if steam_running; then echo "yes loginusers.vdf:remembered+running"; else echo "unknown remembered-login-but-steam-not-running"; fi
-    return
-  fi
-  echo "unknown no-registry-or-loginusers-evidence"
-}
+# Steam's login/config files (registry.vdf, config/loginusers.vdf, config/*) are NEVER read by this kit
+# (hub rule). "Steam running" = the steam_osx process; "signed in" is proven only by G-B1's probe
+# (ISteamUser::BLoggedOn through the running client's public API).
+# steam_client_version reads only the client package manifest (package/steam_client_osx.manifest).
 steam_client_version() {
   local m="$STEAM_DATA/package/steam_client_osx.manifest"
   [ -f "$m" ] && grep -m1 '"version"' "$m" | sed 's/[^0-9]//g'
@@ -175,6 +197,7 @@ gate_begin() {
   export PP_LOG_DIR="$GLOG/wine"
   trap 'gate_on_signal' TERM INT HUP
   log "== $GATE_ID: $GATE_TITLE (job $(basename "$JOB"), kit $PP_KIT_VERSION)"
+  metric launchd_session "$(gui_session)" str   # Aqua = logged-in GUI session; Background = remote shell
 }
 # Gate scripts set GATE_CLEANUP to a function name that stops what they started (Wine, samplers).
 gate_cleanup() { if [ -n "${GATE_CLEANUP:-}" ]; then local f=$GATE_CLEANUP; GATE_CLEANUP=""; "$f" || true; fi; }
@@ -266,6 +289,23 @@ gate_end() {
 gate_finish_as() {  # gate_finish_as STATUS REASON [HUMAN_INSTRUCTIONS]
   GATE_STATUS=$1; GATE_REASON=$2; GATE_HUMAN=${3:-}
   gate_end
+}
+# ---------------------------------------------------------------- GUI session (WindowServer access)
+# Wine's Mac driver (winemac.drv) needs the logged-in user's GUI (Aqua) session. A remote shell (SSH,
+# the hub's agent shell) is a "Background" session: windows cannot be created ("nodrv_CreateWindow:
+# The graphics driver is missing"), explorer fails, D3D11 devices fail.
+gui_session() { launchctl managername 2>/dev/null || echo unknown; }
+gui_session_ok() { [ "${PP_ASSUME_GUI:-0}" = 1 ] || [ "$(gui_session)" = Aqua ]; }
+GUI_HELP="Start the kit INSIDE the logged-in GUI session of this macOS user (launchctl managername must print Aqua), e.g.:
+ - Terminal on the desktop (computer use): cd \$JOB/kit && bash testkit/run_slot.sh ...
+ - from the remote shell: write the command into \$JOB/run.command, chmod +x it, then: open -a Terminal \$JOB/run.command
+ - or, if the hub may: launchctl asuser \$(id -u) /bin/bash -c 'cd \$JOB/kit && bash testkit/run_slot.sh ...'
+Check first: launchctl managername  (Aqua = OK; Background/StandardIO = remote shell). Override only for diagnostics: PP_ASSUME_GUI=1."
+gate_require_gui() {
+  local m; m=$(gui_session)
+  gui_session_ok && return 0
+  crit gui_session fail "running inside the logged-in GUI (Aqua) session" "launchctl managername = $m"
+  gate_finish_as blocked "no GUI session: launchctl managername is '$m', not Aqua. Wine's Mac driver cannot open windows from a remote shell; start run_slot/run_gate inside the logged-in desktop session" "$GUI_HELP"
 }
 gate_require_mac() {
   [ "$(uname -s)" = Darwin ] || gate_finish_as blocked "this gate runs on macOS only (uname: $(uname -s))"

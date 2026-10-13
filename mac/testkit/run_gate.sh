@@ -7,7 +7,8 @@
 #        bash run_gate.sh --list
 #
 #   <gate-id>      P0, H-STEAM, G-B0, G-B1, G-A1, G-B5, G-B2, G-D2, G-A2-lite, G-C0, G-A2-CX, H-MIC, G-X1
-#   --job-dir DIR  default: $PP_JOB_DIR, else ~/peakpack-test/<job-id>. Must be under ~/peakpack-test/.
+#   --job-dir DIR  default: $PP_JOB_DIR, else ~/peakpack-test/<job-id>. Any dedicated folder works (not /, ~ or
+#                  ~/peakpack-test itself; a non-empty folder needs the kit's marker). The marker is written.
 #   --job-id ID    default: $PP_JOB_ID, else "manual"
 #   --release TAG  runtime release (default: the job's, else mac-build-runtime-pp1-cx26.3.0)
 #   --assets-dir   folder where the hub already downloaded release assets (still SHA-256 verified)
@@ -61,9 +62,19 @@ case "$job_id" in *[!A-Za-z0-9._-]*|'') echo "run_gate: bad job id '$job_id' (le
 [ -n "$job_dir" ] || job_dir="$root/$job_id"
 mkdir -p "$job_dir" || { echo "run_gate: cannot create $job_dir" >&2; exit 4; }
 job_dir=$(cd "$job_dir" && pwd -P)
-root_real=$(mkdir -p "$root" && cd "$root" && pwd -P)
-if [ "${PP_ALLOW_ANY_JOB_DIR:-0}" != 1 ]; then
-  case "$job_dir/" in "$root_real"/?*/) ;; *) echo "run_gate: job dir must be inside $root (got $job_dir)" >&2; exit 4 ;; esac
+root_real=$( { [ -d "$root" ] && cd "$root" && pwd -P; } || printf %s "$root")   # no ~/peakpack-test created for jobs kept elsewhere
+# Any explicit job dir is accepted (the hub may keep jobs elsewhere, e.g. ~/projects/peak/<id>); only the
+# obviously wrong ones are refused. The marker file below is what cleanup.sh trusts before deleting.
+# (PP_ALLOW_ANY_JOB_DIR is no longer needed here; cleanup.sh still honours it for dirs outside ~/peakpack-test.)
+home_real=$(cd "$HOME" && pwd -P)
+case "$job_dir" in /|"$home_real"|"$root_real") echo "run_gate: refusing job dir $job_dir (use a dedicated folder per job)" >&2; exit 4 ;; esac
+if [ ! -f "$job_dir/.peakpack-testkit-job" ]; then
+  for e in "$job_dir"/* "$job_dir"/.[!.]*; do
+    [ -e "$e" ] || continue
+    case "$(basename "$e")" in kit|cu|results|run_slot-console.txt|run.command|.DS_Store) ;;
+      *) echo "run_gate: $job_dir is not empty and has no .peakpack-testkit-job marker; use a new folder per job" >&2; exit 4 ;;
+    esac
+  done
 fi
 [ -f "$job_dir/.peakpack-testkit-job" ] || printf 'job_id=%s\ncreated=%s\nkit=%s\n' "$(basename "$job_dir")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$KIT" > "$job_dir/.peakpack-testkit-job"
 mkdir -p "$job_dir"/{downloads,results,logs,evidence,state,cu,tmp}

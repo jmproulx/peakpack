@@ -14,6 +14,7 @@ set -u
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-B2 "Steam bridge in Wine (T3-T5)"
 gate_require_mac
+gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
 t5s=240
 while [ $# -gt 0 ]; do case "$1" in --t5-seconds) t5s=$2; shift 2 ;; *) shift ;; esac; done
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"

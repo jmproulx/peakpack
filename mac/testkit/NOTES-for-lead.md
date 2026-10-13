@@ -66,7 +66,7 @@ On the Mac, "native-style `d3d11.dll` and `winemetal.dll` loaded" proves that DX
 ## Known limits of the kit (by design)
 
 - **G-B0 without the CLT** checks the export *names* in the x86_64 slice. It does not parse the export trie. This is marked `method: fallback` in the result.
-- **H-STEAM's file-based login detection** (`registry.vdf` ActiveUser, `loginusers.vdf`) is unverified on macOS. If it is inconclusive, the agent looks at the Steam window. G-B1's `BLoggedOn` is the real proof.
+- **H-STEAM** (13 Oct, kit 0.2.0): no longer reads any Steam login or config file (hub rule). It checks only that `steam_osx` is running, with an optional screenshot by the agent (`--confirm-window`). G-B1's `BLoggedOn` is the login proof, and G-B1 no longer requires H-STEAM.
 - **G-A2-lite's fps** comes from the agent reading the Metal HUD every 30 s. That is coarse, and the lowest reading stands in for the 1 % low. "Memory pressure never red" uses `kern.memorystatus_vm_pressure_level` (4 = critical), sampled every 10 s.
 - **G-B5's exact comparison** needs a reference manifest for the same PEAK version. The shipped one is 2.6.b, build 25739797, made read-only with the Steam team's `depot_manifest.sh` on Joshua's install. After a PEAK update, regenerate it: `bash runtime/steam/tests/depot_manifest.sh 'D:/SteamLibrary/steamapps/common/PEAK' testkit/expect/peak-win-<version>-build<id>.manifest`.
 - **G-C0's assembly recipe is v0**: it uses the Windows Mono class libraries and the Mac `UnityEngine.*`. Track C owns refinements. Phase b follows the converter README: loose files, with no `data.unity3d`; `--bundle-variant` also tries the repacked archive.

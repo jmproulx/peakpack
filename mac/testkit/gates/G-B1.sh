@@ -17,8 +17,9 @@ hold=90; dir=$STEAM_MACOS_DIR
 while [ $# -gt 0 ]; do case "$1" in --hold) hold=$2; shift 2 ;; --steam-dir) dir=$2; shift 2 ;; *) shift ;; esac; done
 
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"
-[ -f "$dir/steamclient.dylib" ] || gate_finish_as blocked "no steamclient.dylib (Mac Steam not installed/bootstrapped; H-STEAM)"
-steam_running || gate_finish_as needs-human "Mac Steam is not running" "Open Steam under the fleet user and make sure it is signed in (H-STEAM), then re-run G-B1."
+[ -f "$dir/steamclient.dylib" ] || gate_finish_as blocked "no steamclient.dylib (Mac Steam not installed or never started once)"
+# Requires only a running Steam client (no login files are read); this gate's BLoggedOn is the login proof.
+steam_running || gate_finish_as needs-human "Mac Steam is not running (the hub may start it: open -a Steam, then re-run G-B1)" "Open Steam under the fleet user (sign in with Remember me if it asks), leave it running, then re-run G-B1."
 ensure_tests || note "no Steam test kit available (release asset peakpack-steam-tests-* or repo copy)"
 
 probe_log=""; mode=""

@@ -69,8 +69,10 @@ if [ -f "$STEAM_MACOS_DIR/steamclient.dylib" ]; then crit steam_boot info "Steam
 else crit steam_boot info "Steam client not bootstrapped yet (no steamclient.dylib)"; metric steam_bootstrapped false; fi
 cv=$(steam_client_version); [ -n "$cv" ] && { version_set steam_client "$cv"; metric steam_client_version "$cv" str; }
 if steam_running; then metric steam_running true; else metric steam_running false; fi
-ls_state=$(steam_login_state); metric steam_logged_in "${ls_state%% *}" str; metric steam_login_evidence "${ls_state#* }" str
-crit steam_login info "Mac Steam logged in (best effort; H-STEAM/G-B1 decide)" "$ls_state"
+# Steam login/config files are never read (hub rule); G-B1's BLoggedOn proves the login.
+gs=$(gui_session); metric gui_session "$gs" str
+if [ "$gs" = Aqua ]; then crit gui_session pass "running inside the logged-in GUI (Aqua) session" "$gs"
+else crit gui_session warn "running inside the logged-in GUI (Aqua) session" "launchctl managername = $gs: Wine windows (G-A1, G-B2, G-D2, G-A2-lite, G-C0) will be blocked; start the kit inside the desktop session"; fi
 
 # --- screen capture (the hub's tooling holds the screen-recording grant)
 if command -v screencapture >/dev/null 2>&1 && screencapture -x -t png "$GEVID/p0-screen.png" 2>/dev/null && [ -s "$GEVID/p0-screen.png" ]; then

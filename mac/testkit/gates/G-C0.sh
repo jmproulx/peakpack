@@ -29,6 +29,7 @@ set -u
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-C0 "Native smoke (Unity Mac player + PEAK data)"
 gate_require_mac
+gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
 UNITY_VER=6000.3.15f1
 UNITY_URL="https://download.unity3d.com/download_unity/c1aa84e375f6/MacEditorTargetInstaller/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"
 UNITY_PKG_BYTES=724929213

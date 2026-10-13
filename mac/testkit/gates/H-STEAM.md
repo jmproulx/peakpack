@@ -1,105 +1,73 @@
-# H-STEAM: Mac Steam signed in
+# H-STEAM: Mac Steam running
 
 | | |
 |---|---|
-| Slot | 1 |
-| Needs a human | only if Steam is not signed in (Joshua signs in once and ticks Remember me) |
-| Expected run time | 1 min (timeout 3 min) |
+| Slot | 1 (also 3 and 4) |
+| Needs a human | only if Steam is not running and a sign-in window appears when it is opened |
+| Expected run time | under 1 min (timeout 3 min) |
 | Requires | nothing |
-| Run by | `run_slot.sh` (slot 1), or by hand with `run_gate.sh` |
+| Run by | `run_slot.sh`, or by hand with `run_gate.sh` |
 
 ## Purpose
 
-Checks that Mac Steam is installed, running and signed in under the macOS user `fleet`. It reads Steam's login files first. If they do not confirm a login and Steam is running, it asks the hub's agent to look at the Steam window. It never starts, stops or changes Steam, and it never types credentials.
+Checks that Mac Steam is installed and its client process (`steam_osx`) is running under this macOS user.
 
-## Preconditions
+**This gate never opens or reads Steam's login or config files** (`registry.vdf`, `config/loginusers.vdf`, `config/*`). That is a hub rule. Whether an account is signed in is proven by G-B1: its probe calls `ISteamUser::BLoggedOn` through the running client's public API.
 
-- `Steam.app` in `/Applications` or `~/Applications`. Without it the gate is blocked (exit 2).
-- The kit is set up at `$JOB/kit`.
-- Runs as macOS user `fleet` on the iMac.
-- For the agent check: Steam is running and the hub's computer-use tools can see and control the screen.
-- On the first run, Joshua has signed in to Mac Steam once (human step, see below).
+The gate never starts, stops or changes Steam, and it never types credentials.
 
 ## Command
 
 ```sh
 cd "$JOB/kit"
-bash testkit/run_gate.sh H-STEAM --job-dir "$JOB"
+bash testkit/run_gate.sh H-STEAM --job-dir "$JOB" [-- --confirm-window]
 ```
 
-No arguments.
+`--confirm-window` (optional) asks the hub's agent for a screenshot of the Steam window.
 
 ## What the script does
 
-1. Starts the gate and checks that it runs on a Mac.
-2. Checks that `Steam.app` is in `/Applications` or `~/Applications` (`steam_app`). If not, the gate ends blocked (exit 2).
-3. Checks that `steamclient.dylib` exists in the Steam client folder (`steam_boot`, info).
-4. Checks whether `steam_osx` is running (`steam_running`, info).
-5. Reads the login state (`steam_login_state`). Records the first word as metric `login_state` and the rest as `login_evidence`. `steam_login` passes when the state starts with `yes`. Otherwise it is info.
-6. Records the Steam client version as `steam_client`, if readable.
-7. Takes a screenshot named `h-steam-screen` with the kit's snap helper.
-8. If a login is shown in the files, the gate ends pass.
-9. If Steam is running and no login is shown, requests the agent check `signed_in` (300 s timeout). An answer of ok passes the gate (`steam_login_cu`). Any other answer records info and continues.
-10. Otherwise the gate ends needs-human (exit 3) with the sign-in steps for Joshua in `human.instructions`. If the state starts with `unknown remembered`, the message says the hub may open Steam with `open -a Steam` and re-run the gate. Joshua is needed only if a sign-in window then appears.
+1. Checks that `Steam.app` is in `/Applications` or `~/Applications` (`steam_app`). If it is missing, the gate ends blocked (exit 2). Records the app's `CFBundleShortVersionString`.
+2. Checks that `steamclient.dylib` exists (`steam_boot`, info if missing). It checks existence only.
+3. Records the client version from `package/steam_client_osx.manifest` (the client package manifest, not a login or config file).
+4. Checks whether `steam_osx` is running (`steam_running`). If it is not, the gate ends needs-human (exit 3). The hub may run `open -a Steam` (no credentials), wait about 30 s and re-run the gate.
+5. Only with `--confirm-window`: requests computer-use step `steam_window` (300 s timeout).
+   - ok: the agent sees the Store or Library.
+   - fail: a sign-in window or Steam Guard prompt shows. The gate ends needs-human.
+   - No answer or skip: recorded as info.
 
-## Computer-use steps
+## Computer-use step (optional)
 
-### CU-signed_in
+### CU-steam_window
 
-- **When:** Steam is running and the files do not show a login. The request is written to `cu/H-STEAM.signed_in.request`. Use `bash testkit/cu.sh "$JOB" wait` to see it.
-- **Timeout:** 300 s.
-- **Actions** (run from `$JOB/kit`):
-  1. Click the Steam icon in the Dock to bring its window to the front.
-  2. Look at the window. A signed-in window shows the Store or Library, with the account name at the top right. A sign-in window or a Steam Guard prompt means not signed in.
-  3. Save a screenshot: `bash testkit/cu.sh "$JOB" shot H-STEAM steam-window` (saves `evidence/H-STEAM/steam-window.png`).
-  4. Type no credentials. Click nothing on any macOS prompt.
-- **Answer ok** (signed in):
-  `bash testkit/cu.sh "$JOB" done H-STEAM.signed_in ok "account signed in"`
-- **Answer fail** (sign-in window or Steam Guard prompt):
-  `bash testkit/cu.sh "$JOB" done H-STEAM.signed_in fail "sign-in window shown"`
+1. Click Steam's Dock icon.
+2. Take a screenshot: `bash testkit/cu.sh "$JOB" shot H-STEAM steam-window`.
+3. Answer with one of:
+   - `bash testkit/cu.sh "$JOB" done H-STEAM.steam_window ok "main window"`
+   - `... fail "sign-in window"`
+
+Type no credentials.
 
 ## Pass / fail criteria
 
 | Criterion id | Check | Pass when |
 |---|---|---|
-| `steam_app` | Steam.app installed | Found. Not found sets blocked (exit 2). |
+| `steam_app` | Steam.app installed | Found. Not found: blocked (exit 2). |
 | `steam_boot` | Client bootstrapped | `steamclient.dylib` exists. Info otherwise. |
-| `steam_running` | `steam_osx` running | Running. Info otherwise. |
-| `steam_login` | Account logged in (files) | Login state starts with `yes`. Info otherwise. |
-| `steam_login_cu` | Agent sees a signed-in window | The agent answers ok. Info otherwise. Written only when Steam runs and the files show no login. |
+| `steam_running` | `steam_osx` running | Running. Not running: needs-human (exit 3). |
+| `steam_window` | Agent sees the main window (optional) | The agent answers ok. A fail answer means needs-human. |
 
-Status: pass when the files show a login, or the agent answers ok. Blocked (exit 2) when `Steam.app` is missing. Needs-human (exit 3) when Steam is not signed in or not running. No criterion sets fail directly.
+## Paths outside the job dir (read-only)
 
-## Results and evidence
+- `Steam.app`: existence, plus `Info.plist` for the version.
+- `steamclient.dylib`: existence only.
+- `package/steam_client_osx.manifest`: version.
+- The process list.
 
-- `results/H-STEAM.json`: status, exit code, criteria, metrics, versions, computer-use record and the human instructions when needs-human.
-- Metrics: `login_state` (first word, for example `yes` or `unknown`), `login_evidence`.
-- Versions: `steam_client` (if readable).
-- Logs in `logs/H-STEAM/`: `console.log`.
-- Evidence in `evidence/H-STEAM/`: `h-steam-screen.png` (snap), `steam-window.png` (agent step, if run).
-- Computer-use files in `cu/`: `H-STEAM.signed_in.request` and `H-STEAM.signed_in.done`.
-
-## Copy back
-
-- `results/H-STEAM.json`
-- `logs/H-STEAM/`
-- `evidence/H-STEAM/`
-- The answer files `cu/H-STEAM.signed_in.*`
-
-## Paths outside the job dir
-
-Reads only. The gate does not start, stop or change Steam.
-
-- `/Applications/Steam.app` and `~/Applications/Steam.app`: existence and version.
-- The Mac Steam client folder: `steamclient.dylib` existence.
-- Steam's login files, `registry.vdf` and `loginusers.vdf`.
-- The running process list (`steam_osx`).
+Never read: `registry.vdf`, `config/loginusers.vdf`, `config/*`.
 
 ## If it fails or is blocked
 
-- `Steam.app` missing: blocked (exit 2). The hub installs Steam from store.steampowered.com/about. That install needs no sign-in. Re-run H-STEAM after it.
-- Not signed in: needs-human (exit 3). Relay the printed instructions to Joshua. He signs in with his own account, approves Steam Guard, ticks Remember me and leaves Steam running. Then re-run H-STEAM and continue with `run_slot.sh --from G-B0` (from `slot1.job.json`).
-- Remembered login but Steam not running: the hub may run `open -a Steam` and re-run H-STEAM. Joshua is needed only if a sign-in window appears.
-- The agent sees a sign-in window or a Steam Guard prompt (answer fail): needs-human. Do not type credentials. Joshua signs in.
-- No answer within 300 s: the script treats it as not confirmed, so the gate is needs-human.
+- `Steam.app` missing: the hub installs Steam (no sign-in is needed to install it).
+- Not running: run `open -a Steam` and re-run the gate. If a sign-in window appears, relay the printed instructions to Joshua: sign in with Remember me and leave Steam running.
 - Never quit Steam. Never click Allow on a macOS privacy prompt.

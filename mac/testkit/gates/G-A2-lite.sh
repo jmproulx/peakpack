@@ -18,6 +18,7 @@ set -u
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-A2-lite "PEAK performance, short run"
 gate_require_mac
+gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
 modded=0; minutes=2
 while [ $# -gt 0 ]; do case "$1" in --modded) modded=1; shift ;; --minutes) minutes=$2; shift 2 ;; *) shift ;; esac; done
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"

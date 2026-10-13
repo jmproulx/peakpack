@@ -11,7 +11,8 @@
     "screen": "ours for the whole slot (computer-use steps click in Steam and PEAK)",
     "needs": [
       "Rosetta 2 (hub: installed)",
-      "Mac Steam signed in under fleet with Remember me (hub: done)",
+      "Mac Steam running under fleet (signed in once with Remember me; the kit never reads Steam login/config files, G-B1's BLoggedOn proves the login)",
+      "Run INSIDE fleet's logged-in GUI (Aqua) session: `launchctl managername` must print Aqua. Start run_slot.sh from Terminal on the desktop, or from the remote shell via `open -a Terminal $JOB/run.command`, or `launchctl asuser $(id -u) /bin/bash -c '...'` if the hub may. From a plain remote shell (managername Background) every gate that opens a Wine/Unity window ends BLOCKED (exit 2).",
       "screen recording + input control for the hub's tooling (already granted)"
     ],
     "optional": [
@@ -42,10 +43,11 @@
     ]
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-build-runtime-pp1-cx26.3.0.tar.gz",
-    "path_in_archive": "peakpack-mac-build-runtime-pp1-cx26.3.0/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.0.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.0/mac/testkit",
+    "kit_tag_note": "kit-only git tag (no release); the runtime still comes from release.tag via --release",
     "standalone": "a tarball of mac/testkit works the same (it then takes the Steam test scripts from the release asset)",
-    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-build-runtime-pp1-cx26.3.0/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit, next to $JOB/kit/runtime; cleanup.sh removes it with the job dir)",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.2.0/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit, next to $JOB/kit/runtime; cleanup.sh removes it with the job dir)",
     "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
   },
   "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",
@@ -98,19 +100,19 @@
     },
     {
       "id": "H-STEAM",
-      "title": "Mac Steam signed in",
+      "title": "Mac Steam running (no login files read)",
       "doc": "testkit/gates/H-STEAM.md",
       "command": "bash testkit/run_gate.sh H-STEAM --job-dir $JOB",
       "args": "",
       "requires": [],
-      "needs_human": "only if Steam is not signed in (Joshua signs in once, ticks Remember me)",
+      "needs_human": "only if Steam is not running and a sign-in window appears when the hub opens it",
       "computer_use": [
-        "signed_in"
+        "steam_window (only with --confirm-window; optional screenshot)"
       ],
       "expected_min": 1,
       "timeout_min": 3,
-      "pass": "steam_osx running and an account signed in (files or the agent's look at the Steam window)",
-      "on_fail": "exit 3: relay the printed instructions to Joshua; after he signs in, re-run H-STEAM and continue with run_slot.sh --from G-B0"
+      "pass": "steam_osx running (Steam.app installed; client bootstrapped). Signed-in is proven by G-B1, not here",
+      "on_fail": "exit 3: the hub may run `open -a Steam` (no credentials), wait ~30 s and re-run H-STEAM; only a sign-in window needs Joshua"
     },
     {
       "id": "G-B0",
@@ -132,9 +134,7 @@
       "doc": "testkit/gates/G-B1.md",
       "command": "bash testkit/run_gate.sh G-B1 --job-dir $JOB -- --hold 90",
       "args": "--hold 90",
-      "requires": [
-        "H-STEAM"
-      ],
+      "requires": [],
       "needs_human": false,
       "computer_use": [
         "playing"

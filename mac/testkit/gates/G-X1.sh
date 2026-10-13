@@ -15,6 +15,7 @@ set -u
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-X1 "Cross-play Mac <-> Windows (human)"
 gate_require_mac
+gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
 INSTR="G-X1 cross-play session (about 45 min; needs two people):
  Before: G-D2 passed in this job (modded PEAK works on the Mac); the friend's Windows PC has PeakPack synced to the
  same pack revision (PeakPack shows the revision; the Mac's is in results/G-D2.json metrics.installed_revision).

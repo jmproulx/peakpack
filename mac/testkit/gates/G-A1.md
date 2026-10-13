@@ -15,6 +15,12 @@ Checks that the PeakPack runtime downloads and matches the release's SHA256SUMS,
 ## Preconditions
 
 - Rosetta 2 is installed. The kit never installs it. Without it the gate is blocked.
+- **The gate runs inside the logged-in GUI (Aqua) session of the macOS user.** `launchctl managername` must print `Aqua`. From a remote shell (`Background`), Wine's Mac driver cannot open windows: Wine logs "nodrv_CreateWindow: The graphics driver is missing", explorer fails and no D3D11 device can be made. The gate then ends **blocked (exit 2)** right after its diagnostics.
+  - Ways to start the kit inside the session:
+    - Terminal on the desktop.
+    - From the remote shell: write the command into `$JOB/run.command`, run `chmod +x` on it, then `open -a Terminal $JOB/run.command`.
+    - `launchctl asuser $(id -u) /bin/bash -c '...'`, if the hub may use it.
+  - `PP_ASSUME_GUI=1` overrides the check, for diagnostics only.
 - github.com is reachable for SHA256SUMS and the release assets. `PP_ASSETS_DIR` can point to files already downloaded; they are still checked against SHA256SUMS.
 - P0 has passed. P0 expects at least 12 GB free (20 GB recommended).
 - Optional: Xcode Command Line Tools and the kit's `../runtime/build/verify_runtime.sh`. With both, the static runtime check runs. Without them it is skipped.
@@ -40,9 +46,20 @@ bash testkit/run_gate.sh G-A1 --job-dir "$JOB" [-- <args>]
 4. Checks that the manifest and the Steam test kit are present. Missing items give a warning only.
 5. Runs `wine --version` and records it. Records the runtime size.
 6. Checks that six runtime files exist (the `rt_*` criteria).
-7. If the Xcode CLT, the runtime `manifest.json` and `verify_runtime.sh` are all present, runs `verify_runtime.sh`. Otherwise skips.
+7. If the Xcode CLT, the runtime `manifest.json` and `verify_runtime.sh` are all present, runs `verify_runtime.sh`. Otherwise it skips and names the missing item. `kit-only-download` means only `testkit/` was unpacked; unpack all of `mac/` from the kit archive.
+7b. Mac driver diagnostics, recorded before anything needs a window:
+   - metrics `gui_session` (`launchctl managername`), `windowserver_running`, `console_user` and `run_user`;
+   - with the CLT, every load command of `winemac.so` is resolved on this Mac (`winemac_links`; `logs/G-A1/winemac-links.txt`).
+   - Not in a GUI session: blocked (exit 2).
+   - Then `PP_WINEDEBUG=err+all,warn+module,warn+macdrv,+winediag,+loaddll` is set for the prefix boot and the probe.
 8. Creates the prefix in `$JOB/prefix` with the runtime's `pp-create-prefix.sh` (backend dxmt). Output goes to `logs/G-A1/create-prefix.log`. If this fails, the gate ends as fail.
 9. Checks the prefix: `system.reg` exists, the prefix stamp says backend dxmt, `system32\d3d11.dll` is the same file as the runtime's DXMT copy, and the user's Desktop, Documents and Downloads folders are real folders (not links to the Mac home). Records the prefix size.
+9b. Classifies the Mac driver in the boot log (`macdrv_boot`; excerpt in `logs/G-A1/macdrv-boot-excerpt.txt`):
+   - `ok`: `winemac.drv` loaded;
+   - `unixlib-load-failed`: `winemac.so` failed to load;
+   - `no-driver`: nodrv_CreateWindow, typically no GUI session;
+   - `not-loaded`.
+   The probe run is classified the same way (`macdrv_probe`, `macdrv-probe-excerpt.txt`).
 10. Runs `cmd /c ver`.
 11. Runs `reg query` on the PEAK.exe DllOverrides key and the Mac Driver key.
 12. Runs `regedit /E` on `HKCU\Software\Wine`, then checks the export contains the PEAK.exe AppDefaults. The export is copied to the logs and deleted from the prefix.
@@ -121,6 +138,9 @@ Overall status:
 
 ## If it fails or is blocked
 
+- Blocked, `gui_session`: started from a remote shell. Start the kit inside the desktop session (see Preconditions) and re-run.
+- Fail, `winemac_links` or `macdrv_boot = unixlib-load-failed`: `winemac.so` does not load on this macOS. This is a runtime bug. Send `winemac-links.txt` and `macdrv-boot-excerpt.txt` to the lead.
+- Fail, `macdrv_boot = no-driver` inside an Aqua session: send `macdrv-boot-excerpt.txt` and `create-prefix.log` to the lead.
 - Blocked, Rosetta 2 missing: the kit never installs it. Report it to the lead. Do not install it.
 - Blocked, SHA256SUMS not reachable: check the network to github.com and the release tag (`PP_RELEASE`, or the default in `common.sh`). Re-run.
 - Error, runtime tarball missing or SHA-256 mismatch: a bad file is renamed `.bad` in `$JOB/downloads`. Check `logs/G-A1/console.log`, then re-run.

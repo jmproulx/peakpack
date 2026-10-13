@@ -19,6 +19,7 @@ set -u
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-D2 "PeakPack modded and vanilla launch"
 gate_require_mac
+gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
 expect="$PP_KIT_DIR/expect/pack-plugins.txt"; sync_to=900; launch_to=300
 while [ $# -gt 0 ]; do
   case "$1" in --expect-plugins) expect=$2; shift 2 ;; --sync-timeout) sync_to=$2; shift 2 ;; --launch-timeout) launch_to=$2; shift 2 ;; *) shift ;; esac
