@@ -276,15 +276,46 @@ if [ "$phase" != a ]; then
   if [ -n "$converted" ]; then
     [ -d "$converted/Data" ] && out=$converted || crit b_converter fail "phase b: --converted has a Data/ folder" "$converted"
   elif [ ! -d "$out/Data" ]; then
+    # Preferred: the self-contained converter bundle (CI prerelease mac-build-native-tools-<ver>: CPython,
+    # hash-locked UnityPy/lz4, spirv-cross, our converter; no game data). Extracted into the job dir only.
+    nt_tag=${PP_NATIVE_TOOLS_TAG:-mac-build-native-tools-0.2.0}; nt_ver=${nt_tag#mac-build-native-tools-}
+    nt_name="peakpack-native-tools-$nt_ver-macos-arm64"; nt_base="https://github.com/$PP_REPO/releases/download/$nt_tag"
+    nt_dir="$JOB/native/tools/$nt_name"
+    if [ ! -x "$nt_dir/bin/pm" ]; then
+      mkdir -p "$JOB/native/tools"
+      if fetch_url "$nt_base/$nt_name.tar.xz" "$DL/$nt_name.tar.xz" && fetch_url "$nt_base/$nt_name.tar.xz.sha256" "$DL/$nt_name.tar.xz.sha256"; then
+        want=$(awk 'NR == 1 { print tolower($1) }' "$DL/$nt_name.tar.xz.sha256"); have=$(sha256_of "$DL/$nt_name.tar.xz")
+        if [ "$want" = "$have" ]; then tar -xJf "$DL/$nt_name.tar.xz" -C "$JOB/native/tools"
+        else crit b_tools_sha fail "phase b: converter bundle SHA-256" "got $have, release says $want"; fi
+      else note "converter bundle $nt_tag not downloadable; falling back to a local converter environment"; fi
+    fi
+    if [ -x "$nt_dir/bin/pm" ]; then
+      "$nt_dir/bin/pm" doctor > "$GLOG/pm-doctor.log" 2>&1; drc=$?; metric converter_doctor_exit "$drc"; metric converter_bundle "$nt_tag" str
+      if [ "$drc" = 0 ]; then crit b_tools pass "phase b: converter bundle $nt_ver present and pm doctor ok" "$(tail -1 "$GLOG/pm-doctor.log" | cut -c1-120)"
+      else crit b_tools fail "phase b: converter bundle pm doctor" "exit $drc (logs/G-C0/pm-doctor.log)"; fi
+    fi
     # detect the converter environment (never install)
     py=${PP_CONVERTER_PYTHON:-}; [ -n "$py" ] || py=$(python3_path 2>/dev/null)
     pm="$PP_KIT_DIR/../native/pm.py"
     why=""
+    if [ -x "$nt_dir/bin/pm" ] && [ "${drc:-1}" = 0 ]; then
+      log "converting PEAK's shaders on this Mac with the bundle (loose files; derived data stays in the job dir)"
+      t0=$(now_s)
+      "$nt_dir/bin/pm" convert "$GAME_DIR/PEAK_Data/data.unity3d" --out "$out" \
+          --mode "$( [ "$bundle_variant" = 1 ] && echo both || echo loose )" ${jobs:+--jobs "$jobs"} > "$GLOG/convert.log" 2>&1
+      rc=$?; metric convert_s "$(( $(now_s) - t0 ))"; metric convert_exit "$rc"
+      cp "$out/convert_report.txt" "$out/convert_summary.json" "$GLOG/" 2>/dev/null
+      # 0 = ok, 3 = finished with fallbacks listed in convert_summary.json (still usable)
+      if { [ "$rc" = 0 ] || [ "$rc" = 3 ]; } && [ -d "$out/Data" ]; then crit b_convert pass "phase b: converter produced loose Data files (bundle)" "exit $rc; $(tail -1 "$GLOG/convert.log" | cut -c1-160)"
+      else crit b_convert fail "phase b: converter produced loose Data files (bundle)" "exit $rc (logs/G-C0/convert.log)"; fi
+      why="__done__"
+    fi
+    if [ "$why" != "__done__" ]; then   # fallback: a local converter environment (no bundle)
     [ -f "$pm" ] || why="$why native/pm.py not next to the kit (repo layout mac/native);"
     if [ -z "$py" ] || [ ! -x "$py" ]; then why="$why no python3 (Xcode CLT or Homebrew; PP_CONVERTER_PYTHON);"
     else
       pyv=$("$py" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null); metric converter_python "$py $pyv" str
-      "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null || why="$why python $pyv < 3.11;"
+      "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null || why="$why python $pyv < 3.10;"
       "$py" -I -c 'import UnityPy, lz4' 2>/dev/null || why="$why UnityPy/lz4 not importable;"
     fi
     sc=${PEAKMETAL_SPIRV_CROSS:-}; [ -n "$sc" ] || { [ -n "${PEAKMETAL_BIN:-}" ] && sc="$PEAKMETAL_BIN/spirv-cross"; }; [ -n "$sc" ] || sc=$(command -v spirv-cross 2>/dev/null)
@@ -298,9 +329,10 @@ if [ "$phase" != a ]; then
           --mode "$( [ "$bundle_variant" = 1 ] && echo both || echo loose )" ${jobs:+--jobs "$jobs"} ) > "$GLOG/convert.log" 2>&1
       rc=$?; metric convert_s "$(( $(now_s) - t0 ))"; metric convert_exit "$rc"
       cp "$out/convert_report.txt" "$GLOG/" 2>/dev/null
-      if [ "$rc" = 0 ] && [ -d "$out/Data" ]; then crit b_convert pass "phase b: converter produced loose Data files" "$(tail -1 "$GLOG/convert.log" | cut -c1-200)"
+      if { [ "$rc" = 0 ] || [ "$rc" = 3 ]; } && [ -d "$out/Data" ]; then crit b_convert pass "phase b: converter produced loose Data files" "exit $rc; $(tail -1 "$GLOG/convert.log" | cut -c1-200)"
       else crit b_convert fail "phase b: converter produced loose Data files" "exit $rc (logs/G-C0/convert.log)"; fi
     fi
+    fi   # end fallback
   fi
   if [ -d "$out/Data" ]; then
     APP_B="$JOB/native/b-converted/PEAK.app"; mkdir -p "$(dirname "$APP_B")"
