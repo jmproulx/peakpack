@@ -51,6 +51,10 @@ case "$cmd" in
     g=${3:?gate}; n=${4:?name}
     case "$g$n" in *[!A-Za-z0-9._-]*) echo "bad gate/name" >&2; exit 2 ;; esac
     mkdir -p "$job/evidence/$g"
+    if [ "${PP_SCREENSHOTS:-0}" != 1 ]; then
+      # screencapture would raise macOS's Screen Recording prompt; the hub saves its own screenshot instead
+      echo "in-kit screenshots are off (PP_SCREENSHOTS=1 enables them): save your own screenshot as $job/evidence/$g/${n%.png}.png" ; exit 0
+    fi
     screencapture -x -t png "$job/evidence/$g/${n%.png}.png" && echo "saved evidence/$g/${n%.png}.png" ;;
   *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

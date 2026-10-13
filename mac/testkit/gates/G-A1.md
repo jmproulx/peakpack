@@ -73,7 +73,7 @@ bash testkit/run_gate.sh G-A1 --job-dir "$JOB" [-- <args>]
 
 None.
 
-The script takes its own screenshot, `evidence/G-A1/d3d11-probe-window.png`, about 8 s after the probe starts. This only happens when the probe runs. `PP_SNAP=0` turns screenshots off.
+Only with `PP_SCREENSHOTS=1` (off by default, because screencapture raises macOS's Screen Recording prompt): the script screenshots the probe window as `evidence/G-A1/d3d11-probe-window.png`, about 8 s after the probe starts.
 
 ## Pass / fail criteria
 

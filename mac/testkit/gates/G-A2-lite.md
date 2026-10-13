@@ -36,7 +36,7 @@ The job file runs it with `-- --minutes 2`.
 | `--modded` | off | Start PEAK through PeakPack.exe (`--headless --launch`) instead of starting PEAK.exe through the bridge launcher. The script header says G-D2 must come first. The script itself only checks that PeakPack.exe is available. |
 | `--minutes N` | 2 | Time to stay on the Shore. The FPS step timeout is N x 60 + 180 seconds. Other arguments are ignored. |
 
-No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself for the launch. Shared options from `lib/common.sh`: `PP_CU=none` answers every CU step "skip" at once, and `PP_SNAP=0` turns off the gate's own screenshot.
+No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself for the launch. Shared options from `lib/common.sh`: `PP_CU=none` answers every CU step "skip" at once, and the gate's own screenshot is taken only with `PP_SCREENSHOTS=1` (off by default: no Screen Recording prompt).
 
 ## What the script does
 

@@ -43,11 +43,11 @@
     ]
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.2.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.2.2/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.3.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.3/mac/testkit",
     "kit_tag_note": "kit-only git tag (no release); the runtime still comes from release.tag via --release",
     "standalone": "a tarball of mac/testkit works the same (it then takes the Steam test scripts from the release asset)",
-    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.2.2/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit, next to $JOB/kit/runtime; cleanup.sh removes it with the job dir)",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.2.3/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit, next to $JOB/kit/runtime; cleanup.sh removes it with the job dir)",
     "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
   },
   "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",

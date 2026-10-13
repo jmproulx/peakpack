@@ -312,8 +312,12 @@ gate_require_mac() {
 }
 
 # ---------------------------------------------------------------- screenshots (best effort)
-snap() {  # snap NAME -> evidence/<gate>/NAME.png
-  [ "${PP_SNAP:-1}" = 0 ] && return 0
+# In-kit screenshots are OFF by default: screencapture makes macOS ask for Screen Recording (TCC) for
+# whatever app launched the kit. Opt in with PP_SCREENSHOTS=1 (only where that grant already exists);
+# evidence screenshots are otherwise the hub's job (its own computer-use tooling).
+screenshots_on() { [ "${PP_SCREENSHOTS:-0}" = 1 ] && [ "${PP_SNAP:-1}" != 0 ]; }
+snap() {  # snap NAME -> evidence/<gate>/NAME.png   (no-op unless PP_SCREENSHOTS=1)
+  screenshots_on || return 0
   command -v screencapture >/dev/null 2>&1 || return 0
   screencapture -x -t png "$GEVID/$1.png" >/dev/null 2>&1 && log "screenshot: evidence/$GATE_ID/$1.png" || log "screenshot $1 failed (no screen recording permission?)"
   return 0

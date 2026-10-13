@@ -51,7 +51,9 @@ else
     [ -f "$console_log" ] || return 1
     tail -c +"$(( cl_off + 1 ))" "$console_log" 2>/dev/null | grep -a -q "Depot download complete"
   }
-  if [ "${PP_OPEN_CONSOLE:-1}" = 1 ] && [ ! -f "$CU_DIR/G-B5.download.done" ]; then
+  # steam://open/console only when the slot runs computer-use steps (the agent works in Steam anyway);
+  # never with --no-cu (PP_CU=none), so no Steam/macOS window or dialog appears unattended.
+  if [ "${PP_CU:-}" != none ] && [ "${PP_OPEN_CONSOLE:-1}" = 1 ] && [ ! -f "$CU_DIR/G-B5.download.done" ]; then
     open 'steam://open/console' >/dev/null 2>&1 && log "asked Steam to show its console (steam://open/console)"
     sleep 3
   fi

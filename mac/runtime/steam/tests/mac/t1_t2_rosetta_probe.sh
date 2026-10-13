@@ -39,7 +39,8 @@ clang -arch x86_64 -O1 -Wall -o "$probe" "$here/../probe/steam_client_probe.c" 2
 
 say "running probe under Rosetta; it holds the connection for $hold s"
 say ">>> While it runs, look at Mac Steam (friends list / your profile): it should show you playing PEAK."
-( sleep $(( hold / 2 + 5 )); screencapture -x "$LOGS/steam-while-probe.png" 2>/dev/null ) &
+# screencapture only on request (it raises macOS's Screen Recording prompt otherwise)
+if [ "${PP_SCREENSHOTS:-0}" = 1 ]; then ( sleep $(( hold / 2 + 5 )); screencapture -x "$LOGS/steam-while-probe.png" 2>/dev/null ) & fi
 STEAM_COMPAT_CLIENT_INSTALL_PATH="$dir" arch -x86_64 "$probe" --lib "$dir/steamclient.dylib" --hold "$hold" \
     > "$LOGS/probe.log" 2>&1
 rc=$?

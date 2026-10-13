@@ -76,3 +76,28 @@ On the Mac, "native-style `d3d11.dll` and `winemetal.dll` loaded" proves that DX
 - **R6** (PeakPack agent, FriendInstaller DESIGN §18.8): (a) pack releases since app 0.4.2 carry `PeakPack.exe.sha256`; `ensure_peakpack` now verifies against it (mismatch = fail; absent = recorded as unverified). (b) the combined `--headless --launch --launch-method direct --game-dir … --status-out …` command is supported. (c) the status file is camelCase only; the PascalCase fallback in G-D2 is removed. (d) PeakPack.exe has never run under real Wine; G-D2 is the first run (watch single-file extraction, schannel TLS, the ntdll lookup, the HKCU\Software\Wine write; fallback is a multi-file build).
 - **R7**: `expect/pack-plugins.txt` regenerated for pack revision 5 (adds `PeakPack MacPreset`) with `PeakPack.Cli expect-plugins --platform mac`.
 - **R1/R2, R4, R5, R8, R9, R12** done (CI probes, LF/exec rules, kit committed before any runtime tag, pp-backend via bash, hub model in DESIGN/TUNING, MacPreset frame-time log). **R3** (launcher hold-until-exit) and the **R10** converter bundle are backlog items.
+
+## macOS prompts (audit for kit 0.2.3, 13 Oct)
+
+**Removed, or opt-in only:**
+- **`screencapture`** raised the Screen Recording prompt. It was used by `snap()` (G-A1, G-A2-lite, G-B1, G-B2, G-C0, G-D2), P0's capability check, `cu.sh shot` and `t1_t2_rosetta_probe.sh`. It now runs only with `PP_SCREENSHOTS=1`. By default P0 records `screencapture=off`, and `cu.sh shot` tells the agent where to save its own screenshot.
+- **`open steam://open/console`** (G-B5) can bring Steam forward or show a confirmation. It now runs only when the slot runs computer-use steps, never with `--no-cu` (`PP_CU=none`).
+
+**Never in the kit:** osascript or AppleScript (Automation), Accessibility APIs, tccutil, `defaults write` to system or other apps' domains, sudo, softwareupdate, installer, `open` of any app or URL besides the G-B5 case above, and keychain access. `codesign -s -` is ad-hoc and does not use the keychain.
+
+**Run, with no prompt expected:**
+- curl downloads. curl sets no quarantine attribute, so there are no Gatekeeper dialogs.
+- Reading files: shasum, tar/xz, file, otool, nm, lipo, `pkgutil --check-signature`/`--expand-full`, `defaults read` of Steam.app's Info.plist, and plutil.
+- Querying the system: system_profiler SPDisplaysDataType, sysctl, vm_stat, memory_pressure, `launchctl managername`, pgrep/pkill, and caffeinate.
+- On the Unity player copy in the job dir (G-C0 only): `xattr -cr` and `codesign --force -s -`.
+- Reading `~/Library/Application Support/Steam`: steamclient.dylib existence, the package manifest, logs/console_log.txt and depot folders. These are not TCC-protected, and no login or config files are read.
+
+**Can still prompt, from the game or Wine rather than a kit command:**
+1. **Microphone.**
+   - **H-MIC:** by design it touches nothing and exits 3 unless `PP_HUMAN_PRESENT=1`.
+   - **PEAK (G-B2, G-D2, G-A2-lite, G-X1) and the native player (G-C0):** they may open the microphone when Photon Voice starts. macOS would then ask on behalf of the responsible process, which is the hub's LaunchAgent shell or Terminal.
+   - Whether PEAK opens it at the main menu or only in a room is unknown until G-B2 runs.
+   - Possible mitigation: disable Wine audio for those gates via the prefix registry (`Drivers\Audio=""`). That also mutes output, which slightly flatters the G-A2-lite fps. Not applied without a decision.
+2. **Local Network (macOS 15 and later):** possible if PEAK or EOS uses LAN discovery or multicast. It is attributed to the launching process.
+3. **Application Firewall "accept incoming connections":** only if the iMac's firewall is on and a Wine or Unity process listens on a port.
+4. **Files & Folders (Documents and so on):** unlikely. `pp-create-prefix.sh` replaces Wine's links to ~/Desktop, ~/Documents and ~/Downloads with real folders. During wineboot, Wine only checks that those folders exist (stat); it does not read their contents.

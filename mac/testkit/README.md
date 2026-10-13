@@ -53,8 +53,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.2.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.2.2/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.3.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.2.3/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &
@@ -124,6 +124,8 @@ Rules for the agent, in every gate:
 Privacy: SteamIDs and persona names stay in `logs/`. The JSON only records that they were valid (the last 4 digits of the SteamID).
 
 ## Where things are written
+
+**No macOS prompts by default:** the kit never runs `screencapture` unless `PP_SCREENSHOTS=1`, because it would raise the Screen Recording prompt. It opens `steam://open/console` only when computer-use steps run (not with `--no-cu`). Evidence screenshots are the hub's job. See NOTES-for-lead.md, "macOS prompts".
 
 **GUI session:** run the kit inside the logged-in desktop (Aqua) session: Terminal on the desktop, `open -a Terminal $JOB/run.command`, or `launchctl asuser`. From a remote shell, Wine cannot open windows, so G-A1, G-B2, G-D2, G-A2-lite, G-C0 and G-X1 end blocked (exit 2).
 

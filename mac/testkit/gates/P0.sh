@@ -74,8 +74,11 @@ gs=$(gui_session); metric gui_session "$gs" str
 if [ "$gs" = Aqua ]; then crit gui_session pass "running inside the logged-in GUI (Aqua) session" "$gs"
 else crit gui_session warn "running inside the logged-in GUI (Aqua) session" "launchctl managername = $gs: Wine windows (G-A1, G-B2, G-D2, G-A2-lite, G-C0) will be blocked; start the kit inside the desktop session"; fi
 
-# --- screen capture (the hub's tooling holds the screen-recording grant)
-if command -v screencapture >/dev/null 2>&1 && screencapture -x -t png "$GEVID/p0-screen.png" 2>/dev/null && [ -s "$GEVID/p0-screen.png" ]; then
+# --- screen capture: only with PP_SCREENSHOTS=1 (screencapture raises the Screen Recording prompt otherwise)
+if ! screenshots_on; then
+  crit screencapture info "in-kit screenshots" "off (default; PP_SCREENSHOTS=1 enables them; evidence screenshots are the hub's)"
+  metric screencapture off str
+elif command -v screencapture >/dev/null 2>&1 && screencapture -x -t png "$GEVID/p0-screen.png" 2>/dev/null && [ -s "$GEVID/p0-screen.png" ]; then
   crit screencapture pass "screencapture -x works" "$(file_size "$GEVID/p0-screen.png") bytes (if it shows only wallpaper, the grant is missing)"
   metric screencapture true
 else

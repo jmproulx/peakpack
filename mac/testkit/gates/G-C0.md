@@ -56,7 +56,7 @@ Environment variables read by the script:
 - `PP_CONVERTER_PYTHON`: the Python for `pm.py`. If unset, the gate uses the first python3 that `lib/common.sh` finds: the Command Line Tools python3, then `/opt/homebrew/bin/python3`, then `/usr/local/bin/python3`.
 - `PEAKMETAL_SPIRV_CROSS`: the path to the `spirv-cross` binary. It is also passed to `pm.py`.
 - `PEAKMETAL_BIN`: a folder that holds `spirv-cross`. Used only when `PEAKMETAL_SPIRV_CROSS` is unset. Otherwise the gate uses `spirv-cross` from PATH.
-- Shared options from `lib/common.sh`: `PP_CU=none` answers each CU step "skip" at once, and `PP_SNAP=0` turns off the screenshots.
+- Shared options from `lib/common.sh`: `PP_CU=none` answers each CU step "skip" at once, and the gate's own screenshots are taken only with `PP_SCREENSHOTS=1` (off by default: no Screen Recording prompt).
 
 ## What the script does
 
