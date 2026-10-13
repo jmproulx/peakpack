@@ -12,6 +12,16 @@
  * app installed/running, set SteamAppId/SteamGameId, start the game and wait.
  * No code was copied from Proton or from NotProton.
  *
+ * Ticket warm-up (0.2.0): before starting the game, the launcher asks the Mac
+ * Steam client (through the forwarder -> lsteamclient -> steamclient.dylib) for
+ * one auth session ticket exactly as PEAK does (1024-byte buffer, identity =
+ * the player's own SteamID), waits up to 3 s for GetAuthSessionTicketResponse,
+ * retries once if the first request returned nothing, then cancels it. PEAK's
+ * EOS login asks for its ticket once, right after SteamAPI init, and never
+ * retries; a cold client (app ownership ticket not ready yet, e.g. a friend's
+ * very first launch) would give it an empty ticket. Costs ~0.1 s when warm.
+ * The ticket bytes are never logged. --no-warmup turns it off.
+ *
  * It never touches the Steam client: the real Mac Steam client, logged in
  * with the player's own account, does every licence check through Valve's
  * own steamclient.dylib.
@@ -34,8 +44,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include "../../tests/probe/steam_abi_min.h"
 
-#define LAUNCHER_VERSION L"0.1.0"
+#define LAUNCHER_VERSION L"0.2.0"
 #define PEAK_APPID 3527290u
 #define DEFAULT_STEAM_DIR L"C:\\Program Files (x86)\\Steam"
 
@@ -67,6 +78,7 @@ struct options
     int keep_registry;
     int delete_test_root;
     int steam_dir_given;
+    int no_warmup;
     DWORD hold_ms;
     int game_index; /* index into argv of the game exe */
 };
@@ -120,6 +132,7 @@ static void usage(void)
     logmsg(L"  --no-launch               set up and clean up, but do not start the game");
     logmsg(L"  --hold-ms N               with --no-launch: stay alive N ms (stands in for the game)");
     logmsg(L"  --keep-registry           do not reset pid/Running at exit");
+    logmsg(L"  --no-warmup               skip the auth-ticket warm-up before the game starts");
     logmsg(L"A first argument starting with steam:// is accepted and ignored (exit 0).");
 }
 
@@ -419,6 +432,106 @@ static void cleanup_registry(void)
     }
 }
 
+/* ---------- auth-ticket warm-up ---------- */
+
+/* Win64 (MSVC ABI) views of the vtable entries we call; GetSteamID returns CSteamID through a hidden
+ * result pointer under this ABI (see steam_abi_min.h). */
+typedef HSteamPipe (*w_pipe)(void *);
+typedef bool (*w_release_pipe)(void *, HSteamPipe);
+typedef HSteamUser (*w_connect)(void *, HSteamPipe);
+typedef void (*w_release_user)(void *, HSteamPipe, HSteamUser);
+typedef void *(*w_get_iface_user)(void *, HSteamUser, HSteamPipe, const char *);
+typedef uint64_t *(*w_steamid)(void *, uint64_t *);
+typedef HAuthTicket (*w_ticket)(void *, void *, int, uint32_t *, const struct SteamNetworkingIdentity *);
+typedef void (*w_cancel)(void *, HAuthTicket);
+
+/* drain callbacks; returns the GetAuthSessionTicketResponse result for `want` if seen, else -1 */
+static int warm_pump(pfn_Steam_BGetCallback getcb, pfn_Steam_FreeLastCallback freecb, HSteamPipe pipe, HAuthTicket want)
+{
+    CallbackMsg msg;
+    int32_t call = 0;
+    int seen = -1;
+    while (getcb(pipe, &msg, &call))
+    {
+        if (want && msg.callback_id == CALLBACK_GET_AUTH_SESSION_TICKET_RESPONSE &&
+            msg.param_size >= (int32_t)sizeof(struct GetAuthSessionTicketResponse))
+        {
+            struct GetAuthSessionTicketResponse r;
+            memcpy(&r, msg.param, sizeof(r));
+            if (r.ticket == want) seen = r.result;
+        }
+        freecb(pipe);
+    }
+    return seen;
+}
+
+static void warm_ticket(void)
+{
+    static unsigned char buf[1024];
+    HMODULE lib;
+    pfn_CreateInterface create;
+    pfn_Steam_BGetCallback getcb;
+    pfn_Steam_FreeLastCallback freecb;
+    void *client, *user_if;
+    HSteamPipe pipe;
+    HSteamUser user;
+    uint64_t sid = 0;
+    DWORD t0 = GetTickCount();
+    int attempt, err = 0;
+
+    lib = LoadLibraryW(opt.client_dll);
+    if (!lib) { logmsg(L"warm-up: cannot load %ls (error %lu); skipped", opt.client_dll, GetLastError()); return; }
+    create = (pfn_CreateInterface)(void *)GetProcAddress(lib, "CreateInterface");
+    getcb = (pfn_Steam_BGetCallback)(void *)GetProcAddress(lib, "Steam_BGetCallback");
+    freecb = (pfn_Steam_FreeLastCallback)(void *)GetProcAddress(lib, "Steam_FreeLastCallback");
+    if (!create || !getcb || !freecb) { logmsg(L"warm-up: Steam client exports missing; skipped"); return; }
+    if (!(client = create(STEAMCLIENT_VERSION, &err))) { logmsg(L"warm-up: CreateInterface failed (%d); skipped", err); return; }
+    pipe = ((w_pipe)VFUNC(client, SC_CreateSteamPipe))(client);
+    user = pipe ? ((w_connect)VFUNC(client, SC_ConnectToGlobalUser))(client, pipe) : 0;
+    if (!pipe || !user)
+    {
+        logmsg(L"warm-up: Mac Steam not reachable (pipe %d, user %d); skipped", pipe, user);
+        if (pipe) ((w_release_pipe)VFUNC(client, SC_BReleaseSteamPipe))(client, pipe);
+        return;
+    }
+    user_if = ((w_get_iface_user)VFUNC(client, SC_GetISteamUser))(client, user, pipe, STEAMUSER_VERSION);
+    if (user_if)
+    {
+        ((w_steamid)VFUNC(user_if, SU_GetSteamID))(user_if, &sid);
+        for (attempt = 1; attempt <= 2; attempt++)
+        {
+            struct SteamNetworkingIdentity ident;
+            uint32_t len = 0;
+            int result = -1;
+            HAuthTicket h;
+            DWORD until;
+            memset(&ident, 0, sizeof(ident));
+            ident.type = STEAMNETWORKINGIDENTITY_TYPE_STEAMID;
+            ident.size = (int32_t)sizeof(uint64_t);
+            ident.u.steamid64 = sid;
+            h = ((w_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, buf, (int)sizeof(buf), &len, &ident);
+            until = GetTickCount() + (h ? 3000 : 1500);
+            /* with a handle: wait for its response; without: let the client fetch what it needs, then retry */
+            while ((int)(until - GetTickCount()) > 0)
+            {
+                result = warm_pump(getcb, freecb, pipe, h);
+                if (h && result >= 0) break;
+                Sleep(50);
+            }
+            logmsg(L"warm-up: ticket request %d: handle %u, %u bytes, response %d%ls", attempt, h, len, result,
+                   (h && len && result == 1) ? L" (OK)" : L"");
+            if (h) ((w_cancel)VFUNC(user_if, SU_CancelAuthTicket))(user_if, h);
+            if (h && len && result == 1) break;
+        }
+        SecureZeroMemory(buf, sizeof(buf));
+    }
+    else logmsg(L"warm-up: no %hs interface; skipped", STEAMUSER_VERSION);
+    ((w_release_user)VFUNC(client, SC_ReleaseUser))(client, pipe, user);
+    ((w_release_pipe)VFUNC(client, SC_BReleaseSteamPipe))(client, pipe);
+    /* the library stays loaded: unloading lsteamclient while its unix side runs is not worth the risk */
+    logmsg(L"warm-up: done in %lu ms", (unsigned long)(GetTickCount() - t0));
+}
+
 static BOOL WINAPI ctrl_handler(DWORD type)
 {
     (void)type;
@@ -472,6 +585,7 @@ int main(void)
         else if (!wcscmp(a, L"--no-launch")) opt.no_launch = 1;
         else if (!wcscmp(a, L"--hold-ms")) opt.hold_ms = (DWORD)wcstoul(NEXT(), NULL, 10);
         else if (!wcscmp(a, L"--keep-registry")) opt.keep_registry = 1;
+        else if (!wcscmp(a, L"--no-warmup")) opt.no_warmup = 1;
         else if (!wcscmp(a, L"--help") || !wcscmp(a, L"-h")) { usage(); return 0; }
         else if (a[0] == L'-' && a[1] == L'-') { logmsg(L"unknown option %ls", a); usage(); return EXIT_USAGE; }
         else break;
@@ -538,6 +652,12 @@ int main(void)
     }
 
     SetConsoleCtrlHandler(ctrl_handler, TRUE);
+
+    /* cold-start defence for PEAK's one-shot EOS login (see the header comment) */
+    /* only under Wine and never in test mode: outside Wine it would reach a real Windows Steam */
+    if (!opt.dry_run && !opt.no_warmup && under_wine && !opt.registry_root) warm_ticket();
+    else logmsg(L"auth-ticket warm-up skipped (%ls)", opt.dry_run ? L"dry run" : opt.no_warmup ? L"--no-warmup"
+                : !under_wine ? L"not under Wine" : L"test registry root");
 
     if (opt.no_launch)
     {

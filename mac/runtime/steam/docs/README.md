@@ -160,7 +160,7 @@ The workflow refuses to package if any `.c`/`.cpp`/`.h` would end up in the brid
 peakpack_steam_launcher.exe [--appid 3527290] [--steam-dir 'C:\Program Files (x86)\Steam'] [--client-dll …]
     [--forwarder-src …] [--no-install] [--steam-client-dir /Users/…/MacOS] [--language english]
     [--connect-lobby <id>] [--cwd …] [--log …] [--dry-run] [--registry-root Software\PeakPackTest
-    [--delete-test-root]] [--no-launch [--hold-ms N]] [--keep-registry]  --  <game.exe> [game args…]
+    [--delete-test-root]] [--no-launch [--hold-ms N]] [--keep-registry] [--no-warmup]  --  <game.exe> [game args…]
 ```
 
 - **Arguments after `--` reach the game unchanged** (Doorstop args, `-force-d3d11`). They are re-quoted with the MSVC rules. `--connect-lobby` appends `+connect_lobby <id>`.
@@ -170,6 +170,12 @@ peakpack_steam_launcher.exe [--appid 3527290] [--steam-dir 'C:\Program Files (x8
   - Outside Wine, it refuses to touch the real registry (exit 121) and refuses to copy the forwarder into any folder that contains `steam.exe`.
   - `--registry-root` must be under `Software\` and not under `Software\Valve`. It redirects every write to `HKCU\<root>\{HKCU,HKLM,HKLM32}\…`.
 - **A first argument starting with `steam://`** is logged and ignored (exit 0), in case something runs `SteamExe`.
+- **Auth-ticket warm-up** (launcher 0.2.0, runtime pp2): this guards PEAK's one-shot EOS login against a cold client (testkit NOTES-for-lead.md).
+  - Before starting the game, the launcher loads the client through the forwarder and requests one ticket exactly as PEAK does: a 1024-byte buffer and the player's own SteamID as identity.
+  - It waits up to 3 s for the response and retries once if the first request returned nothing. Then it cancels the ticket and releases the pipe.
+  - It logs `warm-up:` lines but never the ticket bytes. It costs about 0.1 s when the client is already warm.
+  - It runs only under Wine, and never with `--dry-run`, `--registry-root` or `--no-warmup`.
+  - T3/T4 run with `--no-warmup` so they still measure a cold request.
 
 **Tested on this PC** (`tests/pc_launcher_test.sh`, 14/14 PASS):
 - it refuses real mode outside Wine;
