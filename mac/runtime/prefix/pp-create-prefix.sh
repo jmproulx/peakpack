@@ -11,6 +11,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 R="${1:?usage: $0 <runtime> <prefix> [backend]}"; P="${2:?prefix}"; backend="${3:-}"
+R="$(cd "$R" && pwd)"; mkdir -p "$P" && P="$(cd "$P" && pwd)"   # absolute (Wine child processes have another cwd)
 PREFIX_SCHEMA=1
 
 # shellcheck source=pp-env.sh

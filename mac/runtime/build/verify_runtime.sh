@@ -8,6 +8,9 @@
 set -euo pipefail
 # shellcheck disable=SC2015  # ok() and bad() never fail, so A && ok || bad is safe here
 R="${1:?usage: $0 <runtime_dir> [--smoke]}"
+# Absolute: Wine child processes start with a different working directory, so a relative runtime
+# path (WINELOADER etc.) breaks them (CI run 38349666249 smoke: "could not load kernel32.dll, c0000135").
+R="$(cd "$R" && pwd)"
 smoke="${2:-}"
 fail=0
 # Never pipe a producer straight into "grep -q": with pipefail, grep exits at the first match, the producer

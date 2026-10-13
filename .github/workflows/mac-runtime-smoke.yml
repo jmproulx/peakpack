@@ -1,0 +1,97 @@
+# Quick smoke test of an EXISTING runtime artifact (no rebuild): downloads peakpack-runtime-<id> from a
+# finished mac-runtime run, creates a throwaway prefix with the checked-out prefix scripts and runs a few
+# Windows programs, with Wine debug channels on. Minutes instead of hours per iteration.
+# Repo path when pushed: .github/workflows/mac-runtime-smoke.yml. Manual only; read-only; no releases.
+name: mac-runtime-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "mac-runtime run id whose artifact to test"
+        required: true
+        type: string
+      runtime_id:
+        description: "RUNTIME_ID (artifact peakpack-runtime-<id>)"
+        type: string
+        default: "pp1-cx26.3.0"
+      runner:
+        description: "macOS runner"
+        type: choice
+        options: [macos-15-intel, macos-15]
+        default: macos-15-intel
+      wine_debug:
+        description: "WINEDEBUG for the diagnostic runs"
+        type: string
+        default: "err+all,+loaddll,+module"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      RID: ${{ inputs.runtime_id }}
+      DBG: ${{ inputs.wine_debug }}
+    steps:
+      - name: Validate inputs
+        run: |
+          case "$RUN_ID" in (*[!0-9]*|"") echo "::error::bad run_id"; exit 1;; esac
+          case "$RID" in (*[!A-Za-z0-9._-]*|"") echo "::error::bad runtime_id"; exit 1;; esac
+          case "$DBG" in (*[!A-Za-z0-9,+._-]*) echo "::error::bad wine_debug"; exit 1;; esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/runtime
+          persist-credentials: false
+      - name: Rosetta (arm64 runner only)
+        run: |
+          if [ "$(uname -m)" = arm64 ]; then sudo softwareupdate --install-rosetta --agree-to-license; fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: peakpack-runtime-${{ inputs.runtime_id }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: art
+      - name: Unpack the runtime (absolute path)
+        run: |
+          set -euo pipefail
+          (cd art && shasum -a 256 -c "peakpack-runtime-$RID-x86_64.tar.xz.sha256")
+          mkdir -p "$RUNNER_TEMP/rt"
+          tar -xJf "art/peakpack-runtime-$RID-x86_64.tar.xz" -C "$RUNNER_TEMP/rt"
+          cat art/BUILD-STATUS.txt || true
+          R="$RUNNER_TEMP/rt/$RID"
+          echo "R=$R" >> "$GITHUB_ENV"
+          find "$R/lib/wine/x86_64-windows" -maxdepth 1 -name '*.dll' | wc -l
+          ls -l "$R/lib/wine/x86_64-windows/kernel32.dll" "$R/lib/wine/x86_64-unix/ntdll.so"
+          # Use the checked-out (newer) prefix scripts, not the copy packed in the runtime.
+          rm -rf "$R/share/peakpack/prefix" && cp -R mac/runtime/prefix "$R/share/peakpack/prefix"
+          chmod +x "$R"/share/peakpack/prefix/*.sh
+      - name: verify_runtime --smoke (absolute runtime path)
+        continue-on-error: true
+        run: mac/runtime/build/verify_runtime.sh "$R" --smoke
+      - name: Diagnostic prefix creation with WINEDEBUG (absolute and relative paths)
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          mkdir -p logs
+          WINEDEBUG="$DBG" bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$R" "$RUNNER_TEMP/pfx-abs" > logs/create-abs.log 2>&1
+          echo "absolute: exit $?"
+          rel="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1]))' "$R")"
+          WINEDEBUG="$DBG" bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$rel" "pfx-rel" > logs/create-rel.log 2>&1
+          echo "relative ($rel): exit $?"
+          "$R/bin/wineserver" -k 2>/dev/null || true
+          tail -n 40 logs/create-abs.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: smoke-logs-${{ inputs.run_id }}
+          path: logs
+          retention-days: 7

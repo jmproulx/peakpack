@@ -9,6 +9,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 R="${1:?usage: $0 <runtime> <prefix> [--logs] -- <program> [args]}"; P="${2:?prefix}"; shift 2
+R="$(cd "$R" && pwd)"; mkdir -p "$P" && P="$(cd "$P" && pwd)"   # absolute (Wine child processes have another cwd)
 mode=normal
 while [ $# -gt 0 ]; do
   case "$1" in

@@ -229,6 +229,7 @@ jobs:
         env:
           PE_CC: x86_64-w64-mingw32-clang
           WINDRES: x86_64-w64-mingw32-windres
+          RUNTIME_ID: ${{ steps.id.outputs.runtime_id }}   # names the bridge/tests packages (was "unknown")
         run: |
           set -euo pipefail
           W="$GITHUB_WORKSPACE/_work"
