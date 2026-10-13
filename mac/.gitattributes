@@ -17,3 +17,4 @@ series    text eol=lf
 *.md      text eol=lf
 *.awk     text eol=lf
 *.manifest text eol=lf
+*.lock    text eol=lf

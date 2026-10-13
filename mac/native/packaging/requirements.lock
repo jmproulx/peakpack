@@ -1,0 +1,33 @@
+# PeakPack native tools: Python packages for the converter, CPython 3.13 / macOS arm64 (11.0+).
+# Installed by build_bundle.sh with:
+#   pip install --require-hashes --no-deps --no-build-isolation --only-binary=:all: --no-binary=tpk-ar -r requirements.lock
+# One hash per package = the exact file used (PyPI JSON API digests.sha256, read 12 Oct 2026).
+# --no-deps is deliberate: this is the COMPLETE set the converter imports (UnityPy's import graph, checked
+# with an import blocker on the PC). UnityPy's texture/audio export extras are NOT shipped:
+#   fmod_toolkit/pyfmodex (wheel bundles the proprietary FMOD library), astc-encoder-py, etcpak,
+#   texture2ddecoder, archspec. peakmetal never calls UnityPy.export. See README.md "Python packages".
+# Versions = Joshua's PC venv (tools/venv), where the converter is tested.
+
+# UnityPy 1.25.4 (MIT): unitypy-1.25.4-cp313-cp313-macosx_11_0_arm64.whl
+unitypy==1.25.4 \
+    --hash=sha256:05ce3cd2afee9886eb9579ff4848a67ccc8a749a7f906a0e08960df89169733a
+# lz4 4.4.5 (BSD-3-Clause; bundles liblz4, BSD-2-Clause): lz4-4.4.5-cp313-cp313-macosx_11_0_arm64.whl
+lz4==4.4.5 \
+    --hash=sha256:b424df1076e40d4e884cfcc4c77d815368b7fb9ebcd7e634f937725cd9a8a72a
+# Brotli 1.2.0 (MIT): brotli-1.2.0-cp313-cp313-macosx_10_13_universal2.whl (no arm64-only cp313 wheel exists)
+brotli==1.2.0 \
+    --hash=sha256:9e5825ba2c9998375530504578fd4d5d1059d09621a02065d1b6bfc41a8e05ab
+# Pillow 12.3.0 (MIT-CMU; wheel bundles libjpeg-turbo, libpng, zlib, libtiff, libwebp, freetype, ...; licences
+# in its dist-info): pillow-12.3.0-cp313-cp313-macosx_11_0_arm64.whl. Imported by UnityPy at import time.
+pillow==12.3.0 \
+    --hash=sha256:d69141514cc30b774ceea5e3ed3a6635c8d8a96edf664689b890f4089111fb35
+# attrs 26.1.0 (MIT): attrs-26.1.0-py3-none-any.whl
+attrs==26.1.0 \
+    --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+# fsspec 2026.9.0 (BSD-3-Clause): fsspec-2026.9.0-py3-none-any.whl
+fsspec==2026.9.0 \
+    --hash=sha256:8dd6e646e99ea382bd85f97a45e6b526a442d79423a7dc673f1e2756d05fcb5f
+# tpk_ar 0.2.4 (MIT, pure Python): SDIST ONLY on PyPI (tpk_ar-0.2.4.tar.gz). Built locally without build
+# isolation by the hash-pinned setuptools from requirements-build.lock (verified-local: same sha256).
+tpk-ar==0.2.4 \
+    --hash=sha256:d64897e5a0bcddd58e8a7d4dd922f372da984a0f98bc3b460ec869aab906ee78

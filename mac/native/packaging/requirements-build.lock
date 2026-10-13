@@ -1,0 +1,7 @@
+# Build-only: the backend that turns the tpk_ar sdist into a wheel (tpk_ar has no [build-system], so pip's
+# default backend setuptools.build_meta:__legacy__ applies). Installed hash-checked BEFORE requirements.lock
+# so that lock can use --no-build-isolation (pip does not hash-check isolated build dependencies), then
+# uninstalled together with pip; neither ships in the bundle.
+# setuptools 84.0.0 (MIT): setuptools-84.0.0-py3-none-any.whl (PyPI JSON digests.sha256, 12 Oct 2026)
+setuptools==84.0.0 \
+    --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670

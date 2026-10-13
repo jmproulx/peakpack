@@ -1,0 +1,150 @@
+# PeakPack for Mac, native track: build the self-contained converter bundle
+#   peakpack-native-tools-<ver>-macos-arm64.tar.xz (+ .sha256)
+# (python-build-standalone CPython + hash-locked UnityPy/lz4/... + SPIRV-Cross + mac/native converter)
+# for G-C0 phase (b) on an Apple-silicon Mac where nothing may be installed.
+# Repo path when pushed: .github/workflows/mac-native-tools.yml (scripts under mac/native/packaging/).
+# Manual only. Reads no secrets and no game/Unity data. Does not touch mac/runtime or its caches
+# (this workflow uses no cache at all). Publishing creates a PRERELEASE mac-build-native-tools-<ver>
+# that is never marked latest, and is refused unless pins.env sets NT_PUBLISH_ALLOWED=1.
+name: mac-native-tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create prerelease mac-build-native-tools-<ver> (refused while pins.env NT_PUBLISH_ALLOWED=0)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-native-tools
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.pins.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/native
+          persist-credentials: false
+      - name: Every input pinned (pins.env + hash locks)
+        id: pins
+        run: |
+          bash mac/native/packaging/build_bundle.sh --check-pins
+          . mac/native/packaging/pins.env
+          echo "version=${NT_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Refuse publish unless enabled in pins.env
+        if: ${{ inputs.publish }}
+        run: |
+          . mac/native/packaging/pins.env
+          if [ "${NT_PUBLISH_ALLOWED}" != 1 ]; then
+            echo "::error::publish=true refused: pins.env has NT_PUBLISH_ALLOWED=${NT_PUBLISH_ALLOWED} (publish=false runs only for now)"
+            exit 1
+          fi
+
+  build:
+    needs: guard
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/native
+          persist-credentials: false
+      - name: Runner facts
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          [ "$(uname -m)" = arm64 ] || { echo "::error::expected an arm64 runner"; exit 1; }
+          xcodebuild -version
+          cmake --version | head -n 1
+          command -v zstd || echo "zstd not preinstalled (build_bundle.sh installs it from Homebrew for the licence step)"
+      - name: Build bundle
+        id: build
+        run: bash mac/native/packaging/build_bundle.sh --work "$RUNNER_TEMP/nt" --out "$RUNNER_TEMP/nt-out"
+      - name: Smoke test the packed tarball (fresh extract, path with a space, scrubbed environment)
+        env:
+          NAME: ${{ steps.build.outputs.name }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/nt-out"
+          (cd "$out" && shasum -a 256 -c "$NAME.tar.xz.sha256")
+          dest="$RUNNER_TEMP/smoke dir"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          tar -xJf "$out/$NAME.tar.xz" -C "$dest"
+          "$dest/$NAME/check/verify_bundle.sh" --ci "$dest/$NAME"
+          du -sh "$dest/$NAME" "$out/$NAME.tar.xz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: |
+            ${{ runner.temp }}/nt-out/${{ steps.build.outputs.name }}.tar.xz
+            ${{ runner.temp }}/nt-out/${{ steps.build.outputs.name }}.tar.xz.sha256
+            ${{ runner.temp }}/nt-out/${{ steps.build.outputs.name }}.MANIFEST.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  release:
+    needs: [guard, build]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/native
+          persist-credentials: false
+      - name: Re-check pins and the publish switch
+        run: |
+          bash mac/native/packaging/build_bundle.sh --check-pins
+          . mac/native/packaging/pins.env
+          [ "${NT_PUBLISH_ALLOWED}" = 1 ] || { echo "::error::NT_PUBLISH_ALLOWED is not 1"; exit 1; }
+          [ "${NT_VERSION}" = "${VERSION}" ] || { echo "::error::version changed between jobs"; exit 1; }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: peakpack-native-tools-${{ needs.guard.outputs.version }}-macos-arm64
+          path: dist
+      - name: Create prerelease (never latest)
+        run: |
+          set -euo pipefail
+          . mac/native/packaging/pins.env
+          name="peakpack-native-tools-${VERSION}-macos-arm64"
+          tag="mac-build-native-tools-${VERSION}"
+          (cd dist && sha256sum -c "$name.tar.xz.sha256")
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release $tag already exists; bump NT_VERSION in pins.env"
+            exit 1
+          fi
+          cat > notes.md <<EOF
+          Self-contained PeakPack converter tools for Apple-silicon Macs (macOS ${NT_MACOS_MIN}+): CPython ${PBS_PYTHON_VERSION},
+          UnityPy and its runtime deps (hash-locked), SPIRV-Cross ${SPIRV_CROSS_TAG}, the mac/native converter.
+          Built by run ${GITHUB_RUN_ID} from ${GITHUB_SHA}. Contains no game data. Test build, not for general use.
+
+          Verify: \`shasum -a 256 -c ${name}.tar.xz.sha256\`, extract, then \`${name}/check/verify_bundle.sh\`.
+          Versions and input hashes: ${name}.MANIFEST.json.
+          EOF
+          gh release create "$tag" --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "PeakPack native tools ${VERSION} (macOS arm64, test build)" --notes-file notes.md \
+            "dist/$name.tar.xz" "dist/$name.tar.xz.sha256" "dist/$name.MANIFEST.json"
