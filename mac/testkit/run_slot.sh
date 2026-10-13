@@ -30,6 +30,8 @@ jv() { awk -F'\t' -v p="$1" '$1 == p { v = $2 } END { printf "%s", v }' "$flat";
 [ -n "$job_id" ] || job_id=$(jv job_id)
 case "$job_id" in ''|*'{'*|auto) job_id="$(jv slot | tr -cd 'A-Za-z0-9-')"; job_id="${job_id:-slot}-$(date +%Y%m%d-%H%M)" ;; esac
 [ -n "$release" ] || release=$(jv release.tag)
+# Steam test kit pin (tests-only prerelease); an explicit PP_STEAM_TESTS_TAG in the environment wins.
+[ -n "${PP_STEAM_TESTS_TAG:-}" ] || { stt=$(jv steam_tests.tag); [ -n "$stt" ] && export PP_STEAM_TESTS_TAG="$stt"; }
 [ -n "$job_dir" ] || job_dir="$HOME/peakpack-test/$job_id"
 mkdir -p "$job_dir" && job_dir=$(cd "$job_dir" && pwd -P) || { echo "run_slot: cannot create $job_dir" >&2; exit 4; }
 case "$job_dir" in /|"$(cd "$HOME" && pwd -P)") echo "run_slot: refusing job dir $job_dir" >&2; exit 4 ;; esac

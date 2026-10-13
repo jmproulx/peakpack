@@ -54,16 +54,5 @@ mkdir -p "$dist"
 tar -C "$stage" -cJf "$dist/$name.tar.xz" "$name"
 echo "$(sha "$dist/$name.tar.xz")  $name.tar.xz" > "$dist/$name.tar.xz.sha256"
 
-tname=peakpack-steam-tests-$rid-$rev
-troot=$stage/$tname
-mkdir -p "$troot/probe" "$troot/mac"
-cp "$pe/steam_client_probe.exe" "$pe/steam_api_probe.exe" "$troot/probe/"
-# Test-kit probes (testkit R1/R2), when the CI step built them.
-for p in d3d11_clear.exe steam_client_probe-macos-x86_64; do
-    if [ -f "$pe/$p" ]; then cp "$pe/$p" "$troot/probe/"; fi
-done
-cp "$steam_root"/tests/probe/*.c "$steam_root"/tests/probe/*.h "$troot/probe/"
-cp "$steam_root"/tests/mac/*.sh "$troot/mac/"
-tar -C "$stage" -cJf "$dist/$tname.tar.xz" "$tname"
-echo "$(sha "$dist/$tname.tar.xz")  $tname.tar.xz" > "$dist/$tname.tar.xz.sha256"
+bash "$here/package_tests.sh" --pe "$pe" --dist "$dist" --name "peakpack-steam-tests-$rid-$rev"
 ls -l "$dist"

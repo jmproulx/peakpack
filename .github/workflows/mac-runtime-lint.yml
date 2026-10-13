@@ -8,11 +8,13 @@ on:
       - "mac/runtime/**"
       - "mac/testkit/**"
       - ".github/workflows/mac-runtime*.yml"
+      - ".github/workflows/mac-steam-tests.yml"
   pull_request:
     paths:
       - "mac/runtime/**"
       - "mac/testkit/**"
       - ".github/workflows/mac-runtime*.yml"
+      - ".github/workflows/mac-steam-tests.yml"
   workflow_dispatch:
 
 permissions:
@@ -45,7 +47,7 @@ jobs:
         run: |
           pip3 install --user --break-system-packages yamllint==1.35.1
           cfg='{extends: default, rules: {line-length: {max: 140}, truthy: {check-keys: false}, document-start: disable}}'
-          ~/.local/bin/yamllint -d "$cfg" .github/workflows/mac-runtime*.yml
+          ~/.local/bin/yamllint -d "$cfg" .github/workflows/mac-runtime*.yml .github/workflows/mac-steam-tests.yml
       - name: python compile
         run: |
           python3 -I -m py_compile mac/runtime/build/manifest.py

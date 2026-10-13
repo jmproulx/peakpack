@@ -1,0 +1,127 @@
+# Tests-only build of the PeakPack Steam/Mac test kit: probes (T1-T4, G-A1's D3D11 probe) + Mac gate
+# scripts, without rebuilding the runtime. Publishes the PRERELEASE mac-build-steam-tests-<VERSION>
+# (never latest) when publish=true. VERSION: mac/runtime/steam/tests/VERSION.
+# The test kit picks it up via PP_STEAM_TESTS_TAG / the slot file's steam_tests.tag.
+# Repo path when pushed: .github/workflows/mac-steam-tests.yml. Manual only.
+name: mac-steam-tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create the mac-build-steam-tests-<VERSION> prerelease (never latest)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-steam-tests
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      name: ${{ steps.ver.outputs.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: |
+            mac/runtime
+            mac/testkit
+          persist-credentials: false
+      - name: Version
+        id: ver
+        run: |
+          set -euo pipefail
+          v=$(tr -d '\r\n' < mac/runtime/steam/tests/VERSION)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad tests VERSION '$v'"; exit 1; }
+          name="peakpack-steam-tests-${v}-$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: llvm-mingw (pinned, SHA-256 verified)
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          . mac/runtime/build/pins.env
+          f="$RUNNER_TEMP/$(basename "$LLVM_MINGW_MAC_URL")"
+          curl -fsSL --retry 3 -o "$f" "$LLVM_MINGW_MAC_URL"
+          echo "$LLVM_MINGW_MAC_SHA256  $f" | shasum -a 256 -c
+          mkdir -p "$RUNNER_TEMP/llvm-mingw"
+          tar -xJf "$f" -C "$RUNNER_TEMP/llvm-mingw" --strip-components=1
+          echo "LLVM_MINGW_VERSION=$LLVM_MINGW_VERSION" >> "$GITHUB_ENV"
+      - name: Build probes
+        run: |
+          set -euo pipefail
+          pe="$RUNNER_TEMP/pe"; mkdir -p "$pe"
+          mg="$RUNNER_TEMP/llvm-mingw/bin/x86_64-w64-mingw32-clang"
+          src=mac/runtime/steam/tests/probe
+          "$mg" -O1 -Wall -Werror -o "$pe/steam_client_probe.exe" "$src/steam_client_probe.c" -ladvapi32
+          "$mg" -O1 -Wall -Werror -o "$pe/steam_api_probe.exe" "$src/steam_api_probe.c"
+          "$mg" -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
+            -ld3d11 -ldxgi -ldxguid -luser32
+          /usr/bin/clang -arch x86_64 -O1 -Wall -Werror -o "$pe/steam_client_probe-macos-x86_64" "$src/steam_client_probe.c"
+          [ "$(lipo -archs "$pe/steam_client_probe-macos-x86_64")" = x86_64 ]
+          file "$pe"/*
+          {
+            echo "tests_version=${{ steps.ver.outputs.version }}"
+            echo "commit=$GITHUB_SHA"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "llvm_mingw=$LLVM_MINGW_VERSION"
+            echo "apple_clang=$(/usr/bin/clang --version | head -1)"
+            echo "probe_ticket_call=PEAK-style (SteamNetworkingIdentity = own SteamID, 1024-byte buffer)"
+          } > "$RUNNER_TEMP/build-info.txt"
+          cat "$RUNNER_TEMP/build-info.txt"
+      - name: Package
+        env:
+          NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          set -euo pipefail
+          bash mac/runtime/steam/build/package_tests.sh --pe "$RUNNER_TEMP/pe" --dist out --name "$NAME" \
+            --info "$RUNNER_TEMP/build-info.txt"
+          cp "$RUNNER_TEMP/build-info.txt" out/BUILD-INFO.txt
+          (cd out && shasum -a 256 "$NAME.tar.xz" BUILD-INFO.txt > SHA256SUMS)
+          tar -tJf "out/$NAME.tar.xz"
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: steam-tests-${{ steps.ver.outputs.version }}
+          path: out
+          retention-days: 30
+
+  release:
+    needs: build
+    if: ${{ !cancelled() && inputs.publish && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: steam-tests-${{ needs.build.outputs.version }}
+          path: out
+      - name: Create prerelease (never latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="mac-build-steam-tests-${VER}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag exists; bump mac/runtime/steam/tests/VERSION"; exit 1
+          fi
+          cat > notes.md <<EOF
+          PeakPack for Mac Steam/Mac test kit ${VER}: probes (T1-T4 Steam bridge, G-A1 D3D11) and the Mac gate
+          scripts, for the Mac test slots only. Not for friends; not a PeakPack pack release.
+          Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_SHA}.
+          Our own MIT code only (no Valve sources). See BUILD-INFO.txt.
+          EOF
+          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Mac Steam test kit ${VER}" --notes-file notes.md

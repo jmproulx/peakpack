@@ -75,6 +75,29 @@ ensure_tests() {
   local name top
   TESTS=""
   ensure_sums >/dev/null 2>&1
+  # A separate tests-only prerelease (mac-build-steam-tests-<ver>, CI workflow mac-steam-tests.yml) wins
+  # over the runtime release's tests package: pinned by PP_STEAM_TESTS_TAG (run_slot exports the slot
+  # file's steam_tests.tag; run_gate keeps it in job.env).
+  local ttag; ttag=${PP_STEAM_TESTS_TAG:-$(job_env_get STEAM_TESTS_TAG)}
+  if [ -n "$ttag" ]; then
+    case "$ttag" in mac-build-steam-tests-*) ;; *) log "PP_STEAM_TESTS_TAG must be mac-build-steam-tests-*: $ttag"; return 1 ;; esac
+    local tdl="$DL/$ttag" tbase="https://github.com/$PP_REPO/releases/download/$ttag" exp
+    mkdir -p "$tdl"
+    [ -s "$tdl/SHA256SUMS" ] || fetch_url "$tbase/SHA256SUMS" "$tdl/SHA256SUMS" || { log "no SHA256SUMS in $ttag"; return 1; }
+    name=$(awk '{ n = $2; sub(/^\*/, "", n); print n }' "$tdl/SHA256SUMS" | grep -E '^peakpack-steam-tests-.*\.tar\.xz$' | head -1)
+    [ -n "$name" ] || { log "$ttag lists no peakpack-steam-tests-*.tar.xz"; return 1; }
+    exp=$(awk -v n="$name" '{ m = $2; sub(/^\*/, "", m) } m == n { print $1 }' "$tdl/SHA256SUMS" | head -1)
+    if ! { [ -f "$tdl/$name" ] && [ "$(sha256_of "$tdl/$name")" = "$exp" ]; }; then
+      log "downloading $name ($ttag)"; fetch_url "$tbase/$name" "$tdl/$name" || { log "download failed: $name"; return 1; }
+      [ "$(sha256_of "$tdl/$name")" = "$exp" ] || { log "SHA-256 mismatch for $name"; mv "$tdl/$name" "$tdl/$name.bad"; return 1; }
+    fi
+    top=${name%.tar.xz}
+    if [ ! -d "$JOB/steam-tests/$top" ]; then mkdir -p "$JOB/steam-tests"; tar -xJf "$tdl/$name" -C "$JOB/steam-tests" || return 1; fi
+    TESTS="$JOB/steam-tests/$top"
+    version_set steam_tests "$top ($ttag)"
+    find "$TESTS" -name '*.sh' -exec chmod +x {} + 2>/dev/null
+    return 0
+  fi
   name=$(asset_match '^peakpack-steam-tests-.*\.tar\.xz$')
   if [ -n "$name" ] && ensure_asset "$name"; then
     top=${name%.tar.xz}
