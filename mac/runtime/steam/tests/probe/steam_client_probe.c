@@ -13,10 +13,13 @@
  *   -> GetISteamUser(SteamUser023): BLoggedOn, GetSteamID
  *   -> GetISteamFriends(SteamFriends017): GetPersonaName
  *   -> GetISteamUtils(SteamUtils010): GetAppID
- *   -> GetISteamGenericInterface(STEAMAPPS_INTERFACE_VERSION008): BIsSubscribed, BIsSubscribedApp (info)
- *   -> (T2) GetAuthSessionTicket exactly like PEAK (1024-byte buffer, identity = own SteamID)
- *      + wait for GetAuthSessionTicketResponse_t, CancelAuthTicket; then, for diagnosis only,
- *      the same call with a NULL identity (RESULT ticket_null_*)
+ *   -> (T2) GetAuthSessionTicket exactly like PEAK (1024-byte buffer, identity = own SteamID), COLD:
+ *      right after connecting, no callbacks pumped first (PEAK's EOS login asks at startup the same way;
+ *      RESULT ticket_first_*). If that returns no ticket: pump callbacks 3 s and retry once
+ *      (RESULT ticket_retry=1); the final handle/len/callback decide T2. Then, for diagnosis only, the
+ *      same call with a NULL identity (RESULT ticket_null_*)
+ *   -> GetISteamGenericInterface(STEAMAPPS_INTERFACE_VERSION008): BIsSubscribed, BIsSubscribedApp (info;
+ *      after the ticket so it cannot warm the client up for the cold request)
  *   -> optional --hold N seconds (pumping callbacks) so Mac Steam shows "Playing PEAK".
  * It uses the player's real login; nothing is spoofed and the Steam client
  * is not modified. Output lines starting with "RESULT " are parsed by the
@@ -234,12 +237,6 @@ int main(int argc, char **argv)
            STEAMID_TYPE(steamid), STEAMID_INSTANCE(steamid));
     if (friends_if) printf("RESULT persona=%s\n", ((fn_str)VFUNC(friends_if, SF_GetPersonaName))(friends_if));
     if (utils_if) printf("RESULT appid=%u\n", ((fn_u32)VFUNC(utils_if, SU10_GetAppID))(utils_if));
-    apps_if = ((fn_get_iface_user)VFUNC(client, SC_GetISteamGenericInterface))(client, user, pipe, STEAMAPPS_VERSION);
-    printf("RESULT iface_apps=%d\n", !!apps_if);
-    if (apps_if)
-        printf("RESULT subscribed=%d\nRESULT subscribed_app=%d\n",
-               ((fn_bool)VFUNC(apps_if, SA_BIsSubscribed))(apps_if),
-               ((fn_bool_u32)VFUNC(apps_if, SA_BIsSubscribedApp))(apps_if, (uint32_t)strtoul(appid, NULL, 10)));
     if (!steamid) rc = 5;
 
     if (want_ticket)
@@ -250,13 +247,24 @@ int main(int argc, char **argv)
         uint32_t len = 0;
         int result = -1, waited;
         HAuthTicket h;
-        for (waited = 0; waited < 1000; waited += 100) { pump(pipe, 0); sleep_ms(100); } /* let the client settle */
         memset(&ident, 0, sizeof(ident));
         ident.type = STEAMNETWORKINGIDENTITY_TYPE_STEAMID;
         ident.size = (int32_t)sizeof(uint64_t);
         ident.u.steamid64 = steamid;
+        /* cold request: nothing pumped since ConnectToGlobalUser (like PEAK's EOS login at startup) */
         h = ((fn_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, ticket, (int)sizeof(ticket), &len, &ident);
-        printf("RESULT ticket_identity=steamid\nRESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
+        printf("RESULT ticket_identity=steamid\nRESULT ticket_first_handle=%u\nRESULT ticket_first_len=%u\n", h, len);
+        if (!h || !len)
+        {
+            if (h) ((fn_cancel)VFUNC(user_if, SU_CancelAuthTicket))(user_if, h);
+            for (waited = 0; waited < 3000; waited += 100) { pump(pipe, 0); sleep_ms(100); }
+            len = 0;
+            h = ((fn_ticket)VFUNC(user_if, SU_GetAuthSessionTicket))(user_if, ticket, (int)sizeof(ticket), &len, &ident);
+            printf("RESULT ticket_retry=1\n");
+        }
+        else
+            printf("RESULT ticket_retry=0\n");
+        printf("RESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
         for (waited = 0; h && result < 0 && waited < 15000; waited += 100)
         {
             result = pump(pipe, h);
@@ -282,6 +290,13 @@ int main(int argc, char **argv)
             if (h2) ((fn_cancel)VFUNC(user_if, SU_CancelAuthTicket))(user_if, h2);
         }
     }
+    /* ownership as the client sees it (after the ticket: must not warm up the cold request) */
+    apps_if = ((fn_get_iface_user)VFUNC(client, SC_GetISteamGenericInterface))(client, user, pipe, STEAMAPPS_VERSION);
+    printf("RESULT iface_apps=%d\n", !!apps_if);
+    if (apps_if)
+        printf("RESULT subscribed=%d\nRESULT subscribed_app=%d\n",
+               ((fn_bool)VFUNC(apps_if, SA_BIsSubscribed))(apps_if),
+               ((fn_bool_u32)VFUNC(apps_if, SA_BIsSubscribedApp))(apps_if, (uint32_t)strtoul(appid, NULL, 10)));
 
     if (hold > 0)
     {

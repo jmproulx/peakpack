@@ -59,6 +59,7 @@ tl=$(result "$log" ticket_len)
 [ -n "$tl" ] && [ "$tl" -gt 0 ] && pass "T2 auth session ticket ($tl bytes)" || fail "T2 no ticket"
 [ "$(result "$log" ticket_callback_result)" = 1 ] && pass "T2 GetAuthSessionTicketResponse k_EResultOK" || fail "T2 ticket callback result '$(result "$log" ticket_callback_result)'"
 info "ownership (client view): subscribed=$(result "$log" subscribed) subscribed_app=$(result "$log" subscribed_app)"
+info "cold first ticket: handle=$(result "$log" ticket_first_handle) len=$(result "$log" ticket_first_len) retry=$(result "$log" ticket_retry) (retry=1: the first, cold request returned no ticket)"
 info "ticket identity: $(result "$log" ticket_identity) (PEAK passes its own SteamID); NULL-identity call: handle=$(result "$log" ticket_null_handle) len=$(result "$log" ticket_null_len) cb=$(result "$log" ticket_null_callback_result)"
 info "manual check: did Mac Steam show 'Playing PEAK' during the hold? (screenshot: steam-while-probe.png if allowed)"
 pp_finish

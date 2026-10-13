@@ -73,9 +73,15 @@ if [ -n "$tl" ] && [ "$tl" -gt 0 ] 2>/dev/null; then crit t2_ticket pass "auth s
 for e in Steam_IsKnownInterface Steam_NotifyMissingInterface; do metric "export_$e" "$(r "export_$e")"; done
 # Diagnosis (kit 0.2.2 probe): ownership as the client sees it, which identity the ticket used (PEAK's:
 # own SteamID), and the same call with a NULL identity (what the 0.2.1 probe did).
-for k in subscribed subscribed_app ticket_identity ticket_handle ticket_null_handle ticket_null_len ticket_null_callback_result; do
+for k in subscribed subscribed_app ticket_identity ticket_first_handle ticket_first_len ticket_retry ticket_handle ticket_null_handle ticket_null_len ticket_null_callback_result; do
   v=$(r "$k"); [ -n "$v" ] && metric "$k" "$v" str
 done
+# Cold start: PEAK's EOS login asks for its ticket right after SteamAPI init and never retries, so an
+# empty FIRST ticket means a failed EOS login for that session (tests 1.1.0+ report it; older: no lines).
+case "$(r ticket_retry)" in
+  0) crit t2_cold_ticket pass "first (cold) ticket request returns a ticket" "len $(r ticket_first_len)" ;;
+  1) crit t2_cold_ticket warn "first (cold) ticket request returns a ticket" "first handle=$(r ticket_first_handle) len=$(r ticket_first_len); retry after 3 s gave len $(r ticket_len)" ;;
+esac
 [ "$(r subscribed_app)" = 0 ] && note "client says BIsSubscribedApp($PEAK_APPID)=0 for this account"
 grep -a -c '^callback ' "$probe_log" | { read -r n; metric callbacks_seen "${n:-0}"; }
 case $cu_rc in

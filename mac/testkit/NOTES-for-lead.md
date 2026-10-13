@@ -101,3 +101,35 @@ On the Mac, "native-style `d3d11.dll` and `winemetal.dll` loaded" proves that DX
 2. **Local Network (macOS 15 and later):** possible if PEAK or EOS uses LAN discovery or multicast. It is attributed to the launching process.
 3. **Application Firewall "accept incoming connections":** only if the iMac's firewall is on and a Wine or Unity process listens on a port.
 4. **Files & Folders (Documents and so on):** unlikely. `pp-create-prefix.sh` replaces Wine's links to ~/Desktop, ~/Documents and ~/Downloads with real folders. During wineboot, Wine only checks that those folders exist (stat); it does not read their contents.
+
+## G-B1 auth ticket: slot 1c failed, slot 1d passed (13 Oct)
+
+**Observed.** 1c (kit 0.2.1) got `GetAuthSessionTicket` handle 0, len 0. 1d (kit 0.2.3) got len 234 and the callback returned OK. In 1d the NULL-identity call also passed, so the identity was not the cause.
+
+**What differed in 1c:**
+- The ticket was requested immediately after `ConnectToGlobalUser`, `GetSteamID` and `GetAppID`. No callbacks had been pumped.
+- No `ISteamApps` call came first.
+- The buffer was 4096 bytes instead of 1024. That cannot matter: a larger buffer is fine.
+
+**Most likely explanation: a cold start in the Mac client.**
+- The app ownership ticket for 3527290 was not yet available for that pipe or session when the first request arrived. `GetAuthSessionTicket` then returns `k_HAuthTicketInvalid` at once and no callback follows.
+- Two variants fit the data:
+  - **(a) Per session:** the client needs a moment, or a few pumped callbacks, after a new pipe connects. 1d's 1 s of pumping, its `BIsSubscribedApp` calls, or both, covered that.
+  - **(b) Per machine or client run:** the client fetches the ownership ticket from Steam's servers on the first launch of an app with no macOS depot, and 1c's request triggered that fetch. Every later request, including 1d's NULL call, then finds it cached.
+
+**Why it matters for PEAK.**
+- EOS login runs once at startup: `GameHandler.Initialize` → `UserManager.Initialize` → `LoginAsync` → `SteamIdentityProvider.GetIdTokenAsync`.
+- It calls `GetAuthSessionTicket` synchronously, with no callbacks pumped and no check of the result, and it does not retry. It renews only on token expiry.
+- An empty first ticket therefore means a failed EOS login for the whole session.
+- `SteamAuthTicketService` also keeps its first ticket for 60 s without checking it.
+
+**Diagnosis built in (Steam tests 1.1.0).**
+- T1/T2/T3 (`steam_client_probe`) and T4 (`steam_api_probe`, PEAK's own `steam_api64.dll`) make the cold request first, as PEAK does. They record `ticket_first_*`.
+- If it is empty, they pump callbacks for 3 s and retry once (`ticket_retry=1`). The final ticket decides `t2`, `t3_ticket` and `t4_ticket`.
+- G-B1 and G-B2 record `t2_cold_ticket` / `t3_cold_ticket` / `t4_cold_ticket`: pass, or warn when the first request was empty.
+- The `ISteamApps` calls now come after the ticket, so they cannot warm the client up first.
+- Note: on the iMac, variant (b) can no longer reproduce, because the ticket is now cached there. A clean check needs a Mac where PEAK has never been started under that account.
+
+**Mitigations, if a cold warn appears.** None is applied yet.
+1. `peakpack_steam_launcher.exe` primes the client before it starts PEAK: connect, request a ticket, wait for the callback, cancel.
+2. The Mac-only MacPreset mod patches `SteamIdentityProvider` to retry once when the ticket is empty.

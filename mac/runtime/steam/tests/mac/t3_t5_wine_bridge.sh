@@ -71,6 +71,7 @@ cat "$LOGS/t3.log"
 sid=$(result "$LOGS/t3.log" steamid)
 [ -n "$sid" ] && [ "$sid" != 0 ] && pass "T3 SteamID $sid" || fail "T3 SteamID"
 [ "$(result "$LOGS/t3.log" ticket_callback_result)" = 1 ] && pass "T3 ticket callback OK" || fail "T3 ticket"
+info "T3 cold first ticket: handle=$(result "$LOGS/t3.log" ticket_first_handle) len=$(result "$LOGS/t3.log" ticket_first_len) retry=$(result "$LOGS/t3.log" ticket_retry)"
 grep -q "native steamclient lacks" "$LOGS/t3.log" && info "lsteamclient: $(grep -m2 'native steamclient lacks' "$LOGS/t3.log" | tr '\n' ' ')"
 
 say "T4: PEAK's own steam_api64.dll"
@@ -85,6 +86,7 @@ sid4=$(result "$LOGS/t4.log" steamid)
 [ -n "$sid4" ] && [ "$sid4" != 0 ] && pass "T4 SteamID $sid4" || fail "T4 SteamID"
 [ "$(result "$LOGS/t4.log" utils_appid)" = 3527290 ] && pass "T4 app id 3527290" || fail "T4 app id"
 [ "$(result "$LOGS/t4.log" ticket_callback_result)" = 1 ] && pass "T4 ticket via manual dispatch" || fail "T4 ticket callback"
+info "T4 cold first ticket: handle=$(result "$LOGS/t4.log" ticket_first_handle) len=$(result "$LOGS/t4.log" ticket_first_len) retry=$(result "$LOGS/t4.log" ticket_retry)"
 info "T4 persona: $(sed -n 's/^RESULT persona=//p' "$LOGS/t4.log")"
 cp "$tests_dir/launcher.log" "$LOGS/" 2>/dev/null
 

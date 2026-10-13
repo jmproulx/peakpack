@@ -145,8 +145,28 @@ int main(int argc, char **argv)
             ident.type = STEAMNETWORKINGIDENTITY_TYPE_STEAMID;
             ident.size = (int32_t)sizeof(uint64_t);
             ident.u.steamid64 = id;
+            /* cold request right after SteamAPI init + ManualDispatch_Init, nothing dispatched yet: the
+             * order PEAK's EOS login (UserManager.Initialize -> SteamIdentityProvider) uses at startup */
             h = ((fn_ticket)sym("SteamAPI_ISteamUser_GetAuthSessionTicket"))(user, ticket, sizeof(ticket), &len, &ident);
             printf("RESULT ticket_identity=steamid\n");
+            printf("RESULT ticket_first_handle=%u\nRESULT ticket_first_len=%u\n", h, len);
+            if (!h || !len)
+            {
+                /* one retry after 3 s of callback dispatch (diagnoses a cold-start "first ticket = 0") */
+                if (h) ((fn_cancel)sym("SteamAPI_ISteamUser_CancelAuthTicket"))(user, h);
+                for (waited = 0; waited < 3000; waited += 100)
+                {
+                    CallbackMsg msg;
+                    run_frame(pipe);
+                    while (next_cb(pipe, &msg)) free_cb(pipe);
+                    Sleep(100);
+                }
+                len = 0;
+                h = ((fn_ticket)sym("SteamAPI_ISteamUser_GetAuthSessionTicket"))(user, ticket, sizeof(ticket), &len, &ident);
+                printf("RESULT ticket_retry=1\n");
+            }
+            else
+                printf("RESULT ticket_retry=0\n");
             printf("RESULT ticket_handle=%u\nRESULT ticket_len=%u\n", h, len);
             for (waited = 0; h && result < 0 && waited < 15000; waited += 100)
             {

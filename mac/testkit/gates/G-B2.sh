@@ -63,6 +63,17 @@ chk t4_steamid "T4 SteamID" "T4: real SteamID through steam_api64.dll" "T4 Steam
 chk t4_appid "T4 app id 3527290" "T4: app id 3527290" "T4 app id"
 chk t4_ticket "T4 ticket via manual dispatch" "T4: ticket via manual dispatch" "T4 ticket callback"
 chk t5_player_log "T5 Player.log" "T5: Player.log shows 'Steam runtime manager initialized: True' (+ persona)" "T5 Player.log"
+# Cold start (tests 1.1.0+): did the FIRST ticket request return a ticket? PEAK's EOS login uses its first.
+for t in t3 t4; do
+  f="$GLOG/t3_t5/$t.log"; [ -f "$f" ] || continue
+  rt=$(sed -n 's/^RESULT ticket_retry=\([^ ]*\).*/\1/p' "$f" | tail -1)
+  fl=$(sed -n 's/^RESULT ticket_first_len=\([^ ]*\).*/\1/p' "$f" | tail -1)
+  [ -n "$rt" ] && metric "${t}_ticket_retry" "$rt" && metric "${t}_ticket_first_len" "${fl:-0}"
+  case "$rt" in
+    0) crit "${t}_cold_ticket" pass "$t: first (cold) ticket request returns a ticket" "len $fl" ;;
+    1) crit "${t}_cold_ticket" warn "$t: first (cold) ticket request returns a ticket" "first len ${fl:-0}; the retry after 3 s decided ${t}_ticket" ;;
+  esac
+done
 grep -q 'native steamclient lacks' "$GLOG/t3_t5/t3.log" 2>/dev/null && note "lsteamclient: $(grep -m2 'native steamclient lacks' "$GLOG/t3_t5/t3.log" | tr '\n' ' ')"
 [ -f "$GLOG/t3_t5/t5/t5_summary.txt" ] && cp "$GLOG/t3_t5/t5/t5_summary.txt" "$GLOG/"
 # DXMT evidence from the logs-mode run (t3_t5 uses pp_env ... logs)
