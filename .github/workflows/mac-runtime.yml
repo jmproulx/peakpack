@@ -280,9 +280,9 @@ jobs:
           mac/runtime/build/make_source_bundle.sh
       - name: Verify (static)
         run: mac/runtime/build/verify_runtime.sh "_work/dist/${{ steps.id.outputs.runtime_id }}"
-      - name: Smoke test (prefix + cmd under the runner's GUI session)
-        continue-on-error: true
-        run: mac/runtime/build/verify_runtime.sh "_work/dist/${{ steps.id.outputs.runtime_id }}" --smoke
+      # The smoke test (prefix + cmd) runs in the "smoke" job on Apple Silicon + Rosetta: on the Intel
+      # build VM there is no usable Metal device, explorer /desktop hangs after MoltenVK/winemac init and
+      # wineboot never finishes (seen as "could not load kernel32.dll, status c0000135" after 5 min).
       - name: Collect
         env:
           RID: ${{ steps.id.outputs.runtime_id }}
@@ -317,10 +317,42 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-  release:
+  smoke:
+    # Real-target smoke test of the packed runtime: Apple Silicon runner, x86_64 Wine under Rosetta 2.
+    # verify_runtime --smoke: static checks + manifest hashes + prefix creation + cmd /c ver + overrides.
     needs: mac
-    # Explicit result check: the optional dxvk job may have failed upstream of mac.
-    if: ${{ !cancelled() && inputs.publish && needs.mac.result == 'success' }}
+    if: ${{ !cancelled() && needs.mac.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: mac/runtime
+          persist-credentials: false
+      - name: Rosetta
+        run: |
+          if [ "$(uname -m)" = arm64 ]; then sudo softwareupdate --install-rosetta --agree-to-license; fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: peakpack-runtime-${{ needs.mac.outputs.runtime_id }}
+          path: art
+      - name: Smoke test (prefix + cmd, Rosetta 2)
+        env:
+          RID: ${{ needs.mac.outputs.runtime_id }}
+        run: |
+          set -euo pipefail
+          (cd art && shasum -a 256 -c "peakpack-runtime-$RID-x86_64.tar.xz.sha256")
+          mkdir -p "$RUNNER_TEMP/rt"
+          tar -xJf "art/peakpack-runtime-$RID-x86_64.tar.xz" -C "$RUNNER_TEMP/rt"
+          mac/runtime/build/verify_runtime.sh "$RUNNER_TEMP/rt/$RID" --smoke
+
+  release:
+    needs: [mac, smoke]
+    # Explicit result checks: the optional dxvk job may have failed upstream of mac.
+    if: ${{ !cancelled() && inputs.publish && needs.mac.result == 'success' && needs.smoke.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -344,6 +376,7 @@ jobs:
           PeakPack for Mac runtime ${RID} (x86_64, runs under Rosetta 2). Not a PeakPack pack release.
           Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_SHA}.
           See BUILD-STATUS.txt for which optional parts (DXVK fallback, Steam bridge) are included.
+          Smoke test (prefix creation, cmd, DXMT overrides) passed on Apple Silicon (macos-15, Rosetta 2) in this run.
           Contents: runtime (includes the built Steam bridge when steam_bridge=true), Wine SDK, LGPL source bundle,
           Steam bridge package + Mac gate test kit (when built), manifest, SHA256SUMS.
           Steam bridge: built from Valve's lsteamclient (Proton, pinned commit) fetched at build time; binaries only,

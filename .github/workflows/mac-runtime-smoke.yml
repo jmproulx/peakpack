@@ -18,8 +18,8 @@ on:
       runner:
         description: "macOS runner"
         type: choice
-        options: [macos-15-intel, macos-15]
-        default: macos-15-intel
+        options: [macos-15, macos-15-intel]
+        default: macos-15   # Apple Silicon + Rosetta (the Intel VM has no usable Metal device)
       wine_debug:
         description: "WINEDEBUG for the diagnostic runs"
         type: string

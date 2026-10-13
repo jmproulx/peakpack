@@ -17,7 +17,8 @@ pp_env() {
   local rt="${1:?pp_env: runtime dir}" pfx="${2:?pp_env: prefix dir}" mode="${3:-normal}"
   [ -x "$rt/bin/wine" ] || { echo "pp_env: $rt is not a PeakPack runtime" >&2; return 1; }
   # Absolute paths only: Wine child processes run with another working directory, so relative
-  # WINELOADER/WINEPREFIX values break them ("could not load kernel32.dll, status c0000135").
+  # WINELOADER/WINEPREFIX values are fragile (defensive; not the cause of the CI kernel32 error,
+  # which was the Intel CI VM without a usable Metal device).
   rt="$(cd "$rt" && pwd)"
   mkdir -p "$pfx" && pfx="$(cd "$pfx" && pwd)"
 

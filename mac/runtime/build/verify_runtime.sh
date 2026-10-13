@@ -9,7 +9,9 @@ set -euo pipefail
 # shellcheck disable=SC2015  # ok() and bad() never fail, so A && ok || bad is safe here
 R="${1:?usage: $0 <runtime_dir> [--smoke]}"
 # Absolute: Wine child processes start with a different working directory, so a relative runtime
-# path (WINELOADER etc.) breaks them (CI run 38349666249 smoke: "could not load kernel32.dll, c0000135").
+# path (WINELOADER etc.) is fragile. --smoke needs a Mac with a usable Metal device (Apple Silicon
+# runner/Mac): on the Intel CI VM explorer /desktop hangs and wineboot times out ("could not load
+# kernel32.dll, status c0000135" after 5 min, CI run 38349666249).
 R="$(cd "$R" && pwd)"
 smoke="${2:-}"
 fail=0
