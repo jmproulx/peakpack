@@ -97,12 +97,12 @@
       "id": "G-C0",
       "title": "Native smoke",
       "doc": "testkit/gates/G-C0.md",
-      "command": "bash testkit/run_gate.sh G-C0 --job-dir $JOB -- --run-seconds 150 --download [--join-test] [--bepinex-zip ZIP] [--harmony-plugin DLL] [--bundle-variant]",
+      "command": "bash testkit/run_gate.sh G-C0 --job-dir $JOB -- --run-seconds 150 --download",
       "args": "--run-seconds 150 --download",
       "requires": [
         "G-B5"
       ],
-      "needs_human": "only for --join-test (Joshua at his Windows PC); everything else unattended",
+      "needs_human": false,
       "computer_use": [
         "look (phase a)",
         "menu (phase b)"
@@ -121,7 +121,8 @@
         "Steam init in the native player (a_/b_steam_init)",
         "Steam lobby create WITHOUT EOS (b_lobby_create: 'Lobby Created:' line)",
         "Steam lobby join from Joshua's Windows PC WITHOUT EOS (b_lobby_join, only with --join-test; needs Joshua)"
-      ]
+      ],
+      "join_test": "not in this run (Joshua is away); b_lobby_join is recorded as skipped. Lobby CREATE without EOS (b_lobby_create) is still tested unattended."
     }
   ],
   "outside_paths": [
