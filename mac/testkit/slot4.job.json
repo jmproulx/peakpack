@@ -18,9 +18,14 @@
     "repo": "jmproulx/peakpack",
     "tag": "mac-build-runtime-pp1-cx26.3.0"
   },
+  "steam_tests": {
+    "tag": "mac-build-steam-tests-1.0.0",
+    "page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-steam-tests-1.0.0",
+    "note": "tests-only prerelease (CI mac-steam-tests.yml): T1-T4 probes with the PEAK-style auth-ticket call, d3d11_clear.exe, Mac gate scripts; overrides the runtime release's tests package; verified against its SHA256SUMS"
+  },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.3.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.2.3/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.4.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.4/mac/testkit",
     "setup": "as slot1.job.json"
   },
   "time_budget_min": 120,
