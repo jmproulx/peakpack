@@ -36,10 +36,11 @@
     },
     {
       "what": "PeakPack native converter bundle for G-C0 phase (b): python-build-standalone + UnityPy/lz4 + macOS spirv-cross + our MIT converter (no game or Unity data)",
-      "url": "https://github.com/jmproulx/peakpack/releases/download/mac-build-native-tools-<ver>/peakpack-native-tools-<ver>-macos-arm64.tar.xz (+ .sha256)",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/mac-build-native-tools-0.2.0/peakpack-native-tools-0.2.0-macos-arm64.tar.xz (+ .sha256)",
       "to": "$JOB/downloads/",
-      "status": "pending: built by the mac-native-tools.yml workflow (publish=false until approved); until it exists, G-C0 phase (b) is skip-and-report",
-      "bytes": "~60-100 MB (estimate)"
+      "status": "published 13 Oct 2026 (prerelease, never latest); G-C0 downloads, verifies and extracts it into the job dir itself",
+      "bytes": 16806516,
+      "tag": "mac-build-native-tools-0.2.0"
     },
     {
       "what": "Valve's macOS libsteam_api via Steamworks.NET 2024.8.0 standalone zip (MIT repo; fetched by the G-C0 script, SHA-256 pinned)",
