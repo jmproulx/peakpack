@@ -23,7 +23,7 @@
 # Paths outside the job dir: Unity's per-user folders for LandCrab/PEAK (prefs plist, Application Support,
 # Saved Application State, Caches) - recorded; cleanup.sh removes those that did not exist before the job.
 # Args: [--download] [--pkg FILE] [--variation NAME] [--run-seconds N] (default 150) [--bepinex-zip ZIP]
-#       [--harmony-plugin DLL] [--phase a|b|ab] (default ab) [--converted DIR] [--bundle-variant] [--jobs N]
+#       [--harmony-plugin DLL] [--phase a|b|ab] (default ab) [--converted DIR] [--bundle-variant] [--jobs N] [--join-test]
 set -u
 . "$PP_KIT_DIR/lib/common.sh"
 . "$PP_KIT_DIR/lib/assets.sh"
@@ -33,12 +33,12 @@ UNITY_VER=6000.3.15f1
 UNITY_URL="https://download.unity3d.com/download_unity/c1aa84e375f6/MacEditorTargetInstaller/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"
 UNITY_PKG_BYTES=724929213
 pkg="$DL/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"; download=0; variation=macos_arm64_player_development_mono
-run_s=150; bep_zip=""; hplug=""; phase=ab; converted=""; bundle_variant=0; jobs=""
+run_s=150; bep_zip=""; hplug=""; phase=ab; converted=""; bundle_variant=0; jobs=""; join_test=0
 while [ $# -gt 0 ]; do
   case "$1" in --download) download=1; shift ;; --pkg) pkg=$2; shift 2 ;; --variation) variation=$2; shift 2 ;;
     --run-seconds) run_s=$2; shift 2 ;; --bepinex-zip) bep_zip=$2; shift 2 ;; --harmony-plugin) hplug=$2; shift 2 ;;
     --phase) phase=$2; shift 2 ;; --converted) converted=$2; shift 2 ;; --bundle-variant) bundle_variant=1; shift ;;
-    --jobs) jobs=$2; shift 2 ;; *) shift ;; esac
+    --jobs) jobs=$2; shift 2 ;; --join-test) join_test=1; shift ;; *) shift ;; esac
 done
 keep_awake
 [ -f "$GAME_DIR/PEAK_Data/data.unity3d" ] || gate_finish_as blocked "PEAK's Windows files are not in the job dir (run G-B5 first)"
@@ -63,6 +63,25 @@ ls "$VAR" > "$GLOG/variations.txt"
 pv=$(head -1 "$GAME_DIR/version.txt" 2>/dev/null | tr -d '\r ')
 mkdir -p "$JOB/native"
 clone() { cp -c -R "$1" "$2" 2>/dev/null || cp -R "$1" "$2"; }
+
+# ---- Steam for the native player: Valve's macOS libsteam_api (universal) from Steamworks.NET 2024.8.0, the
+# exact Steamworks.NET version PEAK ships (SDK 1.61). Fetched at job time from its GitHub release (MIT repo,
+# Valve redistributable); never redistributed by us. Installed unmodified (Valve's signature intact).
+SWN_URL=https://github.com/rlabrecque/Steamworks.NET/releases/download/2024.8.0/Steamworks.NET-Standalone_2024.8.0.zip
+SWN_SHA256=08094d1372c6d793d6b5b87c59f1362a10fe8580acb1db6bfaf081a511f6758c   # verified-local 12 Oct 2026, 892008 bytes
+steam_bundle=""
+swn_zip="$DL/Steamworks.NET-Standalone_2024.8.0.zip"
+if [ -s "$swn_zip" ] || fetch_url "$SWN_URL" "$swn_zip"; then
+  if [ "$(sha256_of "$swn_zip")" = "$SWN_SHA256" ]; then
+    rm -rf "$JOB/native/swn" && mkdir -p "$JOB/native/swn"
+    unzip -o -q "$swn_zip" 'OSX-Linux-x64/steam_api.bundle/*' -d "$JOB/native/swn" 2>> "$GLOG/steam-lib.log"
+    steam_bundle="$JOB/native/swn/OSX-Linux-x64/steam_api.bundle"
+    find "$steam_bundle" -name '*.meta' -delete 2>/dev/null
+    if [ -f "$steam_bundle/Contents/MacOS/libsteam_api.dylib" ]; then
+      crit steam_lib pass "Valve libsteam_api (Steamworks.NET 2024.8.0) fetched and verified" "$(lipo -archs "$steam_bundle/Contents/MacOS/libsteam_api.dylib" 2>/dev/null || file -b "$steam_bundle/Contents/MacOS/libsteam_api.dylib" | cut -c1-80)"
+    else steam_bundle=""; crit steam_lib fail "libsteam_api.dylib extracted" "see logs/G-C0/steam-lib.log"; fi
+  else crit steam_lib fail "Steamworks.NET zip SHA-256" "got $(sha256_of "$swn_zip")"; rm -f "$swn_zip"; fi
+else crit steam_lib fail "Steamworks.NET zip download" "$SWN_URL"; fi
 
 # assemble APP DATA_SRC  (DATA_SRC: "stock" = PEAK_Data; else a convert output Data dir, used without data.unity3d)
 assemble() {
@@ -111,8 +130,23 @@ assemble() {
 </dict></plist>
 EOF
   plutil -lint "$app/Contents/Info.plist" > /dev/null 2>&1 || return 1
+  # Steam: PEAK's Steamworks.NET was built for Windows and imports "steam_api64"; offer the macOS library under
+  # every name Unity's Mono may probe (bundle and dylib, PlugIns and Frameworks). App id for SteamAPI_Init and
+  # so RestartAppIfNecessary does not relaunch through Steam.
+  if [ -n "$steam_bundle" ]; then
+    mkdir -p "$app/Contents/PlugIns"
+    cp -R "$steam_bundle" "$app/Contents/PlugIns/steam_api64.bundle"
+    cp -R "$steam_bundle" "$app/Contents/PlugIns/steam_api.bundle"
+    cp "$steam_bundle/Contents/MacOS/libsteam_api.dylib" "$app/Contents/PlugIns/libsteam_api64.dylib"
+    cp "$steam_bundle/Contents/MacOS/libsteam_api.dylib" "$app/Contents/Frameworks/libsteam_api64.dylib"
+  fi
+  printf '3527290\n' > "$app/Contents/MacOS/steam_appid.txt"
   xattr -cr "$app" 2>/dev/null
-  for e in "$app"/Contents/Frameworks/*.dylib; do [ -f "$e" ] && codesign --force -s - "$e" >> "$GLOG/codesign.log" 2>&1; done
+  # Re-sign only Unity's own dylibs; Valve's libsteam_api keeps its own signature.
+  for e in "$app"/Contents/Frameworks/*.dylib; do
+    case "$(basename "$e")" in libsteam_api64.dylib) continue ;; esac
+    [ -f "$e" ] && codesign --force -s - "$e" >> "$GLOG/codesign.log" 2>&1
+  done
   codesign --force -s - "$app" >> "$GLOG/codesign.log" 2>&1
   codesign --verify --deep --strict "$app" >> "$GLOG/codesign.log" 2>&1
 }
@@ -130,10 +164,11 @@ GATE_CLEANUP=stop_player
 run_player() {
   local app=$1 tag=$2 t0 ppid plog="$GLOG/$2-player.log"
   t0=$(now_s)
+  # SteamAppId/SteamGameId + cwd = Contents/MacOS (steam_appid.txt): Steam treats the run as app 3527290.
   if [ "$bep" = 1 ] && [ "$tag" = a ] && [ -f "$JOB/native/run_bepinex.sh" ]; then
-    ( cd "$JOB/native" && bash ./run_bepinex.sh "$app" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
+    ( cd "$JOB/native" && SteamAppId=3527290 SteamGameId=3527290 bash ./run_bepinex.sh "$app" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   else
-    "$app/Contents/MacOS/UnityPlayer" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 > "$GLOG/$tag-run.out" 2>&1 &
+    ( cd "$app/Contents/MacOS" && SteamAppId=3527290 SteamGameId=3527290 ./UnityPlayer -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   fi
   ppid=$!
   sleep 45
@@ -165,7 +200,34 @@ analyse() {
   metric "${p}dllnotfound_list" "$(awk '{ $1 = ""; print }' "$GLOG/${p}dllnotfound.txt" | tr '\n' ';' | cut -c1-900)" str
   metric "${p}crash_markers" "$(grep -a -c -E 'Crash!!!|SIGSEGV|SIGBUS|Got a SIG' "$plog" | tr -d ' ')"
   grep -a -q "Update current scene: Airport" "$plog" && metric "${p}reached_airport" true || metric "${p}reached_airport" false
+  analyse_online "$plog" "$p"
   return 0
+}
+# EOS-absent behaviour, Steam and lobbies (observe and record only: nothing is stubbed or patched).
+# EOS sign-in creates the online player id, so whether Steam lobbies still work without EOS is the key finding.
+analyse_online() {
+  local plog=$1 p=$2 n v
+  grep -a -n -i -E "EOS|Epic|EOSSDK|Sanction|ProductUser|PlatformInterface|UserManager" "$plog" | head -80 > "$GLOG/${p}eos-lines.txt"
+  n=$(wc -l < "$GLOG/${p}eos-lines.txt" | tr -d ' '); metric "${p}eos_line_count" "$n"
+  metric "${p}eos_first_lines" "$(head -5 "$GLOG/${p}eos-lines.txt" | cut -c1-200 | tr '\n' ';' | cut -c1-900)" str
+  grep -a -q -i -E "EOSSDK.*(DllNotFound|Unable to load|not found)|DllNotFoundException: EOSSDK" "$plog" && metric "${p}eos_library_missing" true || metric "${p}eos_library_missing" false
+  crit "${p}eos_absent" info "phase ${p%_}: EOS-absent behaviour recorded (all EOS/Epic lines in logs/G-C0/${p}eos-lines.txt)" "$n line(s); first: $(head -1 "$GLOG/${p}eos-lines.txt" | cut -c1-160)"
+  # Steam
+  v=$(grep -a -o -E "Steam runtime manager initialized: (True|False)" "$plog" | tail -1)
+  metric "${p}steam_runtime" "${v:-not logged}" str
+  grep -a -q "Steam Lobby Handler initialized" "$plog" && metric "${p}steam_lobby_handler" true || metric "${p}steam_lobby_handler" false
+  case "$v" in *True) crit "${p}steam_init" pass "phase ${p%_}: Steamworks initialised in the native player" "$v" ;;
+    *False) crit "${p}steam_init" fail "phase ${p%_}: Steamworks initialised in the native player" "$v" ;;
+    *) crit "${p}steam_init" info "phase ${p%_}: Steamworks init line" "not logged (see dllnotfound list for steam_api64)" ;; esac
+  # Lobbies (SteamLobbyHandler's own log lines)
+  grep -a -n -E "Lobby Created: |Entered Steam Lobby: |Joining lobby: |Set Photon Region to steam lobby data|Set current scene to: |Failed to (set|fetch) (steam )?lobby|Not in a lobby|Game version mismatch|Steam invite detected" "$plog" > "$GLOG/${p}lobby-lines.txt"
+  metric "${p}lobby_created" "$(grep -a -c 'Lobby Created: ' "$plog" | tr -d ' ')"
+  metric "${p}lobby_entered" "$(grep -a -c 'Entered Steam Lobby: ' "$plog" | tr -d ' ')"
+  metric "${p}lobby_joining" "$(grep -a -c 'Joining lobby: ' "$plog" | tr -d ' ')"
+  metric "${p}lobby_errors" "$(grep -a -c -E 'Failed to (set|fetch) (steam )?lobby|Not in a lobby' "$plog" | tr -d ' ')"
+  metric "${p}lobby_lines" "$(head -8 "$GLOG/${p}lobby-lines.txt" | cut -c1-160 | tr '\n' ';' | cut -c1-900)" str
+  grep -a -n -i -E "photon.*(connect|disconnect|auth|failed)|CustomAuthentication|OnJoinedRoom|OnCreatedRoom" "$plog" | head -40 > "$GLOG/${p}photon-lines.txt"
+  metric "${p}photon_line_count" "$(wc -l < "$GLOG/${p}photon-lines.txt" | tr -d ' ')"
 }
 
 bep=0
@@ -191,10 +253,8 @@ if [ "$phase" != b ]; then
   run_player "$APP_A" a
   cu_request look 120 "Phase a: a window 'PEAK native smoke' (Unity Mac player with PEAK's stock Windows data) should be open. Screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-a-window. Describe it: black, pink/magenta surfaces (expected: no Metal shaders yet), a recognisable PEAK main menu (even pink), an error dialog, or nothing (crashed). Answer ok <description> (any of these is data, not a failure), or skip if nothing appeared. Do not click in the window."
   finish_player a
-  analyse "$GLOG/a-player.log" a_
-  grep -a -i -E "EOS|Epic" "$GLOG/a-player.log" 2>/dev/null | head -20 > "$GLOG/eos-lines.txt"
-  crit a_dllnotfound info "native plugins that failed to load (expected: EOS, steam_api64, opus_egpv, AudioIn, ...)" "$(wc -l < "$GLOG/a_dllnotfound.txt" 2>/dev/null | tr -d ' ') unique"
-  crit a_eos_absent info "EOS-absent behaviour recorded" "$(head -3 "$GLOG/eos-lines.txt" | tr '\n' ' ' | cut -c1-300)"
+  analyse "$GLOG/a-player.log" a_   # also records EOS-absent lines, Steam init and lobby lines (analyse_online)
+  crit a_dllnotfound info "native plugins that failed to load (expected: EOSSDK, opus_egpv, AudioIn, webrtc-audio, MemoryWrapper; steam_api64 should load)" "$(wc -l < "$GLOG/a_dllnotfound.txt" 2>/dev/null | tr -d ' ') unique"
   if [ "$bep" = 1 ]; then
     bl="$JOB/native/BepInEx/LogOutput.log"
     if [ -f "$bl" ]; then
@@ -249,11 +309,36 @@ if [ "$phase" != a ]; then
     [ -f "$APP_B/Contents/Resources/Data/data.unity3d" ] && crit b_no_archive fail "phase b: no data.unity3d next to the loose files" || crit b_no_archive pass "phase b: no data.unity3d next to the loose files"
     run_player "$APP_B" b
     cu_request menu 240 "Phase b (converted Metal shaders): when PEAK's main menu shows, screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-b-menu. Then click Play and wait for the Airport lobby (up to 2 min); screenshot native-b-level. Look for and report: upside-down or mirrored image (y orientation), objects drawn through each other (depth), washed-out or too dark colours (sRGB), black/garbled full-screen copies (framebuffer fetch, CoreCopy), flickering or repeated objects (instancing), pink/missing materials. Answer: ok menu=<yes|no> level=<yes|no> yflip=<ok|bad> depth=<ok|bad> srgb=<ok|bad> fbfetch=<ok|bad> instancing=<ok|bad> missing=<none|list>, or fail <what happened> if it crashed or stayed black."
-    cub=$?
+    cub=$?; visual_note=$CU_NOTE; visual_ans=$CU_ANSWER
     for k in menu level yflip depth srgb fbfetch instancing missing; do v=$(cu_kv "$k"); [ -n "$v" ] && metric "b_visual_$k" "$v" str; done
+    # Key finding: does a Steam lobby still work without EOS (EOS sign-in creates the online player id)?
+    # Clicking Play hosts: PEAK creates a Photon room + Steam lobby ("Lobby Created: <id>" in Player.log).
+    cu_request lobby 180 "Phase b, Steam lobby without EOS: you should now be in the Airport after clicking Play (if not, click Play on the main menu now and wait up to 2 min). Screenshot native-b-lobby. Note any error or 'offline'/'connection' message shown in the game. Answer ok hosted=<yes|no> message=<text or none>, or fail <what happened>."
+    cul=$?; lobby_hosted=$(cu_kv hosted); lobby_msg=$(cu_kv message); lobby_ans=$CU_ANSWER
+    [ -n "$lobby_hosted" ] && metric b_lobby_hosted_agent "$lobby_hosted" str; [ -n "$lobby_msg" ] && metric b_lobby_message "$lobby_msg" str
+    if [ "$join_test" = 1 ]; then
+      # Needs Joshua at his Windows PC (his own Steam account and PEAK); nobody types credentials anywhere.
+      cu_request join 900 "NEEDS JOSHUA (join test): ask Joshua, on his Windows PC with PEAK running, to open his Steam friends list, right-click the Mac's account and choose Join Game (or type the room code shown in the Mac's pause menu). Wait until he is in or reports an error (up to 10 min). Screenshot native-b-join on the Mac. Answer ok joined=<yes|no> windows_message=<what Joshua saw> mac_message=<what the Mac showed>, or skip if Joshua is not available."
+      cuj=$?; join_joined=$(cu_kv joined); join_win=$(cu_kv windows_message); join_mac=$(cu_kv mac_message); join_ans=$CU_ANSWER; join_note=$CU_NOTE
+      [ -n "$join_joined" ] && metric b_join_joined "$join_joined" str; [ -n "$join_win" ] && metric b_join_windows_message "$join_win" str; [ -n "$join_mac" ] && metric b_join_mac_message "$join_mac" str
+    fi
     finish_player b
     analyse "$GLOG/b-player.log" b_
-    case $cub in 0) crit b_visual pass "phase b: renders without crash/black screen (agent; visual findings in metrics b_visual_*)" "$CU_NOTE" ;; 1) crit b_visual fail "phase b: renders without crash/black screen (agent)" "$CU_NOTE" ;; *) crit b_visual skip "phase b: agent's visual check" "$CU_ANSWER" ;; esac
+    case $cub in 0) crit b_visual pass "phase b: renders without crash/black screen (agent; visual findings in metrics b_visual_*)" "$visual_note" ;; 1) crit b_visual fail "phase b: renders without crash/black screen (agent)" "$visual_note" ;; *) crit b_visual skip "phase b: agent's visual check" "$visual_ans" ;; esac
+    lc=$(grep -a -c 'Lobby Created: ' "$GLOG/b-player.log" 2>/dev/null | tr -d ' ')
+    if [ "${lc:-0}" -gt 0 ]; then crit b_lobby_create pass "phase b: Steam lobby created WITHOUT EOS (key finding)" "$(grep -a -m1 'Lobby Created: ' "$GLOG/b-player.log" | cut -c1-120)"
+    elif [ "$cul" = 0 ]; then crit b_lobby_create fail "phase b: Steam lobby created WITHOUT EOS (key finding)" "no 'Lobby Created' line; agent: hosted=$lobby_hosted message=$lobby_msg; see logs/G-C0/b_lobby-lines.txt, b_eos-lines.txt"
+    else crit b_lobby_create skip "phase b: Steam lobby created without EOS" "agent could not run the step ($lobby_ans)"; fi
+    if [ "$join_test" = 1 ]; then
+      case $cuj in
+        0) if [ "$join_joined" = yes ]; then crit b_lobby_join pass "phase b: Windows player joined the native Mac lobby without EOS (key finding)" "$join_win"
+           else crit b_lobby_join fail "phase b: Windows player joined the native Mac lobby without EOS (key finding)" "windows: $join_win; mac: $join_mac"; fi ;;
+        3|2) crit b_lobby_join skip "phase b: join test" "Joshua not available ($join_ans)" ;;
+        *) crit b_lobby_join fail "phase b: join test" "$join_note" ;;
+      esac
+    else
+      crit b_lobby_join skip "phase b: join test (needs Joshua at his Windows PC)" "not requested (pass --join-test when Joshua is available)"
+    fi
     if [ "$bundle_variant" = 1 ] && crit_failed b_main_menu && [ -f "$out/data.unity3d" ]; then
       APP_C="$JOB/native/c-bundle/PEAK.app"; mkdir -p "$(dirname "$APP_C")"
       assemble "$APP_C" stock && rm -f "$APP_C/Contents/Resources/Data/data.unity3d" && clone "$out/data.unity3d" "$APP_C/Contents/Resources/Data/" \

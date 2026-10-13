@@ -29,6 +29,8 @@ Shader errors and missing plugins are recorded as data, not as failures.
 
 ## Command
 
+Add `--join-test` only when Joshua is available at his Windows PC (CU-join). The gate fetches Valve's macOS `libsteam_api` (Steamworks.NET 2024.8.0 release zip, SHA-256 pinned in the script) into the job dir; it is never redistributed by us.
+
 ```sh
 cd "$JOB/kit"
 bash testkit/run_gate.sh G-C0 --job-dir "$JOB" [-- <args>]
@@ -133,6 +135,26 @@ Environment variables read by the script:
   5. Answer fail if the game crashed or stayed black: `bash testkit/cu.sh "$JOB" done G-C0.menu fail "<what happened>"`
 - The result of this step is not a criterion on its own. The values only feed the `b_visual_*` metrics. The step result feeds `b_visual`: ok gives pass ("renders without crash or black screen"), fail gives fail, skip or timeout gives skip.
 
+### CU-lobby (phase b): Steam lobby WITHOUT EOS (key finding)
+
+EOS sign-in is what creates PEAK's online player id, and EOS is absent here (observe only, nothing is stubbed). This step shows whether hosting still works.
+
+1. After CU-menu you should be in the Airport. If you are not, click **Play** on the main menu now and wait up to 2 minutes.
+2. Save a screenshot: `bash testkit/cu.sh "$JOB" shot G-C0 native-b-lobby`.
+3. Note any error, "offline" or connection message the game shows.
+4. Answer: `bash testkit/cu.sh "$JOB" done G-C0.lobby ok "" hosted=<yes|no> message=<text or none>`, or `fail "<what happened>"`.
+
+The verdict comes from PEAK's own log line `Lobby Created: <id>` (SteamLobbyHandler). The agent's answer is the cross-check.
+
+### CU-join (phase b, only with `--join-test`): needs Joshua
+
+1. Ask Joshua, on his Windows PC with PEAK running (his own Steam account), to open his Steam friends list, right-click the Mac's account and choose **Join Game**, or to type the room code from the Mac's pause menu.
+2. Wait until he is in, or reports an error (up to 10 minutes).
+3. Save a screenshot on the Mac: `bash testkit/cu.sh "$JOB" shot G-C0 native-b-join`.
+4. Answer: `... done G-C0.join ok "" joined=<yes|no> windows_message=<what Joshua saw> mac_message=<what the Mac showed>`, or `skip "Joshua not available"`.
+
+Nobody types credentials anywhere.
+
 ## Human instructions
 
 Not needed. This gate never exits 3. Missing converter tools give a skip, not a human step.
@@ -156,6 +178,10 @@ Not needed. This gate never exits 3. Missing converter tools give a skip, not a 
 | `b_assemble` | phase b bundle assembled and signed | Pass when assembly succeeds. Fail otherwise. |
 | `b_no_archive` | no `data.unity3d` in the phase b bundle | Pass when it is absent. Fail when it is present. |
 | `b_build_target`, `b_main_menu`, `b_player_log` | the same checks as phase a, for the converted bundle | As for `a_`. |
+| `a_eos_absent`, `b_eos_absent` | every EOS/Epic/Sanction/UserManager line recorded (`logs/G-C0/<phase>_eos-lines.txt`; metrics `*_eos_line_count`, `*_eos_first_lines`, `*_eos_library_missing`) | Info (observe only) |
+| `a_steam_init`, `b_steam_init` | `Steam runtime manager initialized: True` in Player.log (Valve libsteam_api from Steamworks.NET 2024.8.0 in PlugIns; `steam_appid.txt` + `SteamAppId`) | Pass when True. Fail when False. Info when not logged. |
+| `b_lobby_create` | **key finding:** `Lobby Created: <id>` in Player.log after hosting, without EOS (metrics `b_lobby_created/entered/joining/errors`, `b_lobby_lines`; `logs/G-C0/b_lobby-lines.txt`, `b_photon-lines.txt`) | Pass when the line is there. Fail when the agent hosted and there is no line. Skip when the step could not run. |
+| `b_lobby_join` | **key finding:** Joshua's Windows PC joins the Mac's lobby (`--join-test`) | Pass on joined=yes. Fail on joined=no. Skip when not requested or Joshua is not available. |
 | `b_visual` | agent's visual check (CU-menu) | Info when ok. Fail when fail. Skip when skip or timeout. Never pass. |
 | `c_build_target`, `c_main_menu`, `c_player_log` | the same checks for the `--bundle-variant` run | Only written with `--bundle-variant` when `b_main_menu` failed. |
 
