@@ -1,0 +1,129 @@
+# Build BepInEx 5 (v5-lts branch, pinned commit) for the native-macOS mod test (G-C0 mods matrix).
+# Why: BepInEx PR #1402 ("Fix plugin loading on native arm64 macOS", merged to v5-lts 2026-09-20) is not in any
+# release yet (5.4.23.5 predates it) and upstream CI publishes no v5-lts builds. We build the exact upstream commit
+# (source fetched at build time, never committed here) with BepInEx's own build script (cake: Pack) and publish
+# the macOS universal package as a PRERELEASE (never latest).
+# Licences: BepInEx is MIT (LICENSE included). Doorstop (LGPL-2.1) is REMOVED from our package: the test kit
+# fetches Doorstop 4.6.0 itself from NeighTools/UnityDoorstop's own release, pinned by SHA-256.
+# Repo path when pushed: .github/workflows/mac-bepinex5.yml. Manual only.
+name: mac-bepinex5
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create the mac-build-bepinex5-<commit8> prerelease (never latest)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-bepinex5
+  cancel-in-progress: false
+
+env:
+  BEPINEX_REPO: https://github.com/BepInEx/BepInEx
+  BEPINEX_COMMIT: f4c1b1103a32884b7440d9681c60cc5d619f284f   # v5-lts head: #1402 (01fd4aa) + build_pr workflow
+  DOTNET_ROLL_FORWARD: Major       # cake.tool 2.0.0 targets an older runtime
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      short: ${{ steps.pkg.outputs.short }}
+    steps:
+      - name: Fetch BepInEx at the pinned commit (with submodules and tags for its versioning)
+        run: |
+          set -euo pipefail
+          git clone --quiet "$BEPINEX_REPO" src
+          cd src
+          git checkout --quiet "$BEPINEX_COMMIT"
+          git submodule update --init --recursive
+          [ "$(git rev-parse HEAD)" = "$BEPINEX_COMMIT" ]
+          test -f BepInEx.Preloader/RuntimeFixes/AppleSiliconDetourFix.cs   # PR #1402 present
+          git log -n 3 --oneline
+      - name: .NET SDK (preinstalled on the runner image)
+        run: dotnet --list-sdks && dotnet --list-runtimes
+      - name: Build (BepInEx's own cake script, target Pack)
+        run: |
+          set -euo pipefail
+          cd src
+          ./build.sh --target=Pack
+          ls -l bin/dist
+      - name: Package macOS universal (Doorstop removed) + licence + source
+        id: pkg
+        run: |
+          set -euo pipefail
+          short=$(printf '%s' "$BEPINEX_COMMIT" | cut -c1-8)
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          z=$(ls src/bin/dist/BepInEx_macos_universal_*.zip | head -1)
+          mkdir -p stage out
+          (cd stage && unzip -q "../$z")
+          rm -f stage/libdoorstop.dylib stage/.doorstop_version stage/run_bepinex.sh   # Doorstop is LGPL: not redistributed
+          [ -f stage/BepInEx/core/BepInEx.Preloader.dll ]
+          cp src/LICENSE stage/LICENSE-BepInEx.txt
+          name="BepInEx_macos_universal_v5lts-${short}"
+          (cd stage && zip -q -r -X "../out/${name}.zip" .)
+          # exact corresponding source (MIT; provided for convenience/provenance)
+          (cd src && git archive --format=tar --prefix="BepInEx-${short}/" HEAD) > "out/BepInEx-src-${short}.tar"
+          subpfx="BepInEx-${short}/submodules/BepInEx.Harmony/"
+          (cd src/submodules/BepInEx.Harmony && git archive --format=tar --prefix="$subpfx" HEAD) > sub.tar
+          tar -Af "out/BepInEx-src-${short}.tar" sub.tar && xz -9 "out/BepInEx-src-${short}.tar"
+          {
+            echo "upstream=$BEPINEX_REPO"
+            echo "commit=$BEPINEX_COMMIT"
+            echo "branch=v5-lts (includes PR #1402, AppleSiliconDetourFix)"
+            echo "built_by=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "build=./build.sh --target=Pack (BepInEx cake script, unmodified)"
+            echo "removed=libdoorstop.dylib, .doorstop_version, run_bepinex.sh (Doorstop, LGPL-2.1)"
+            echo "doorstop=fetch it from NeighTools/UnityDoorstop releases"
+            echo "needs=Doorstop with doorstop_jit_memcpy (UnityDoorstop PR #114; 4.6.0 ci) for native arm64"
+            echo "core=$(cd stage/BepInEx/core && ls | tr '\n' ' ')"
+          } > out/BUILD-INFO.txt
+          cat out/BUILD-INFO.txt
+          (cd out && sha256sum ./*.zip ./*.tar.xz BUILD-INFO.txt | sed 's# \./# #' > SHA256SUMS)
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: bepinex5-${{ steps.pkg.outputs.short }}
+          path: out
+          retention-days: 30
+
+  release:
+    needs: build
+    if: ${{ !cancelled() && inputs.publish && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: bepinex5-${{ needs.build.outputs.short }}
+          path: out
+      - name: Create prerelease (never latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT: ${{ needs.build.outputs.short }}
+        run: |
+          set -euo pipefail
+          tag="mac-build-bepinex5-${SHORT}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag exists"; exit 1
+          fi
+          cat > notes.md <<EOF
+          BepInEx 5 built from upstream v5-lts commit ${BEPINEX_COMMIT} (includes PR #1402, native arm64 macOS fix),
+          for PeakPack for Mac's native-macOS mod test only. Not a BepInEx release; not for friends.
+          Unmodified upstream source, built with BepInEx's own build script. MIT (LICENSE-BepInEx.txt inside the zip);
+          the exact source is attached. Doorstop is not included (fetch it from NeighTools/UnityDoorstop).
+          Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}.
+          EOF
+          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "BepInEx 5 v5-lts ${SHORT} (native macOS test build)" --notes-file notes.md

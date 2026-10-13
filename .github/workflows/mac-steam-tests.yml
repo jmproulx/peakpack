@@ -69,6 +69,9 @@ jobs:
             -ld3d11 -ldxgi -ldxguid -luser32
           /usr/bin/clang -arch x86_64 -O1 -Wall -Werror -o "$pe/steam_client_probe-macos-x86_64" "$src/steam_client_probe.c"
           [ "$(lipo -archs "$pe/steam_client_probe-macos-x86_64")" = x86_64 ]
+          # HarmonyX probe plugin for the native-macOS mod test (G-C0 mods matrix); our MIT code, BepInEx 5 API
+          dotnet build mac/testkit/probes/harmony_probe/HarmonyProbe.csproj -c Release -o "$RUNNER_TEMP/hp" --nologo
+          cp "$RUNNER_TEMP/hp/HarmonyProbe.dll" "$pe/"
           file "$pe"/*
           {
             echo "tests_version=${{ steps.ver.outputs.version }}"
@@ -77,6 +80,7 @@ jobs:
             echo "llvm_mingw=$LLVM_MINGW_VERSION"
             echo "apple_clang=$(/usr/bin/clang --version | head -1)"
             echo "probe_ticket_call=PEAK-style (SteamNetworkingIdentity = own SteamID, 1024-byte buffer)"
+            echo "dotnet=$(dotnet --version)"
           } > "$RUNNER_TEMP/build-info.txt"
           cat "$RUNNER_TEMP/build-info.txt"
       - name: Package

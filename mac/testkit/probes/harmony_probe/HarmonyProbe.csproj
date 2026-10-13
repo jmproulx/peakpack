@@ -1,0 +1,31 @@
+<Project>
+  <!-- Build intermediates and output live outside this folder (see tools/nativework/harmony_probe). -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>..\..\..\tools\nativework\harmony_probe\obj\</BaseIntermediateOutputPath>
+    <BaseOutputPath>..\..\..\tools\nativework\harmony_probe\bin\</BaseOutputPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>HarmonyProbe</AssemblyName>
+    <RootNamespace>PeakPack.HarmonyProbe</RootNamespace>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile-time only: nothing from these packages is copied next to HarmonyProbe.dll. -->
+    <PackageReference Include="BepInEx.BaseLib" Version="5.4.21" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="HarmonyX" Version="2.9.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="6000.3.15" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>
