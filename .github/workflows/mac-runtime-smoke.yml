@@ -23,7 +23,7 @@ on:
       wine_debug:
         description: "WINEDEBUG for the diagnostic runs"
         type: string
-        default: "err+all,+loaddll,+module"
+        default: "err+all,+loaddll,+seh,+module"
 
 permissions:
   contents: read
@@ -77,15 +77,17 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           mkdir -p logs
           {
+            echo "== machine"; uname -m; sw_vers; sysctl -n machdep.cpu.brand_string
+            system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset|Metal|Vendor|Type" | head -10
             echo "== pe_check"; python3 mac/runtime/build/pe_check.py "$R/lib/wine"; echo "pe_check exit $?"
             echo "== bin"; ls -la "$R/bin"
             echo "== lib/wine"; ls -la "$R/lib/wine"
             echo "== x86_64-unix"; ls -la "$R/lib/wine/x86_64-unix"
             echo "== i386-windows count"; ls "$R/lib/wine/i386-windows" | wc -l
-            for f in "$R/bin/wine" "$R/bin/wineserver" "$R/lib/wine/x86_64-unix/ntdll.so"; do
+            for f in "$R/bin/wine" "$R/lib/wine/x86_64-unix/wine" "$R/bin/wineserver" "$R/lib/wine/x86_64-unix/ntdll.so"; do
               echo "== $f"; file "$f"; otool -L "$f"
               otool -l "$f" | grep -A3 -E 'LC_RPATH|LC_SEGMENT_64' | grep -E 'cmd|path|segname|vmaddr|vmsize' | head -40
               codesign -dv "$f" 2>&1 | head -5
@@ -98,7 +100,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 12
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           mkdir -p logs
           export WINEPREFIX="$RUNNER_TEMP/pfx-raw" WINEDEBUG="$DBG,+process" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
           to() { perl -e 'alarm shift; exec @ARGV' "$@"; }   # macOS has no timeout(1)
@@ -110,7 +112,13 @@ jobs:
           WINEPREFIX="$RUNNER_TEMP/pfx-raw-dllpath" "$R/bin/wineserver" -k 2>/dev/null || true
           WINEPREFIX="$RUNNER_TEMP/pfx-raw-cmd" to 120 "$R/bin/wine" cmd /c ver > logs/raw-cmd.log 2>&1; echo "raw cmd exit $?"
           WINEPREFIX="$RUNNER_TEMP/pfx-raw-cmd" "$R/bin/wineserver" -k 2>/dev/null || true
-          for l in logs/raw-*.log; do echo "== $l"; grep -v -E '^\s+VK_|Vulkan extensions are supported' "$l" | tail -n 60; done
+          for l in logs/raw-*.log; do
+            # cap runaway logs (exception loops): keep the first 20 MB and the last 1 MB
+            if [ "$(wc -c < "$l")" -gt 25000000 ]; then
+              { head -c 20000000 "$l"; echo; echo '[... truncated ...]'; tail -c 1000000 "$l"; } > "$l.cut" && mv "$l.cut" "$l"
+            fi
+            echo "== $l"; grep -a -v -E '^\s+VK_|Vulkan extensions are supported' "$l" | grep -a -E 'err:|seh:|could not|exception|Loaded L|NtCreateUserProcess L' | tail -n 60
+          done
       - name: verify_runtime --smoke (absolute runtime path)
         if: ${{ always() }}
         continue-on-error: true
@@ -121,7 +129,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           mkdir -p logs
           to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
           PP_WINEDEBUG="$DBG" to 180 bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$R" "$RUNNER_TEMP/pfx-abs" > logs/create-abs.log 2>&1
@@ -131,7 +139,12 @@ jobs:
           PP_WINEDEBUG="$DBG" to 180 bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$rel" "pfx-rel" > logs/create-rel.log 2>&1
           echo "relative ($rel): exit $?"
           "$R/bin/wineserver" -k 2>/dev/null || true
-          tail -n 40 logs/create-abs.log
+          for l in logs/create-*.log; do
+            if [ "$(wc -c < "$l")" -gt 25000000 ]; then
+              { head -c 20000000 "$l"; echo; echo '[... truncated ...]'; tail -c 1000000 "$l"; } > "$l.cut" && mv "$l.cut" "$l"
+            fi
+          done
+          grep -a -v -E '^\s+VK_' logs/create-abs.log | tail -n 40
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: ${{ always() }}
         with:

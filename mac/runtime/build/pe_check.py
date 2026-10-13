@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pe_check.py <lib/wine dir> [root.dll ...]
+"""pe_check.py <lib/wine dir> [root.dll ...]   (no roots: x86_64 defaults + i386 WoW64 set)
 
 Static check of the Wine PE DLL tree that the loader needs to start a process:
 for every root (default: ntdll.dll kernel32.dll kernelbase.dll start.exe wineboot.exe
@@ -21,7 +21,11 @@ BUILTIN = b"Wine builtin DLL"
 FAKE = b"Wine placeholder DLL"
 DEFAULT_ROOTS = ["ntdll.dll", "kernel32.dll", "kernelbase.dll", "start.exe", "wineboot.exe",
                  "cmd.exe", "conhost.exe", "services.exe", "winedevice.exe", "explorer.exe",
-                 "rpcss.exe"]
+                 "rpcss.exe", "wow64.dll", "wow64win.dll", "wow64cpu.dll"]
+# 32-bit side used by WoW64 processes (wineboot --init runs a 32-bit rundll32 for syswow64).
+I386_ROOTS = ["ntdll.dll", "kernel32.dll", "kernelbase.dll", "rundll32.exe", "setupapi.dll",
+              "start.exe", "cmd.exe"]
+ARCHES = [("x86_64-windows", 0x8664, DEFAULT_ROOTS), ("i386-windows", 0x014C, I386_ROOTS)]
 
 
 def parse(path):
@@ -84,14 +88,13 @@ def parse(path):
     return machine, marker, names, delay
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        return 2
-    base = sys.argv[1]
-    pe_dir = os.path.join(base, "x86_64-windows")
+def check_arch(base, pe_name, want_machine, roots):
+    pe_dir = os.path.join(base, pe_name)
     so_dir = os.path.join(base, "x86_64-unix")
-    roots = sys.argv[2:] or DEFAULT_ROOTS
+    print(f"== {pe_name}")
+    if not os.path.isdir(pe_dir):
+        print(f"FAIL {pe_dir} missing")
+        return [f"MISSING {pe_name}"]
     present = {n.lower(): n for n in os.listdir(pe_dir)}
     seen, queue, bad, apisets = set(), list(roots), [], set()
     while queue:
@@ -104,27 +107,41 @@ def main():
             apisets.add(key)
             continue
         if key not in present:
-            bad.append(f"MISSING {name}")
-            print(f"FAIL {name}: not in x86_64-windows")
+            bad.append(f"MISSING {pe_name}/{name}")
+            print(f"FAIL {name}: not in {pe_name}")
             continue
         try:
             machine, marker, imps, delay = parse(os.path.join(pe_dir, present[key]))
         except Exception as e:  # noqa: BLE001 - report and keep going
-            bad.append(f"BADPE {name}")
+            bad.append(f"BADPE {pe_name}/{name}")
             print(f"FAIL {name}: {e}")
             continue
         so = os.path.exists(os.path.join(so_dir, os.path.splitext(present[key])[0] + ".so"))
-        ok = machine == 0x8664 and marker == "builtin"
+        ok = machine == want_machine and marker == "builtin"
         print(f"{'PASS' if ok else 'FAIL'} {name}: machine=0x{machine:04x} marker={marker}"
               f" unixlib={'yes' if so else 'no'} imports={','.join(imps) or '-'}"
               f" delay={','.join(delay) or '-'}")
         if not ok:
-            bad.append(f"{name} machine=0x{machine:04x} marker={marker}")
+            bad.append(f"{pe_name}/{name} machine=0x{machine:04x} marker={marker}")
         queue.extend(imps)
         queue.extend(delay)
     if apisets:
         print("api sets (resolved by ntdll):", ",".join(sorted(apisets)))
-    print(f"checked {len(seen) - len(apisets)} PE files, {len(bad)} problem(s)")
+    print(f"{pe_name}: checked {len(seen) - len(apisets)} PE files, {len(bad)} problem(s)")
+    return bad
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 2
+    base = sys.argv[1]
+    bad = []
+    if len(sys.argv) > 2:
+        bad += check_arch(base, "x86_64-windows", 0x8664, sys.argv[2:])
+    else:
+        for pe_name, machine, roots in ARCHES:
+            bad += check_arch(base, pe_name, machine, roots)
     for b in bad:
         print("  " + b)
     return 1 if bad else 0
