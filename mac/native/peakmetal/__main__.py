@@ -7,8 +7,15 @@
   convert   <data.unity3d|file> --out DIR [--mode loose|bundle|both] [--jobs N] [--no-compute] [--only NAME]
   validate  <msl dir> [--metal PATH] [--std macos-metal2.1] [--report FILE]
   doctor    [--data PEAK_Data|FILE] [--json FILE]   environment report + self-test (no game data needed)
+  build-app --game DIR --unity-player PKG|DIR [--variation NAME] [--converted DIR] [--steam-zip ZIP]
+            [--out APP] [--work DIR] [--force] [--dry-run] [--json FILE]
+                                                  assemble PEAK Native.app (Unity Mac player + PEAK's data)
+  verify-app APP                                  re-check a built app against its manifest (+ codesign on macOS)
+  remove-app APP [--keep-cache] [--work DIR] [--purge-user-data] [--dry-run]
+                                                  delete a PeakPack native app (refuses anything else)
 spirv-cross: --spirv-cross PATH, $PEAKMETAL_SPIRV_CROSS, $PEAKMETAL_BIN, <native>/bin, PATH.
-Exit codes: 0 ok, 1 internal error, 2 environment/usage error, 3 finished with fallbacks / self-test failed.
+Exit codes: 0 ok, 1 internal error, 2 environment/usage error, 3 finished with fallbacks / self-test failed /
+verify-app found problems.
 """
 import argparse
 import collections
@@ -168,6 +175,21 @@ def cmd_validate(a):
     return 0 if s.get("skipped") or s.get("failed", 0) == 0 else 1
 
 
+def cmd_build_app(a):
+    from . import app
+    return app.run_build(a)
+
+
+def cmd_verify_app(a):
+    from . import app
+    return app.run_verify(a)
+
+
+def cmd_remove_app(a):
+    from . import app
+    return app.run_remove(a)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="peakmetal", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -222,6 +244,30 @@ def main(argv=None):
     p.add_argument("--bin-dir")
     p.add_argument("--metal")
     p.set_defaults(fn=cmd_doctor)
+    p = sub.add_parser("build-app", help="assemble PEAK Native.app: Unity's Mac player running PEAK's data")
+    p.add_argument("--game", required=True, help="PEAK's Windows install folder (read only)")
+    p.add_argument("--unity-player", required=True,
+                   help="Unity's Mac Mono support pkg (macOS: verified and expanded) or a folder with Variations/")
+    p.add_argument("--variation", help="Variations/<name> (default macos_arm64_player_nondevelopment_mono)")
+    p.add_argument("--converted", help="a `pm convert` output folder (uses its Data/ instead of the game's)")
+    p.add_argument("--steam-zip", help="Steamworks.NET-Standalone_2024.8.0.zip (optional; Steam init)")
+    p.add_argument("--out", help="the .app to create (default ~/Applications/PEAK Native.app)")
+    p.add_argument("--work", help="cache for the expanded pkg and extracted Steam bundle")
+    p.add_argument("--force", action="store_true", help="rebuild even when the fingerprint matches")
+    p.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
+    p.add_argument("--json", help="write the result as JSON")
+    p.set_defaults(fn=cmd_build_app)
+    p = sub.add_parser("verify-app", help="re-check a PeakPack native app against its manifest")
+    p.add_argument("app")
+    p.set_defaults(fn=cmd_verify_app)
+    p = sub.add_parser("remove-app", help="delete a PeakPack native app (and its work cache)")
+    p.add_argument("app")
+    p.add_argument("--keep-cache", action="store_true", help="keep the work cache")
+    p.add_argument("--work", help="the work cache to delete (default as build-app)")
+    p.add_argument("--purge-user-data", action="store_true",
+                   help="also delete Unity's per-user folders for this bundle (saves may live there)")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(fn=cmd_remove_app)
     a = ap.parse_args(argv)
     t0 = time.time()
     from .convert import UsageError

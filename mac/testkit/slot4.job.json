@@ -3,7 +3,7 @@
   "slot": "slot4",
   "job_id": "auto",
   "job_id_hint": "new job dir per slot; G-C0 needs PEAK depot again, so slot 4 repeats G-B5 (or reuses slot 1's job dir if it was kept with cleanup.sh --keep-job-dir)",
-  "title": "PeakPack for Mac - slot 4: native smoke (G-C0 phases a + b), optional CrossOver baseline",
+  "title": "PeakPack for Mac - slot 4: native smoke (G-C0 phases a + b) + mods matrix (phase m: BepInEx/HarmonyX arm64 vs Rosetta), optional CrossOver baseline",
   "machine": {
     "host": "M1 iMac",
     "macos_user": "fleet",
@@ -19,13 +19,13 @@
     "tag": "mac-build-runtime-pp1-cx26.3.0"
   },
   "steam_tests": {
-    "tag": "mac-build-steam-tests-1.1.0",
-    "page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-steam-tests-1.1.0",
+    "tag": "mac-build-steam-tests-1.2.0",
+    "page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-steam-tests-1.2.0",
     "note": "tests-only prerelease (CI mac-steam-tests.yml): T1-T4 probes with the PEAK-style auth-ticket call, d3d11_clear.exe, Mac gate scripts; overrides the runtime release's tests package; verified against its SHA256SUMS"
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.5.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.2.5/mac/testkit",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.6.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.2.6/mac/testkit",
     "setup": "as slot1.job.json"
   },
   "time_budget_min": 120,
@@ -108,7 +108,7 @@
       "id": "G-C0",
       "title": "Native smoke",
       "doc": "testkit/gates/G-C0.md",
-      "command": "bash testkit/run_gate.sh G-C0 --job-dir $JOB -- --run-seconds 150 --download",
+      "command": "bash testkit/run_gate.sh G-C0 --job-dir $JOB -- --run-seconds 150 --download --mods-baseline",
       "args": "--run-seconds 150 --download",
       "requires": [
         "G-B5"

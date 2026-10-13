@@ -36,6 +36,55 @@ Tests (pytest; inputs read-only, skip when absent):
 `..\tools\venv\Scripts\python.exe -I -m pytest tests -q` (about 3 min). `PEAKMETAL_SLOW=1` adds the
 whole-`data.unity3d` tests (object round trip, serialized-file writer, archive rewrite; about 15 min).
 
+## build-app / verify-app / remove-app (PEAK Native.app)
+
+Assembles `PEAK Native.app`: Unity's Mac player (Mono, arm64) running PEAK's own Windows data. The recipe is
+`testkit/gates/G-C0.sh` `assemble()`, productised in `peakmetal/app.py` (constants at the top; `recipe_version` 1).
+
+```
+python -I native/pm.py build-app --game "<PEAK folder>" --unity-player <pkg|MacStandaloneSupport folder>
+    [--variation macos_arm64_player_nondevelopment_mono] [--converted DIR] [--steam-zip ZIP]
+    [--out "~/Applications/PEAK Native.app"] [--work DIR] [--force] [--dry-run] [--json FILE]
+python -I native/pm.py verify-app  APP
+python -I native/pm.py remove-app  APP [--keep-cache] [--work DIR] [--purge-user-data] [--dry-run]
+```
+
+- `--unity-player` is Unity's `UnitySetup-Mac-Mono-Support-for-Editor-6000.3.15f1.pkg` (macOS only: size, MD5 and
+  the `Unity Technologies` signature are checked, then `pkgutil --expand-full` into the work folder, never installed),
+  or any folder that holds `Variations/` (the Windows editor's `PlaybackEngines/MacStandaloneSupport`).
+- `--converted DIR` (a `pm convert` output with `Data/`) replaces PEAK's `Data/` files; the game's other companions
+  (`*.resource`, `StreamingAssets`, json, `boot.config`) are taken from the game, and no `data.unity3d` is written.
+  Without it the stock `PEAK_Data` is used.
+- `--steam-zip` (Steamworks.NET 2024.8.0, SHA-256 pinned) installs Valve's macOS `libsteam_api` unmodified.
+  Optional: without it the build warns that Steam will not initialise.
+- `--work` (default `~/Library/Caches/PeakPack/native` on macOS, else `<out parent>/.peakpack-native-work`) holds
+  the expanded pkg and the extracted Steam bundle; it is marked with `peakpack-native-work.json`.
+
+**What it writes:** only `--out` (built in `<out>.building-<pid>`, then swapped in; an existing app is kept until
+the new one is complete) and `--work`. Inside the app, `Contents/Resources/peakpack-native.json` is the manifest:
+schema `peakpack.native_app/1`, the fingerprint (SHA-256 of the canonical JSON of the inputs and `recipe_version`),
+the inputs (game path and version, `data.unity3d` size and mtime, the pkg SHA-256 or folder, variation, the
+UnityPlayer binary SHA-256, converted dir and `convert_summary.json` SHA-256, Steam zip SHA-256), and every file:
+SHA-256 for files from Unity, Steam, the converter or written by us, and size only for files cloned from the game.
+A second run with the same fingerprint prints `up to date` and touches nothing (`--force` rebuilds).
+On macOS: `xattr -cr`, ad-hoc signing of Unity's dylibs and the app, then `codesign --verify --deep --strict`.
+
+**What it never touches:** the game folder (read only; `--out` and `--work` may not be inside it), Unity's install
+(read only), Valve's signature on `libsteam_api`, and anything outside `--out`/`--work` (`--dry-run` writes nothing,
+and `--json` writes only the file you name).
+
+`verify-app` re-hashes the manifest's files, checks the game files' sizes, lists missing, changed and extra files,
+and runs `codesign` on macOS. Exit 0 ok, 3 problems, 2 not a PeakPack app (no manifest).
+
+`remove-app` refuses anything whose manifest or `CFBundleIdentifier` (`com.peakpack.native`) does not match. It
+deletes the app, leftover `.previous` and `.building-*` folders, and the work cache (only if it has the marker;
+`--keep-cache` keeps it). `--purge-user-data` (opt-in: PEAK's saves may live there) also deletes Unity's per-user
+folders for `unity.LandCrab.PEAK` and the `com.peakpack.native` state and cache, printing each path. It never touches
+the game folder.
+
+Exit codes as the rest of the CLI: 0 ok (also `up to date`), 1 a build step failed, 2 environment or usage problem
+(refused inputs, a bad pkg, a Steam zip that is not the pinned file, or an existing folder that is not our app).
+
 ## Running on macOS (contract for the CI bundle and the test kit)
 
 Kept in sync with `NOTES-bundle.md` (the coordination file with the bundle team).

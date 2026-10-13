@@ -104,7 +104,25 @@ Environment variables read by the script:
 26. Finishes the run and runs the analysis with prefix `b_`. Criterion `b_visual`: info for an ok answer, fail for a fail answer, skip for skip or timeout.
 27. With `--bundle-variant`, if `b_main_menu` failed and `native/convert/data.unity3d` exists: assembles `native/c-bundle/PEAK.app` from stock data, removes its `data.unity3d`, copies in the converter's `data.unity3d`, and ad-hoc signs it. Runs the player (no BepInEx), finishes, and runs the analysis with prefix `c_`.
 28. If phase b was skipped by the environment check, notes "phase b not run (converter environment missing); phase a results stand alone".
-29. Writes the result JSON and exits.
+29. **Phase m: mods on native** (runs by default; `--phase` takes any combination of `a`, `b` and `m`, default `abm`). It needs no computer use.
+    - **Inputs.** Each is fetched at job time and SHA-256 pinned at the top of the script:
+      - our CI build of BepInEx 5 `v5-lts` f4c1b110, which includes PR #1402 (prerelease `mac-build-bepinex5-f4c1b110`, MIT);
+      - Doorstop 4.6.0 `ci` from NeighTools/UnityDoorstop, which has `doorstop_jit_memcpy`;
+      - with `--mods-baseline`, stock BepInEx 5.4.23.5;
+      - JetpackBoost from the rev-5 release;
+      - `probe/HarmonyProbe.dll` from the Steam test kit (tests 1.2.0 or later).
+    - **Bundle.** Assembles `native/m-universal/PEAK.app` from the **universal** player variation (`macos_x64arm64_player_development_mono`) with stock data. Each configuration then gets an APFS clone in `native/m-<config>/` with its own `BepInEx/` folder and `libdoorstop.dylib` next to the bundle.
+    - **Runs.**
+      - `arm64-master`: native arm64, master builds.
+      - `x64-master`: Rosetta x86_64, master builds (control).
+      - `x64-stock`: Rosetta x86_64, stock 5.4.23.5 (only with `--mods-baseline`).
+      - Each run uses `arch -<arch> -e DYLD_INSERT_LIBRARIES=... -e DOORSTOP_...`, because SIP strips exported `DYLD_*` when `/usr/bin/arch` runs.
+      - A run stops `--mods-seconds` (default 90) after start, or earlier once `Chainloader startup complete` appears (minimum 30 s).
+    - **Criterion `m_<config>`** passes when the chainloader completes, `HARMONYPROBE RESULT PASS` is logged, and `JetpackBoost 0.1.0 loaded` is logged.
+    - **Metrics per configuration:** `m_<config>_chainloader`, `_probe`, `_arch` (from the probe's start line), `_jetpack_loaded`, `_harmony_error_lines` and `_plugins_loaded`.
+    - **Verdict (`m_verdict`):** `native-arm64`, `rosetta-x86_64-fallback` or `none`.
+    - **Logs:** `logs/G-C0/m-<config>-LogOutput.log`, `m-<config>-preloader_*.log` and `m-<config>-player.log`.
+30. Writes the result JSON and exits.
 
 ## Computer-use steps
 

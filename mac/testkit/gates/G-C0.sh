@@ -10,7 +10,7 @@
 #     pack plugins from G-D2's profile, or --harmony-plugin DLL (a HarmonyX test plugin): HarmonyX-on-arm64 check.
 # Phase (a) stock data. Assembly recipe v0 (Track C owns refinements, DESIGN §6.1): UnityPlayer.app of the arm64
 #   development Mono variation; Data = PEAK_Data minus Managed/Plugins/"unity default resources"; Managed =
-#   PEAK's assemblies with the Mac player's 160 UnityEngine.* on top; Mac Mono etc/; minimal Info.plist; ad-hoc
+#   PEAK's assemblies with the Mac player's 80 UnityEngine.* on top; Mac Mono etc/; minimal Info.plist; ad-hoc
 #   signature. Checks: build-target acceptance, main-menu log markers, shader errors (pink expected),
 #   DllNotFound list, EOS-absent behaviour, HarmonyX arm64.
 # Phase (b) converted shaders (DESIGN §6.3a/b, native/README.md): the converter (native/pm.py, run HERE from the
@@ -23,7 +23,14 @@
 # Paths outside the job dir: Unity's per-user folders for LandCrab/PEAK (prefs plist, Application Support,
 # Saved Application State, Caches) - recorded; cleanup.sh removes those that did not exist before the job.
 # Args: [--download] [--pkg FILE] [--variation NAME] [--run-seconds N] (default 150) [--bepinex-zip ZIP]
-#       [--harmony-plugin DLL] [--phase a|b|ab] (default ab) [--converted DIR] [--bundle-variant] [--jobs N] [--join-test]
+#       [--harmony-plugin DLL] [--phase a|b|m (any combination, default abm)] [--converted DIR] [--bundle-variant]
+#       [--jobs N] [--join-test] [--mods-seconds N] (default 90) [--mods-baseline]
+# Phase (m) mods on native (DESIGN 6.3f): BepInEx 5 + HarmonyX in the Unity Mac player, universal variation,
+#   matrix: (1) native arm64 + BepInEx v5-lts master build (PR #1402) + Doorstop 4.6.0 ci (doorstop_jit_memcpy),
+#   (2) the same under Rosetta x86_64 (control), (3) with --mods-baseline: stock BepInEx 5.4.23.5 under Rosetta.
+#   Plugins each run: the HarmonyX probe (tests package probe/HarmonyProbe.dll) + JetpackBoost (rev-5 asset).
+#   Every input is fetched at job time from its own release and SHA-256 pinned below; Doorstop's settings are
+#   passed with `arch -e` (SIP strips exported DYLD_* when exec'ing /usr/bin/arch).
 set -u
 . "$PP_KIT_DIR/lib/common.sh"
 . "$PP_KIT_DIR/lib/assets.sh"
@@ -33,13 +40,15 @@ gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked 
 UNITY_VER=6000.3.15f1
 UNITY_URL="https://download.unity3d.com/download_unity/c1aa84e375f6/MacEditorTargetInstaller/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"
 UNITY_PKG_BYTES=724929213
+UNITY_PKG_MD5_B64=gI5nOkoLtZhU0O48yRsAQQ==   # Unity release API integrity "md5-..." for module mac-mono (DESIGN 6.1a)
 pkg="$DL/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"; download=0; variation=macos_arm64_player_development_mono
-run_s=150; bep_zip=""; hplug=""; phase=ab; converted=""; bundle_variant=0; jobs=""; join_test=0
+run_s=150; bep_zip=""; hplug=""; phase=abm; converted=""; bundle_variant=0; jobs=""; join_test=0; mods_s=90; mods_baseline=0
 while [ $# -gt 0 ]; do
   case "$1" in --download) download=1; shift ;; --pkg) pkg=$2; shift 2 ;; --variation) variation=$2; shift 2 ;;
     --run-seconds) run_s=$2; shift 2 ;; --bepinex-zip) bep_zip=$2; shift 2 ;; --harmony-plugin) hplug=$2; shift 2 ;;
     --phase) phase=$2; shift 2 ;; --converted) converted=$2; shift 2 ;; --bundle-variant) bundle_variant=1; shift ;;
-    --jobs) jobs=$2; shift 2 ;; --join-test) join_test=1; shift ;; *) shift ;; esac
+    --jobs) jobs=$2; shift 2 ;; --join-test) join_test=1; shift ;;
+    --mods-seconds) mods_s=$2; shift 2 ;; --mods-baseline) mods_baseline=1; shift ;; *) shift ;; esac
 done
 keep_awake
 [ -f "$GAME_DIR/PEAK_Data/data.unity3d" ] || gate_finish_as blocked "PEAK's Windows files are not in the job dir (run G-B5 first)"
@@ -51,6 +60,8 @@ fi
 psz=$(file_size "$pkg"); metric unity_pkg_bytes "$psz"; metric unity_pkg_sha256 "$(sha256_of "$pkg")" str
 version_set unity_player "$UNITY_VER $variation"
 [ "$psz" = "$UNITY_PKG_BYTES" ] && crit unity_pkg pass "Unity pkg size matches DESIGN §6.1" "$psz bytes" || crit unity_pkg warn "Unity pkg size matches DESIGN §6.1 ($UNITY_PKG_BYTES)" "$psz bytes"
+pm5=$(openssl dgst -md5 -binary "$pkg" 2>/dev/null | base64); metric unity_pkg_md5_b64 "$pm5" str
+[ "$pm5" = "$UNITY_PKG_MD5_B64" ] && crit unity_pkg_md5 pass "pkg MD5 matches Unity's published integrity" "$pm5" || crit unity_pkg_md5 fail "pkg MD5 matches Unity's published integrity ($UNITY_PKG_MD5_B64)" "$pm5"
 pkgutil --check-signature "$pkg" > "$GLOG/pkg-signature.txt" 2>&1 && crit unity_pkg_sig pass "pkg signature valid" "$(grep -m1 -i 'unity' "$GLOG/pkg-signature.txt" | tr -s ' ')" || crit unity_pkg_sig fail "pkg signature valid" "$(head -3 "$GLOG/pkg-signature.txt" | tr '\n' ' ')"
 
 # ---- expand (no install)
@@ -233,7 +244,7 @@ analyse_online() {
 
 bep=0
 # ================= phase (a): stock Windows data =================
-if [ "$phase" != b ]; then
+if case "$phase" in *a*) true ;; *) false ;; esac; then
   APP_A="$JOB/native/a-stock/PEAK.app"; mkdir -p "$(dirname "$APP_A")"
   if assemble "$APP_A" stock; then crit a_assemble pass "phase a: bundle assembled, Info.plist valid, ad-hoc signature verifies" "$ASM_N_MAC Mac UnityEngine assemblies"
   else crit a_assemble fail "phase a: bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
@@ -272,7 +283,7 @@ if [ "$phase" != b ]; then
 fi
 
 # ================= phase (b): converted Metal shaders, loose files =================
-if [ "$phase" != a ]; then
+if case "$phase" in *b*) true ;; *) false ;; esac; then
   out="$JOB/native/convert"
   if [ -n "$converted" ]; then
     [ -d "$converted/Data" ] && out=$converted || crit b_converter fail "phase b: --converted has a Data/ folder" "$converted"
@@ -382,6 +393,97 @@ if [ "$phase" != a ]; then
     fi
   elif ! crit_failed b_convert; then
     note "phase b not run (converter environment missing); phase a results stand alone"
+  fi
+fi
+# ================= phase (m): mods on native (BepInEx 5 + HarmonyX), arm64 vs Rosetta =================
+# Pins (DESIGN 6.3f). Fetched at job time from the projects' own releases; nothing redistributed by the kit.
+BEPM_TAG=mac-build-bepinex5-f4c1b110
+BEPM_URL="https://github.com/$PP_REPO/releases/download/$BEPM_TAG/BepInEx_macos_universal_v5lts-f4c1b110.zip"
+BEPM_SHA256=0ec5aa3326e9363ba11d783282d01467dff90f526482531df687f9091e09b74a       # our CI build of upstream v5-lts f4c1b110 (PR #1402), MIT, Doorstop removed
+DS46_URL=https://github.com/NeighTools/UnityDoorstop/releases/download/ci/doorstop_macos_release_4.6.0.zip
+DS46_SHA256=22790b63ef25a3737eb4a80dfe49ea80cfce3bb2f48689ef19dc11bcdd390c6f   # ci tag @3035af7, has doorstop_jit_memcpy
+BEPS_URL=https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_macos_universal_5.4.23.5.zip
+BEPS_SHA256=01c2ae782eb016dfd6c345a18dbd2dcafffb3d9d318449d6486689f426b4a323   # stock 5.4.23.5 (Doorstop 4.5.0 inside)
+JB_URL="https://github.com/$PP_REPO/releases/download/rev-5/Joshua-JetpackBoost-90c792a7-JetpackBoost.dll"
+JB_SHA256=90c792a7744d99d566293e59d787ad4d2aebdaee6a0c6bd0c70cd967f29a9751
+if case "$phase" in *m*) true ;; *) false ;; esac; then
+  mvar=macos_x64arm64_player_development_mono   # universal: the same bundle runs native arm64 and under Rosetta
+  if [ ! -d "$VAR/$mvar/UnityPlayer.app" ]; then
+    crit m_player skip "phase m: universal player variation" "no $mvar in the pkg"
+  else
+    # get FILE URL SHA -> $DL/<FILE>, verified; 0 ok
+    mget() { local f="$DL/$1"; { [ -f "$f" ] && [ "$(sha256_of "$f")" = "$3" ]; } && return 0
+      fetch_url "$2" "$f" || { log "download failed: $2"; return 1; }
+      [ "$(sha256_of "$f")" = "$3" ] || { log "SHA-256 mismatch: $1 ($(sha256_of "$f"))"; mv "$f" "$f.bad"; return 1; }; }
+    hp=""; ensure_tests >/dev/null 2>&1 && [ -f "${TESTS:-/nonexistent}/probe/HarmonyProbe.dll" ] && hp="$TESTS/probe/HarmonyProbe.dll"
+    [ -n "$hp" ] || note "phase m: no HarmonyProbe.dll in the Steam test kit (needs mac-build-steam-tests-1.2.0+); JetpackBoost only"
+    jb=""; mget JetpackBoost.dll "$JB_URL" "$JB_SHA256" && jb="$DL/JetpackBoost.dll"
+    bepm=""; [ "$BEPM_SHA256" != "__BEPM_SHA256__" ] && mget "$(basename "$BEPM_URL")" "$BEPM_URL" "$BEPM_SHA256" && bepm="$DL/$(basename "$BEPM_URL")"
+    ds46=""; mget "$(basename "$DS46_URL")" "$DS46_URL" "$DS46_SHA256" && ds46="$DL/$(basename "$DS46_URL")"
+    beps=""; [ "$mods_baseline" = 1 ] && mget "$(basename "$BEPS_URL")" "$BEPS_URL" "$BEPS_SHA256" && beps="$DL/$(basename "$BEPS_URL")"
+    metric m_inputs "probe=$([ -n "$hp" ] && echo y || echo n) jetpack=$([ -n "$jb" ] && echo y || echo n) bepinex_master=$([ -n "$bepm" ] && echo y || echo n) doorstop46=$([ -n "$ds46" ] && echo y || echo n) stock=$([ -n "$beps" ] && echo y || echo n)" str
+    VAR_SAVE=$variation; variation=$mvar
+    APP_U="$JOB/native/m-universal/PEAK.app"; mkdir -p "$(dirname "$APP_U")"
+    if assemble "$APP_U" stock; then crit m_assemble pass "phase m: universal bundle assembled and signed" "$(file -b "$APP_U/Contents/MacOS/UnityPlayer" | cut -c1-120)"
+    else crit m_assemble fail "phase m: universal bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
+    variation=$VAR_SAVE
+    # mods_run CONFIG ARCH BEPZIP DOORSTOPZIP(or "") -> crit m_<CONFIG>
+    mods_run() {
+      local c=$1 a=$2 bz=$3 dz=$4 root="$JOB/native/m-$1" plog="$GLOG/m-$1-player.log" t0 pid bl he pr ar jl
+      rm -rf "$root"; mkdir -p "$root"
+      clone "$APP_U" "$root/PEAK.app"
+      ditto -x -k "$bz" "$root" > "$GLOG/m-$c-unzip.log" 2>&1 || { crit "m_$c" fail "phase m $c: unzip BepInEx" "logs/G-C0/m-$c-unzip.log"; return; }
+      if [ -n "$dz" ]; then ditto -x -k "$dz" "$root/.ds" >> "$GLOG/m-$c-unzip.log" 2>&1 && cp "$root/.ds/universal/libdoorstop.dylib" "$root/libdoorstop.dylib"; fi
+      [ -f "$root/libdoorstop.dylib" ] || { crit "m_$c" fail "phase m $c: libdoorstop.dylib present" "missing"; return; }
+      codesign --force -s - "$root/libdoorstop.dylib" >> "$GLOG/codesign.log" 2>&1
+      mkdir -p "$root/BepInEx/plugins"
+      [ -n "$hp" ] && cp "$hp" "$root/BepInEx/plugins/"
+      [ -n "$jb" ] && cp "$jb" "$root/BepInEx/plugins/"
+      xattr -cr "$root" 2>/dev/null
+      t0=$(now_s)
+      ( cd "$root/PEAK.app/Contents/MacOS" && arch -"$a" \
+          -e DYLD_INSERT_LIBRARIES="$root/libdoorstop.dylib" -e DOORSTOP_ENABLED=1 \
+          -e DOORSTOP_TARGET_ASSEMBLY="$root/BepInEx/core/BepInEx.Preloader.dll" -e DOORSTOP_IGNORE_DISABLED_ENV=0 \
+          -e DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE= -e DOORSTOP_MONO_DEBUG_ENABLED=0 -e DOORSTOP_MONO_DEBUG_SUSPEND=0 \
+          -e DOORSTOP_MONO_DEBUG_ADDRESS=127.0.0.1:10000 -e DOORSTOP_BOOT_CONFIG_OVERRIDE= \
+          -e DOORSTOP_CLR_RUNTIME_CORECLR_PATH=.dylib -e DOORSTOP_CLR_CORLIB_DIR= \
+          -e SteamAppId=3527290 -e SteamGameId=3527290 \
+          ./UnityPlayer -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/m-$c-run.out" 2>&1 &
+      pid=$!
+      while kill -0 "$pid" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt "$mods_s" ]; do
+        grep -a -q "Chainloader startup complete" "$root/BepInEx/LogOutput.log" 2>/dev/null && [ $(( $(now_s) - t0 )) -ge 30 ] && break
+        sleep 3
+      done
+      stop_player; wait "$pid" 2>/dev/null
+      bl="$root/BepInEx/LogOutput.log"
+      [ -f "$bl" ] && cp "$bl" "$GLOG/m-$c-LogOutput.log"
+      find "$root" -maxdepth 5 -name 'preloader_*.log' -exec sh -c 'cp "$1" "$2/m-$3-$(basename "$1")"' _ {} "$GLOG" "$c" \; 2>/dev/null
+      he=$(cat "$bl" "$root"/PEAK.app/Contents/MacOS/preloader_*.log "$root"/preloader_*.log 2>/dev/null | grep -a -c -i -E "harmony.*(exception|error|fail)|mprotect|EACCES|GetIdentifiable|AppleSilicon.*(fail|could not)" | tr -d ' ')
+      pr=$(grep -a -o "HARMONYPROBE RESULT [A-Z]*.*" "$bl" 2>/dev/null | tail -1)
+      ar=$(grep -a -o "HARMONYPROBE start .*arch=[A-Za-z0-9]*" "$bl" 2>/dev/null | sed 's/.*arch=//' | tail -1)
+      jl=$(grep -a -c "JetpackBoost 0.1.0 loaded" "$bl" 2>/dev/null | tr -d ' ')
+      metric "m_${c}_chainloader" "$(grep -a -c 'Chainloader startup complete' "$bl" 2>/dev/null | tr -d ' ')"
+      metric "m_${c}_probe" "${pr:-none}" str; metric "m_${c}_arch" "${ar:-unknown}" str
+      metric "m_${c}_jetpack_loaded" "${jl:-0}"; metric "m_${c}_harmony_error_lines" "${he:-0}"
+      metric "m_${c}_plugins_loaded" "$(grep -a -c '\] Loading \[' "$bl" 2>/dev/null | tr -d ' ')"
+      if grep -a -q "Chainloader startup complete" "$bl" 2>/dev/null && { [ -z "$hp" ] || [ "${pr#HARMONYPROBE RESULT }" = PASS ]; } \
+         && { [ -z "$jb" ] || [ "${jl:-0}" -ge 1 ]; }; then
+        crit "m_$c" pass "phase m $c: BepInEx + HarmonyX + JetpackBoost on the native Mac player ($a)" "arch=${ar:-?} probe=${pr:-n/a} jetpack=${jl:-0}"
+      else
+        crit "m_$c" fail "phase m $c: BepInEx + HarmonyX + JetpackBoost on the native Mac player ($a)" "chainloader=$(grep -a -c 'Chainloader startup complete' "$bl" 2>/dev/null) probe=${pr:-none} jetpack=${jl:-0} harmony_errors=${he:-0} (logs/G-C0/m-$c-*)"
+      fi
+    }
+    if [ -n "$bepm" ] && [ -n "$ds46" ]; then
+      mods_run arm64-master arm64 "$bepm" "$ds46"
+      mods_run x64-master x86_64 "$bepm" "$ds46"
+    else
+      crit m_arm64-master skip "phase m: master builds available" "BepInEx master build or Doorstop 4.6.0 missing (see m_inputs)"
+    fi
+    [ -n "$beps" ] && mods_run x64-stock x86_64 "$beps" ""
+    # Verdict for DESIGN 6.3f: native arm64 mods, else the Rosetta x86_64 fallback
+    if grep -q '^{"id": "m_arm64-master", "result": "pass"' "$GTMP/criteria.jsonl" 2>/dev/null; then metric m_verdict native-arm64 str
+    elif grep -q '^{"id": "m_x64-master", "result": "pass"' "$GTMP/criteria.jsonl" 2>/dev/null; then metric m_verdict rosetta-x86_64-fallback str
+    else metric m_verdict none str; fi
   fi
 fi
 gate_end
