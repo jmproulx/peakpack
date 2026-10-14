@@ -141,6 +141,45 @@ jobs:
           kill "$pid"; wait "$pid" 2>/dev/null || true
           test -s "$D/Logs/PEAK Modded.log" && tail -5 "$D/Logs/PEAK Modded.log"
 
+      - name: Screenshots of every screen (light and dark, sample data only)
+        run: |
+          set -euo pipefail
+          EXE="$PWD/mac/app/out/PEAK (Modded).app/Contents/MacOS/PEAK Modded"
+          S="$RUNNER_TEMP/screens"
+          mkdir -p "$S" "$RUNNER_TEMP/demo"
+          for look in light dark; do
+            mkdir -p "$S/$look"
+            for name in $("$EXE" --list-demo-screens); do
+              D="$RUNNER_TEMP/demo/$look-$name"
+              "$EXE" --demo-screen "$name" --appearance "$look" --data-dir "$D" --skip-update-check > "$D.out" 2>&1 &
+              pid=$!
+              for _ in $(seq 1 40); do [ -f "$D/window-rect.txt" ] && break; sleep 0.25; done
+              sleep 2.5
+              case "$name" in
+                *-confirm) screencapture -x "$S/$look/$name.png" ;;
+                *) r=$(cat "$D/window-rect.txt" 2>/dev/null || echo "")
+                   if [ -n "$r" ]; then
+                     IFS=, read -r x y w h <<< "$r"
+                     screencapture -x -R "$((x - 24)),$((y - 24)),$((w + 48)),$((h + 48))" "$S/$look/$name.png"
+                   else screencapture -x "$S/$look/$name.png"; fi ;;
+              esac
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+            done
+          done
+          ls -R "$S" | head -80
+          n=$(find "$S" -name '*.png' | wc -l | tr -d ' ')
+          echo "captured $n screenshots"
+          [ "$n" -ge 40 ]
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: mac-app-screens
+          path: ${{ runner.temp }}/screens
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Developer ID signing + notarisation (only when secrets exist)
         if: ${{ env.DEVID_P12 != '' }}
         env:

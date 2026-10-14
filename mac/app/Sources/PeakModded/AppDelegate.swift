@@ -32,8 +32,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.env = env
         AppLog.shared.configure(directory: env.paths.logs)
         AppLog.shared.info("PEAK (Modded) \(AppInfo.version) (\(AppInfo.build)) starting; macOS \(SystemProbe.macOSVersion); data \(env.paths.dataRoot.path)")
+        switch options.appearance {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         let model = AppModel(env: env)
         self.model = model
+        if let demo = options.demoScreen {
+            model.applyDemo(demo)
+            makeWindow(model: model)
+            // Window rectangle (top-left origin, points) so CI can crop the screenshot to it.
+            if let w = window, let screen = w.screen ?? NSScreen.main {
+                let f = w.frame
+                let rect = "\(Int(f.minX)),\(Int(screen.frame.maxY - f.maxY)),\(Int(f.width)),\(Int(f.height))"
+                try? rect.write(to: env.paths.dataRoot.appendingPathComponent("window-rect.txt"), atomically: true, encoding: .utf8)
+            }
+            if demo == "repair-confirm" || demo == "uninstall-confirm" {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if demo == "repair-confirm" { self?.repair() } else { self?.uninstall() }
+                }
+            }
+            return
+        }
         makeWindow(model: model)
         let note = model.markStarted()
         model.start(showOptions: optionHeld || options.showOptions, autoplay: !options.noAutoplay, afterUpdateNote: note)

@@ -15,6 +15,10 @@ enum Entry {
             print(AppInfo.version)
             exit(0)
         }
+        if CommandLine.arguments.contains("--list-demo-screens") {
+            for name in DemoScreens.all { print(name) }
+            exit(0)
+        }
         if options.printStatus {
             // Non-GUI: probe the machine and print JSON (testkit gates; never opens a window or a prompt).
             exit(StatusCLI.run(options: options))

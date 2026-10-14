@@ -69,6 +69,8 @@ final class AppModel: ObservableObject {
     /// After the game ends the app quits, unless the friend opened the window for something else.
     var quitWhenGameEnds = true
     private var lastStatusPhase = ""
+    /// CI screenshot mode (DemoScreens): sample data only.
+    var demoMode = false
 
     init(env: AppEnvironment) {
         self.env = env
