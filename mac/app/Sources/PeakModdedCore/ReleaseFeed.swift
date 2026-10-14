@@ -26,6 +26,11 @@ public struct AppUpdateCandidate: Equatable {
     public var size: Int64?
     /// From the signed manifest's `platforms.mac.frontEnd` (proposed); then the zip must match it too.
     public var pinnedSha256: String?
+
+    public init(version: DottedVersion, tag: String, zipName: String, zipURL: URL, sumsURL: URL, size: Int64?, pinnedSha256: String?) {
+        self.version = version; self.tag = tag; self.zipName = zipName; self.zipURL = zipURL; self.sumsURL = sumsURL
+        self.size = size; self.pinnedSha256 = pinnedSha256
+    }
 }
 
 public enum AppUpdateFinder {
