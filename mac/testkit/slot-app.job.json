@@ -23,13 +23,13 @@
   "release": {
     "repo": "jmproulx/peakpack",
     "tag": "mac-build-runtime-pp1-cx26.3.0",
-    "app_release": "mac-build-app-0.1.2",
-    "app_page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-app-0.1.2",
+    "app_release": "mac-build-app-0.1.3",
+    "app_page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-app-0.1.3",
     "app_assets_used": [
       "SHA256SUMS",
-      "PEAK-Modded-Mac-0.1.2.zip"
+      "PEAK-Modded-Mac-0.1.3.zip"
     ],
-    "note": "app_release is the pin for the APP gates (passed to each gate as --app-release; G-APP1 saves it to the job's job.env). mac-build-app-0.1.2 is published (polish pass); bump it here for newer app builds. tag is the kit's runtime release, which no app gate uses (run_slot passes it as --release)."
+    "note": "app_release is the pin for the APP gates (passed to each gate as --app-release; G-APP1 saves it to the job's job.env). mac-build-app-0.1.3 is published (polish pass); bump it here for newer app builds. tag is the kit's runtime release, which no app gate uses (run_slot passes it as --release)."
   },
   "app": {
     "bundle": "PEAK (Modded).app (from PEAK-Modded-Mac-<version>.zip, unpacked into $JOB/apps)",
@@ -37,18 +37,22 @@
     "launch": "open -n \"$JOB/apps/PEAK (Modded).app\" --args --data-dir $JOB/appdata --skip-update-check --uninstall-to $JOB/uninstalled [--no-autoplay | --options | nothing for a Dock-click start]",
     "verification": "every zip is checked against the release's SHA256SUMS by lib/app.sh (ensure_app); the game depot is checked file by file against expect/peak-win-<version>-*.manifest when the version matches"
   },
+  "peakpack": {
+    "tag": "mac-build-peakpack-0.4.3-test",
+    "note": "test-only PeakPack for the app (app 0.1.3+): lib/app.sh passes --test-peakpack-url/--test-peakpack-sha256 (sha from this release's SHA256SUMS) with --data-dir, and the APP gates check status testOverrides lists peakpack. Remove to use the app's normal PeakPack."
+  },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.6.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.3.6/mac/testkit",
-    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.6/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.7.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.3.7/mac/testkit",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.7/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
     "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
   },
   "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",
   "time_budget_min": 240,
   "expected_machine_min": 161,
   "how_to_run": {
-    "all_in_one": "cd $JOB/kit && bash testkit/run_slot.sh testkit/slot-app.job.json --job-id <job_id> > $JOB/run_slot-console.txt 2>&1 &   (background; watch requests with: bash testkit/cu.sh $JOB wait). The app gates take the release from the slot's gate args: --app-release mac-build-app-0.1.2",
-    "one_gate": "bash testkit/run_gate.sh <gate> --job-dir ~/peakpack-test/<job_id> -- --app-release mac-build-app-0.1.2 [gate args]",
+    "all_in_one": "cd $JOB/kit && bash testkit/run_slot.sh testkit/slot-app.job.json --job-id <job_id> > $JOB/run_slot-console.txt 2>&1 &   (background; watch requests with: bash testkit/cu.sh $JOB wait). The app gates take the release from the slot's gate args: --app-release mac-build-app-0.1.3",
+    "one_gate": "bash testkit/run_gate.sh <gate> --job-dir ~/peakpack-test/<job_id> -- --app-release mac-build-app-0.1.3 [gate args]",
     "computer_use": "scripts print [CU-REQUEST] lines and write <job-dir>/cu/<gate>.<step>.request; do the steps in gates/<gate>.md (section CU-<step>), then answer: bash testkit/cu.sh <job-dir> done <gate>.<step> ok|fail|skip \"note\" [key=value ...]",
     "exit_codes": {
       "0": "pass",
@@ -87,8 +91,8 @@
       "id": "G-APP1",
       "title": "PEAK (Modded).app: download and verify, static checks, first run up to the game step",
       "doc": "testkit/gates/G-APP1.md",
-      "command": "bash testkit/run_gate.sh G-APP1 --job-dir $JOB -- --app-release mac-build-app-0.1.2",
-      "args": "--app-release mac-build-app-0.1.2",
+      "command": "bash testkit/run_gate.sh G-APP1 --job-dir $JOB -- --app-release mac-build-app-0.1.3",
+      "args": "--app-release mac-build-app-0.1.3",
       "requires": [
         "H-STEAM"
       ],
@@ -105,8 +109,8 @@
       "id": "G-APP2",
       "title": "PEAK (Modded).app game step: Steam console paste, verify, PeakPack and mods, quit",
       "doc": "testkit/gates/G-APP2.md",
-      "command": "bash testkit/run_gate.sh G-APP2 --job-dir $JOB -- --app-release mac-build-app-0.1.2 --timeout-min 100",
-      "args": "--app-release mac-build-app-0.1.2 --timeout-min 100",
+      "command": "bash testkit/run_gate.sh G-APP2 --job-dir $JOB -- --app-release mac-build-app-0.1.3 --timeout-min 100",
+      "args": "--app-release mac-build-app-0.1.3 --timeout-min 100",
       "requires": [
         "G-APP1"
       ],
@@ -123,8 +127,8 @@
       "id": "G-APP3",
       "title": "PEAK (Modded).app daily launch (Dock-click start) to the main menu",
       "doc": "testkit/gates/G-APP3.md",
-      "command": "bash testkit/run_gate.sh G-APP3 --job-dir $JOB -- --app-release mac-build-app-0.1.2",
-      "args": "--app-release mac-build-app-0.1.2",
+      "command": "bash testkit/run_gate.sh G-APP3 --job-dir $JOB -- --app-release mac-build-app-0.1.3",
+      "args": "--app-release mac-build-app-0.1.3",
       "requires": [
         "G-APP2"
       ],
@@ -142,8 +146,8 @@
       "id": "G-APP4",
       "title": "PEAK (Modded).app options window: Show FPS, Play with Mods, plugins load, Metal HUD",
       "doc": "testkit/gates/G-APP4.md",
-      "command": "bash testkit/run_gate.sh G-APP4 --job-dir $JOB -- --app-release mac-build-app-0.1.2",
-      "args": "--app-release mac-build-app-0.1.2",
+      "command": "bash testkit/run_gate.sh G-APP4 --job-dir $JOB -- --app-release mac-build-app-0.1.3",
+      "args": "--app-release mac-build-app-0.1.3",
       "requires": [
         "G-APP3"
       ],
@@ -163,8 +167,8 @@
       "id": "G-APP5",
       "title": "PEAK (Modded).app Play Normal PEAK: vanilla launch, no BepInEx",
       "doc": "testkit/gates/G-APP5.md",
-      "command": "bash testkit/run_gate.sh G-APP5 --job-dir $JOB -- --app-release mac-build-app-0.1.2",
-      "args": "--app-release mac-build-app-0.1.2",
+      "command": "bash testkit/run_gate.sh G-APP5 --job-dir $JOB -- --app-release mac-build-app-0.1.3",
+      "args": "--app-release mac-build-app-0.1.3",
       "requires": [
         "G-APP4"
       ],
@@ -182,8 +186,8 @@
       "id": "G-APP6",
       "title": "PEAK (Modded).app repair (damaged stamp and runtime file) and uninstall (moved out of the job)",
       "doc": "testkit/gates/G-APP6.md",
-      "command": "bash testkit/run_gate.sh G-APP6 --job-dir $JOB -- --app-release mac-build-app-0.1.2",
-      "args": "--app-release mac-build-app-0.1.2",
+      "command": "bash testkit/run_gate.sh G-APP6 --job-dir $JOB -- --app-release mac-build-app-0.1.3",
+      "args": "--app-release mac-build-app-0.1.3",
       "requires": [
         "G-APP5"
       ],

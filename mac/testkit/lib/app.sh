@@ -90,6 +90,39 @@ app_quit() {
   while app_running && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
   ! app_running
 }
+# ---------------------------------------------------------------- test-only PeakPack override (app 0.1.3+)
+# When the slot pins peakpack.tag (PP_PEAKPACK_TAG, kept in job.env), the app gets
+#   --test-peakpack-url <release>/PeakPack.exe --test-peakpack-sha256 <sha from that release's SHA256SUMS>
+# (honoured by the app only together with --data-dir). Nothing is hard-coded here.
+APP_PP_ARGS=(); APP_PP_TAG=""; APP_OVERRIDE_CHECKED=0
+app_peakpack_override() {
+  local tag sums sha
+  APP_PP_ARGS=(); APP_PP_TAG=""
+  tag=${PP_PEAKPACK_TAG:-$(job_env_get PEAKPACK_TAG)}
+  [ -n "$tag" ] || return 0
+  case "$tag" in mac-build-peakpack-*|rev-*) ;; *) log "PP_PEAKPACK_TAG must be mac-build-peakpack-* or rev-*: $tag"; return 1 ;; esac
+  sums="$DL/peakpack-$tag/SHA256SUMS"; mkdir -p "$(dirname "$sums")"
+  [ -s "$sums" ] || fetch_url "https://github.com/$PP_REPO/releases/download/$tag/SHA256SUMS" "$sums" || { log "no SHA256SUMS in $tag"; return 1; }
+  sha=$(tr -d '\r' < "$sums" | awk '{ n = $2; sub(/^\*/, "", n) } n == "PeakPack.exe" { print tolower($1); exit }')
+  case "$sha" in [0-9a-f]*) [ "${#sha}" = 64 ] || return 1 ;; *) log "$tag SHA256SUMS does not list PeakPack.exe"; return 1 ;; esac
+  APP_PP_TAG=$tag
+  APP_PP_ARGS=(--test-peakpack-url "https://github.com/$PP_REPO/releases/download/$tag/PeakPack.exe" --test-peakpack-sha256 "$sha")
+  version_set app_peakpack_override "$tag ($sha)"
+  return 0
+}
+# app_check_overrides: once per gate, on the first fresh status: with an override, status.json must list
+# "peakpack" in testOverrides (recorded either way)
+app_check_overrides() {
+  local ov
+  [ "$APP_OVERRIDE_CHECKED" = 0 ] || return 0
+  APP_OVERRIDE_CHECKED=1
+  ov=$(json_flat "$APP_STATUS" 2>/dev/null | awk -F'\t' '$1 ~ /^testOverrides\.[0-9]+$/ { printf "%s%s", s, $2; s = "," }')
+  metric app_test_overrides "${ov:-none}" str
+  [ -n "$APP_PP_TAG" ] || return 0
+  case ",$ov," in *,peakpack,*) crit test_override_peakpack pass "app uses the test PeakPack ($APP_PP_TAG): status testOverrides lists peakpack" "$ov" ;;
+    *) crit test_override_peakpack fail "app uses the test PeakPack ($APP_PP_TAG): status testOverrides lists peakpack" "testOverrides: ${ov:-none}" ;; esac
+}
+
 # app_launch [EXTRA_ARGS...]: a fresh instance with all data in the job dir. A running instance is quit first.
 # Without extra args the app autoplays (a Dock click); pass --no-autoplay or --options as the gate needs.
 app_launch() {
@@ -98,7 +131,9 @@ app_launch() {
   mkdir -p "$APP_DATA" "$APP_UNINSTALL_TO" "$STATE"
   # a status file from an earlier session must never satisfy a wait: remove it, remember the launch time
   rm -f "$APP_STATUS"; now_s > "$STATE/app-launch-epoch"
-  open -n "$APP_BUNDLE" --args --data-dir "$APP_DATA" --skip-update-check --uninstall-to "$APP_UNINSTALL_TO" "$@"
+  app_peakpack_override || return 1
+  open -n "$APP_BUNDLE" --args --data-dir "$APP_DATA" --skip-update-check --uninstall-to "$APP_UNINSTALL_TO" \
+    ${APP_PP_ARGS[@]+"${APP_PP_ARGS[@]}"} "$@"
 }
 # app_cli SECONDS ARGS... -> runs the executable without the GUI; output in $GTMP/cli.out; 124 on timeout
 app_cli() {
@@ -143,7 +178,7 @@ wait_for_phase() {
   local want=$1 to=$2 t0 ph
   t0=$(now_s)
   while :; do
-    if app_status_fresh; then ph=$(app_status_get phase); else ph="(no fresh status)"; fi
+    if app_status_fresh; then ph=$(app_status_get phase); app_check_overrides; else ph="(no fresh status)"; fi
     APP_PHASE_SEEN=$ph
     case "|$want|" in *"|$ph|"*) return 0 ;; esac
     if [ "$ph" = error ]; then return 2; fi
@@ -156,7 +191,7 @@ wait_for_step() {
   local st=$1 ss=$2 to=$3 t0 cs cst ph
   t0=$(now_s)
   while :; do
-    if app_status_fresh; then ph=$(app_status_get phase); cst=$(app_status_get step); cs=$(app_status_get stepState)
+    if app_status_fresh; then ph=$(app_status_get phase); cst=$(app_status_get step); cs=$(app_status_get stepState); app_check_overrides
     else ph="(no fresh status)"; cst=""; cs=""; fi
     APP_PHASE_SEEN=$ph
     if [ "$cst" = "$st" ] && [ "$cs" = "$ss" ]; then return 0; fi
