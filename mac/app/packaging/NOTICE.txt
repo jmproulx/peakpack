@@ -1,0 +1,12 @@
+PEAK (Modded) for Mac
+
+This app contains only our own code (MIT licence, LICENSE-PEAK-Modded.txt).
+
+When you set it up, it downloads, separately and from pinned, hash-checked sources:
+- the PeakPack Wine runtime (Wine from CodeWeavers' CrossOver LGPL sources, DXMT, DXVK, MoltenVK,
+  and the Steam bridge). Each runtime carries its own LICENSES folder, NOTICE.md and SOURCES.md with
+  the LGPL source offer: github.com/jmproulx/peakpack, releases "mac-build-runtime-*";
+- PeakPack.exe and the mods, from Joshua's signed mod pack (github.com/jmproulx/peakpack) and Thunderstore.
+
+It never downloads or contains PEAK's game files: Steam downloads them with your own account.
+Steam, PEAK, Unity and macOS are their owners' products; this app is not affiliated with them.

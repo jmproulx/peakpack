@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "repo": "jmproulx/peakpack",
+  "minMacOS": "14.0",
+  "runtime": {
+    "id": "pp1-cx26.3.0",
+    "tag": "mac-build-runtime-pp1-cx26.3.0",
+    "asset": "peakpack-runtime-pp1-cx26.3.0-x86_64.tar.xz",
+    "sha256": "a1776d399c680d70d5675c59e32c8f763b51e9fabd98dbad3215065328532bfe",
+    "size": 159970420
+  },
+  "pack": {
+    "manifestUrl": "https://github.com/jmproulx/peakpack/releases/latest/download/manifest.json",
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeHX6onaqEsLTE89iM02riTk+mI9lJ8uGWyOrk+GeULl7eZA72CTcp0dZkg+rHb2TkkCTRxaYKqWjNrNjeZt1PA==",
+    "hostName": "Joshua"
+  },
+  "game": {
+    "appId": 3527290,
+    "depotId": 3527291,
+    "expectedBytes": 1930336210,
+    "requiredFiles": [
+      "PEAK.exe",
+      "UnityPlayer.dll",
+      "PEAK_Data/Plugins/x86_64/steam_api64.dll",
+      "PEAK_Data/Managed/Assembly-CSharp.dll"
+    ]
+  },
+  "app": {
+    "releaseTagPrefix": "mac-build-app-",
+    "zipPrefix": "PEAK-Modded-Mac-"
+  },
+  "allowedHostSuffixes": ["github.com", "githubusercontent.com"]
+}

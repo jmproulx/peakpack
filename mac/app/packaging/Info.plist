@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleDisplayName</key><string>PEAK (Modded)</string>
+	<key>CFBundleName</key><string>PEAK (Modded)</string>
+	<key>CFBundleExecutable</key><string>PEAK Modded</string>
+	<key>CFBundleIdentifier</key><string>com.peakpack.modded</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>@VERSION@</string>
+	<key>CFBundleVersion</key><string>@BUILD@</string>
+	<key>LSMinimumSystemVersion</key><string>12.0</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+	<key>LSArchitecturePriority</key><array><string>arm64</string><string>x86_64</string></array>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSPrincipalClass</key><string>NSApplication</string>
+	<key>NSSupportsAutomaticTermination</key><false/>
+	<key>NSSupportsSuddenTermination</key><false/>
+	<key>NSMicrophoneUsageDescription</key><string>PEAK uses your microphone for voice chat with your friends.</string>
+	<key>NSHumanReadableCopyright</key><string>Our code: MIT licence. PEAK is a game by Landfall and Aggro Crab; Steam is Valve's.</string>
+</dict>
+</plist>

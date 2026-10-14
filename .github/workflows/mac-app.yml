@@ -1,0 +1,217 @@
+# PEAK (Modded) for Mac: the friend-facing front end (mac/app). Builds a universal (arm64 + x86_64),
+# ad-hoc-signed app on a macOS runner, runs the unit tests and a GUI smoke test, and uploads the zip.
+# publish=true creates the PRERELEASE mac-build-app-<VERSION> (never "latest"), then checks that
+# releases/latest is still a PeakPack pack release (rev-N). VERSION: mac/app/VERSION.
+# Developer ID signing/notarisation switch on automatically when the MAC_DEVID_* secrets exist (not yet).
+name: mac-app
+
+on:
+  push:
+    paths:
+      - "mac/app/**"
+      - ".github/workflows/mac-app.yml"
+  pull_request:
+    paths:
+      - "mac/app/**"
+      - ".github/workflows/mac-app.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create the mac-build-app-<VERSION> prerelease (never latest)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck + yamllint + JSON
+        run: |
+          set -euo pipefail
+          for f in mac/app/scripts/*.sh; do bash -n "$f"; done
+          shellcheck -S warning mac/app/scripts/*.sh
+          pip3 install --user --break-system-packages yamllint==1.35.1
+          cfg='{extends: default, rules: {line-length: {max: 160}, truthy: {check-keys: false}, document-start: disable}}'
+          ~/.local/bin/yamllint -d "$cfg" .github/workflows/mac-app.yml
+          python3 -I -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' mac/app/kit/mac-kit.json
+          # No CRLF in anything that ends up in the bundle or runs on the Mac.
+          if grep -rlIP '\r' mac/app --include='*.swift' --include='*.sh' --include='*.plist' --include='*.json'; then
+            echo "::error::CRLF line endings"; exit 1
+          fi
+
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    env:
+      DEVID_P12: ${{ secrets.MAC_DEVID_P12 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: |
+            mac/app
+            mac/LICENSE
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Version
+        id: ver
+        run: |
+          set -euo pipefail
+          v=$(tr -d '\r\n' < mac/app/VERSION)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad mac/app/VERSION '$v'"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Unit tests
+        working-directory: mac/app
+        run: swift test 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
+
+      - name: Build app (universal, ad-hoc signed)
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.version }}
+          APP_BUILD: ${{ github.run_number }}
+        run: bash mac/app/scripts/build_app.sh
+
+      - name: Check the bundle
+        run: |
+          set -euo pipefail
+          APP="mac/app/out/PEAK (Modded).app"
+          plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"; }
+          [ "$(plist LSMinimumSystemVersion)" = "12.0" ]
+          [ "$(plist CFBundleIdentifier)" = "com.peakpack.modded" ]
+          [ "$(plist CFBundleShortVersionString)" = "${{ steps.ver.outputs.version }}" ]
+          plist NSMicrophoneUsageDescription
+          lipo -archs "$APP/Contents/MacOS/PEAK Modded"
+          [ "$(lipo -archs "$APP/Contents/Helpers/PEAK Rosetta Check.app/Contents/MacOS/PEAK Rosetta Check")" = x86_64 ]
+          test -s "$APP/Contents/Resources/AppIcon.icns"
+          test -s "$APP/Contents/Resources/mac-kit.json"
+          codesign -dvv "$APP" 2>&1 | grep -E 'Identifier|Format|flags|Signature' || true
+          # Nothing from Valve, Apple, Unity or the game may ship in the app.
+          if find "$APP" -iname '*.dll' -o -iname '*.exe' -o -iname 'steam*' -o -iname '*.dylib' | grep .; then
+            echo "::error::unexpected third-party binaries in the bundle"; exit 1
+          fi
+          "$APP/Contents/MacOS/PEAK Modded" --version | tee /dev/stderr | grep -qx "${{ steps.ver.outputs.version }}"
+          arch -x86_64 "$APP/Contents/MacOS/PEAK Modded" --version || echo "::warning::could not run the x86_64 slice (no Rosetta on the runner?)"
+
+      - name: Status probe (no GUI)
+        run: |
+          set -euo pipefail
+          APP="mac/app/out/PEAK (Modded).app"
+          "$APP/Contents/MacOS/PEAK Modded" --print-status --data-dir "$RUNNER_TEMP/pm-status" | tee "$RUNNER_TEMP/print-status.json"
+          python3 - "$RUNNER_TEMP/print-status.json" <<'EOF'
+          import json, sys
+          s = json.load(open(sys.argv[1]))
+          assert s["schema"] == 1 and s["setupComplete"] is False, s
+          assert s["runtimeWanted"].startswith("pp"), s
+          assert s["nextStep"] in ("macOS", "rosetta", "runtime"), s
+          print("print-status OK: next step", s["nextStep"])
+          EOF
+
+      - name: GUI smoke test (window opens, welcome screen, status file)
+        run: |
+          set -euo pipefail
+          APP="$PWD/mac/app/out/PEAK (Modded).app"
+          D="$RUNNER_TEMP/pm-gui"
+          "$APP/Contents/MacOS/PEAK Modded" --data-dir "$D" --skip-update-check --no-autoplay > "$RUNNER_TEMP/gui.out" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do [ -f "$D/frontend/status.json" ] && break; sleep 1; done
+          sleep 5
+          kill -0 "$pid" || { echo "::error::app exited early"; cat "$RUNNER_TEMP/gui.out"; exit 1; }
+          cat "$D/frontend/status.json"
+          python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); assert s["phase"]=="welcome", s; print("phase", s["phase"])' "$D/frontend/status.json"
+          screencapture -x "$RUNNER_TEMP/welcome.png" || true
+          kill "$pid"; wait "$pid" 2>/dev/null || true
+          test -s "$D/Logs/PEAK Modded.log" && tail -5 "$D/Logs/PEAK Modded.log"
+
+      - name: Developer ID signing + notarisation (only when secrets exist)
+        if: ${{ env.DEVID_P12 != '' }}
+        env:
+          MAC_DEVID_P12: ${{ secrets.MAC_DEVID_P12 }}
+          MAC_DEVID_P12_PASSWORD: ${{ secrets.MAC_DEVID_P12_PASSWORD }}
+          MAC_DEVID_IDENTITY: ${{ secrets.MAC_DEVID_IDENTITY }}
+          MAC_NOTARY_APPLE_ID: ${{ secrets.MAC_NOTARY_APPLE_ID }}
+          MAC_NOTARY_TEAM_ID: ${{ secrets.MAC_NOTARY_TEAM_ID }}
+          MAC_NOTARY_PASSWORD: ${{ secrets.MAC_NOTARY_PASSWORD }}
+          APP_VERSION: ${{ steps.ver.outputs.version }}
+          APP_BUILD: ${{ github.run_number }}
+        run: bash mac/app/scripts/notarize.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: peak-modded-mac-${{ steps.ver.outputs.version }}
+          path: |
+            mac/app/out/PEAK-Modded-Mac-*.zip
+            mac/app/out/SHA256SUMS
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: mac-app-ci-logs
+          path: |
+            ${{ runner.temp }}/unit-tests.log
+            ${{ runner.temp }}/print-status.json
+            ${{ runner.temp }}/gui.out
+            ${{ runner.temp }}/welcome.png
+            ${{ runner.temp }}/pm-gui/Logs
+          retention-days: 14
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: peak-modded-mac-${{ needs.build.outputs.version }}
+          path: out
+      - name: Create prerelease (never latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="mac-build-app-${VER}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag exists; bump mac/app/VERSION"; exit 1
+          fi
+          (cd out && sha256sum -c SHA256SUMS)
+          cat > notes.md <<EOF
+          PEAK (Modded) for Mac ${VER}: the app friends download (universal, macOS 12+ to open; PEAK itself needs macOS 14+).
+          Unsigned (ad-hoc): the first open needs System Settings → Privacy & Security → Open Anyway.
+          Pilot build, not a PeakPack pack release. Our own MIT code only; the game engine, PeakPack and PEAK are
+          downloaded by the app from pinned, hash-checked sources and the friend's own Steam account.
+          Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_SHA}.
+          EOF
+          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "PEAK (Modded) for Mac ${VER}" --notes-file notes.md
+      - name: releases/latest must still be the pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          echo "releases/latest -> $latest"
+          case "$latest" in rev-*) ;; *) echo "::error::releases/latest is $latest, not a pack release (rev-N)"; exit 1 ;; esac
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/manifest.json")
+          [ "$code" = 200 ] || { echo "::error::latest/download/manifest.json returned $code"; exit 1; }
