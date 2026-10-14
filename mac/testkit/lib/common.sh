@@ -53,7 +53,16 @@ prefix_user_of() {
   if [ -n "$best" ]; then printf '%s\n' "$best"; else echo crossover; fi
 }
 # users_seen PREFIX -> "crossover,fleet" (the user folders present; for failure details)
-users_seen() { (cd "$1/drive_c/users" 2>/dev/null && ls -1 | grep -v -x -E 'Public|public' | paste -sd, -) || echo "(no drive_c/users)"; }
+users_seen() {
+  local u out=""
+  [ -d "$1/drive_c/users" ] || { echo "(no drive_c/users)"; return 0; }
+  for u in "$1"/drive_c/users/*; do
+    [ -d "$u" ] || continue
+    case "$(basename "$u")" in Public|public) continue ;; esac
+    out="${out:+$out,}$(basename "$u")"
+  done
+  printf '%s\n' "${out:-(none)}"
+}
 # path_detail PATH -> "looked for <job-relative PATH>: missing (nearest existing: <dir>)" or "...: present"
 path_detail() {
   local p=$1 d
