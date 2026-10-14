@@ -202,14 +202,18 @@ wait_for_step() {
 }
 
 # ---------------------------------------------------------------- app-side paths (the app's own prefix)
-app_wine_user() {
-  local u
+app_wine_user() {  # the Windows user folder of the app's own prefix (see wine_user)
+  # Our CrossOver-derived Wine names the Windows user "crossover" (CrossOver Hack 12735 in advapi32 GetUserName;
+  # CX_REPORT_REAL_USERNAME is not set), so drive_c/users/crossover is THE user folder. Only Public is skipped;
+  # if several remain, the one whose AppData changed last wins.
+  local u best="" bm=-1 m
   for u in "$APP_PFX"/drive_c/users/*; do
     [ -d "$u" ] || continue
-    case "$(basename "$u")" in Public|public|crossover) continue ;; esac
-    basename "$u"; return 0
+    case "$(basename "$u")" in Public|public) continue ;; esac
+    if [ -d "$u/AppData" ]; then m=$(mtime_of "$u/AppData"); else m=0; fi
+    if [ "$m" -gt "$bm" ]; then best=$(basename "$u"); bm=$m; fi
   done
-  id -un
+  if [ -n "$best" ]; then printf '%s\n' "$best"; else echo crossover; fi
 }
 app_pp_dir() { printf '%s/drive_c/users/%s/AppData/Local/PeakPack' "$APP_PFX" "$(app_wine_user)"; }
 app_player_log() { printf '%s/drive_c/users/%s/AppData/LocalLow/%s/%s/Player.log' "$APP_PFX" "$(app_wine_user)" "$UNITY_COMPANY" "$UNITY_PRODUCT"; }

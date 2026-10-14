@@ -166,14 +166,18 @@ wine_stop() {  # kills every Wine process of OUR prefix only
   sleep 2
   return 0
 }
-wine_user() {  # the prefix's Windows user folder name (Wine uses the Mac user name)
-  local u
+wine_user() {  # the prefix's Windows user folder name
+  # Our CrossOver-derived Wine names the Windows user "crossover" (CrossOver Hack 12735 in advapi32 GetUserName;
+  # CX_REPORT_REAL_USERNAME is not set), so drive_c/users/crossover is THE user folder. Only Public is skipped;
+  # if several remain, the one whose AppData changed last wins.
+  local u best="" bm=-1 m
   for u in "$PFX"/drive_c/users/*; do
     [ -d "$u" ] || continue
-    case "$(basename "$u")" in Public|public|crossover) continue ;; esac
-    basename "$u"; return 0
+    case "$(basename "$u")" in Public|public) continue ;; esac
+    if [ -d "$u/AppData" ]; then m=$(mtime_of "$u/AppData"); else m=0; fi
+    if [ "$m" -gt "$bm" ]; then best=$(basename "$u"); bm=$m; fi
   done
-  id -un
+  if [ -n "$best" ]; then printf '%s\n' "$best"; else echo crossover; fi
 }
 # ensure_prefix -> creates $PFX with the runtime's pp-create-prefix.sh when missing/stale. Log: $GLOG/create-prefix.log
 ensure_prefix() {

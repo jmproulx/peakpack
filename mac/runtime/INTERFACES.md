@@ -118,6 +118,11 @@ Installed at `~/Library/Application Support/PeakPack/runtime/<RUNTIME_ID>/` (DES
 
 `~/Library/Application Support/PeakPack/prefix/` is created by `prefix/pp-create-prefix.sh <runtime> <prefix> [backend]`. The script is idempotent and re-runs `wineboot --update` when the runtime ID changes.
 
+**The prefix's Windows user is always `crossover`**, so `<u>` below is `crossover`.
+- This comes from CrossOver Hack 12735 in `advapi32` `GetUserName`: it reports a consistent user name regardless of the Mac account. We never set `CX_REPORT_REAL_USERNAME`.
+- The per-user folders are therefore `drive_c/users/crossover/…`: `AppData\Local\PeakPack`, `AppData\LocalLow\LandCrab\PEAK\Player.log` (PEAK's log and saves), and so on.
+- Code that locates them should not use the Mac user name. Use `crossover`, or the only non-`Public` folder under `drive_c/users`.
+
 | Path in the prefix | Owner | Notes |
 |---|---|---|
 | `drive_c/users/<u>/AppData/Local/PeakPack/PeakPack.exe` | PeakPack agent | **Must be exactly here.** PeakPack's self-update and the Companion's live-update launch depend on it (PeakPack DESIGN §18). It is not `C:\PeakPack`. |
