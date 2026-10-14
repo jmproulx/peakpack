@@ -9,10 +9,12 @@ struct AppUpdateService {
     let log = AppLog.shared
 
     func check(signed: PackManifest?) async throws -> AppUpdateCandidate? {
-        if let cur = DottedVersion(AppInfo.version),
-           let c = AppUpdateFinder.fromSigned(signed?.platforms?.mac?.frontEnd, repo: env.kit.repo, current: cur) {
+        let pin = signed?.platforms?.mac?.frontEnd
+        if AppUpdateFinder.signedPinGoverns(pin) {
+            // Joshua's signed pack decides which app version friends run; the release list is not consulted.
             env.update { $0.lastAppUpdateCheck = Date() }
-            return c
+            guard let cur = DottedVersion(AppInfo.version) else { return nil }
+            return AppUpdateFinder.fromSigned(pin, repo: env.kit.repo, current: cur)
         }
         let dl = FileDownloader(isAllowed: env.kit.isAllowed)
         let data = try await dl.fetchData(env.kit.releasesAPIURL, accept: "application/vnd.github+json")

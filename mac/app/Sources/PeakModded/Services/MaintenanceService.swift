@@ -39,6 +39,12 @@ struct MaintenanceService {
             let text = Diagnostics.redact(String(decoding: data, as: UTF8.self), userName: NSUserName())
             try? Data(text.utf8).write(to: d)
         }
+        if let session = Diagnostics.newestFile(in: env.paths.peakSessionDir(user: user), prefix: "session-", suffix: ".jsonl") {
+            let d = dest.appendingPathComponent("PeakSession " + session.lastPathComponent)
+            try? fm.removeItem(at: d)
+            let text = Diagnostics.redact(Diagnostics.lastBytes(of: session, maxBytes: 2 * 1024 * 1024), userName: NSUserName())
+            try? Data(text.utf8).write(to: d)
+        }
         NSWorkspace.shared.activateFileViewerSelecting([AppLog.shared.fileURL ?? env.paths.logs])
     }
 
@@ -62,8 +68,14 @@ struct MaintenanceService {
         if let o = env.testPeakPack { facts.append(("TEST", o.label)) }
         if let sig = lastSignatureLine() { facts.append(("PeakPack signature check", sig)) }
         facts += extra
+        var sessionTail = ""
+        if let session = Diagnostics.newestFile(in: env.paths.peakSessionDir(user: env.wineUser), prefix: "session-", suffix: ".jsonl") {
+            facts.append(("PeakSession", session.lastPathComponent))
+            sessionTail = Diagnostics.lastBytes(of: session, maxBytes: 12 * 1024)
+        }
         let err = lastError.map { "\($0.heading) [\($0.code)]\n\($0.advice)\n\($0.details)" }
-        let tail = AppLog.shared.fileURL.map { Diagnostics.tail(of: $0, maxLines: 80) } ?? ""
+        var tail = AppLog.shared.fileURL.map { Diagnostics.tail(of: $0, maxLines: 80) } ?? ""
+        if !sessionTail.isEmpty { tail += "\n\nPeakSession (last lines):\n" + sessionTail }
         return Diagnostics.report(title: Date().description, facts: facts, error: err, logTail: tail, userName: NSUserName())
     }
 

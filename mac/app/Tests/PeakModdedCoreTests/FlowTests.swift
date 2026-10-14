@@ -345,6 +345,32 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(Diagnostics.redact("Successfully got user token", userName: "sam"), "Successfully got user token")
     }
 
+    func testSignedFrontEndPinGovernsUpdates() throws {
+        let json = #"{"schema":1,"revision":6,"platforms":{"mac":{"frontEnd":{"version":"0.1.6","tag":"mac-build-app-0.1.6","zip":"PEAK-Modded-Mac-0.1.6.zip","sha256":"\#(String(repeating: "b", count: 64))"}}}}"#
+        let m = try PackManifest.decode(Data(json.utf8))
+        XCTAssertTrue(AppUpdateFinder.signedPinGoverns(m.platforms?.mac?.frontEnd))
+        XCTAssertNil(AppUpdateFinder.fromSigned(m.platforms?.mac?.frontEnd, repo: "jmproulx/peakpack", current: DottedVersion("0.1.6")!),
+                     "pinned to the running version: no update, and the release list is not consulted")
+        XCTAssertFalse(AppUpdateFinder.signedPinGoverns(nil))
+    }
+
+    func testSessionFilePickAndCap() throws {
+        let d = tempDir("session")
+        let old = d.appendingPathComponent("session-20261014-1900.jsonl")
+        let new = d.appendingPathComponent("session-20261014-2100.jsonl")
+        try Data("{\"t\":1}\n".utf8).write(to: old)
+        let lines = (0..<5000).map { #"{"t":\#($0),"fps":58,"note":"x"}"# }.joined(separator: "\n") + "\n"
+        try Data(lines.utf8).write(to: new)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: old.path)
+        try Data("ignore".utf8).write(to: d.appendingPathComponent("other.txt"))
+        XCTAssertEqual(Diagnostics.newestFile(in: d, prefix: "session-", suffix: ".jsonl")?.lastPathComponent, new.lastPathComponent)
+        let capped = Diagnostics.lastBytes(of: new, maxBytes: 4096)
+        XCTAssertLessThanOrEqual(capped.utf8.count, 4096)
+        XCTAssertTrue(capped.hasPrefix("{\"t\":"), "starts at a whole line")
+        XCTAssertTrue(capped.hasSuffix("\"note\":\"x\"}\n"))
+        XCTAssertNil(Diagnostics.newestFile(in: d.appendingPathComponent("missing"), prefix: "session-", suffix: ".jsonl"))
+    }
+
     func testFrontEndStatusFile() throws {
         let f = tempDir().appendingPathComponent("frontend/status.json")
         var s = FrontEndStatus(appVersion: "0.1.0", phase: "setup")

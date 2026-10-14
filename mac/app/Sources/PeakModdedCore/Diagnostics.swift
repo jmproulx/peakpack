@@ -54,6 +54,30 @@ public enum Diagnostics {
         return redact(lines.joined(separator: "\n"), userName: userName)
     }
 
+    /// Newest file in `dir` whose name starts with `prefix` and ends with `suffix` (by modification date).
+    public static func newestFile(in dir: URL, prefix: String, suffix: String) -> URL? {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
+        guard let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return nil }
+        return items.filter { $0.lastPathComponent.hasPrefix(prefix) && $0.lastPathComponent.hasSuffix(suffix) }
+            .max { a, b in
+                let da = (try? a.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+                return da < db
+            }
+    }
+
+    /// The last `maxBytes` of a file, starting at a line boundary.
+    public static func lastBytes(of url: URL, maxBytes: Int) -> String {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
+        try? h.seek(toOffset: start)
+        var text = String(decoding: (try? h.readToEnd()) ?? Data(), as: UTF8.self)
+        if start > 0, let nl = text.firstIndex(where: { $0.isNewline }) { text = String(text[text.index(after: nl)...]) }
+        return text
+    }
+
     public static func tail(of url: URL, maxLines: Int = 60, maxBytes: Int = 64 * 1024) -> String {
         guard let h = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? h.close() }

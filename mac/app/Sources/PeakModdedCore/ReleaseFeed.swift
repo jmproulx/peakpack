@@ -34,6 +34,9 @@ public struct AppUpdateCandidate: Equatable {
 }
 
 public enum AppUpdateFinder {
+    /// True when the signed manifest pins a front end: then only that pin may update the app.
+    public static func signedPinGoverns(_ pin: PackManifest.FrontEndPin?) -> Bool { pin?.isWellFormed == true }
+
     /// A signed front-end pin newer than `current` wins over the release list.
     public static func fromSigned(_ pin: PackManifest.FrontEndPin?, repo: String, current: DottedVersion) -> AppUpdateCandidate? {
         guard let pin, pin.isWellFormed, let v = DottedVersion(pin.version), v > current,

@@ -65,6 +65,10 @@ public struct AppPaths: Equatable {
     public func playerLog(user: String) -> URL {
         driveC.appendingPathComponent("users/\(user)/AppData/LocalLow/LandCrab/PEAK/Player.log")
     }
+    /// PeakSession (rev-6) writes session-*.jsonl here.
+    public func peakSessionDir(user: String) -> URL {
+        peakPackDir(user: user).appendingPathComponent("profile/BepInEx/PeakSession", isDirectory: true)
+    }
     public func bepInExLog(user: String) -> URL {
         peakPackDir(user: user).appendingPathComponent("profile/BepInEx/LogOutput.log")
     }
