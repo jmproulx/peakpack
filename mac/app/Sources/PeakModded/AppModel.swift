@@ -644,6 +644,7 @@ final class AppModel: ObservableObject {
         task = Task {
             screen = .launching
             setActivity("Removing PEAK (Modded)", "Moving files to the Trash…")
+            env.frozen = true
             let failed = await maintenance.uninstall()
             activity = nil
             if failed.isEmpty {
@@ -670,6 +671,7 @@ final class AppModel: ObservableObject {
     // MARK: status file (for test gates; no personal data)
 
     func writeStatus(phaseOverride: String? = nil) {
+        guard !env.frozen else { return }
         var s = FrontEndStatus(appVersion: AppInfo.version, phase: phaseOverride ?? phaseName)
         s.step = activeStep?.rawValue ?? (screen == .setup && waiting == .welcome ? "welcome" : nil)
         if problem != nil { s.stepState = "failed" } else if waiting != nil { s.stepState = "waiting-for-user" }

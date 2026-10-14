@@ -64,8 +64,10 @@ final class AppEnvironment {
     let store: StateStore
     let options: LaunchOptions
     var state: FrontEndState {
-        didSet { try? store.save(state) }
+        didSet { if !frozen { try? store.save(state) } }
     }
+    /// Set by Uninstall: from then on nothing may recreate the data folder (state, status file).
+    var frozen = false
 
     init(options: LaunchOptions) throws {
         self.options = options
