@@ -30,7 +30,7 @@ bash testkit/run_gate.sh G-B2 --job-dir "$JOB" [-- <args>]
 
 | Argument | Default | What it does |
 |---|---|---|
-| `--t5-seconds N` | 240 | Length of the T5 run. The script waits up to N minus 30 s for PEAK's Steam line in Player.log. Slot 1 passes 240. |
+| `--t5-seconds N` | 600 | Length of the T5 run. The script waits up to N minus 30 s for PEAK's Steam line in Player.log. PEAK logs that line only after its first scene has loaded, and on a cold prefix DXMT translates that scene's shaders first. Slot 1 passes 600. |
 
 ## What the script does
 

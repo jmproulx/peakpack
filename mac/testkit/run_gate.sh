@@ -25,7 +25,7 @@ pass_args=()
 gate_timeout_default() {  # minutes; generous on purpose (first runs translate x86 code with Rosetta)
   case "$1" in
     P0) echo 10 ;; H-STEAM) echo 3 ;; G-B0) echo 5 ;; G-B1) echo 10 ;; G-A1) echo 45 ;;
-    G-B5) echo 100 ;; G-B2) echo 30 ;; G-D2) echo 45 ;; G-A2-lite) echo 35 ;; G-C0) echo 150 ;;
+    G-B5) echo 100 ;; G-B2) echo 40 ;; G-D2) echo 60 ;; G-A2-lite) echo 50 ;; G-C0) echo 150 ;;
     G-A2-CX) echo 5 ;; H-MIC) echo 30 ;; G-X1) echo 150 ;;
     G-APP1) echo 45 ;; G-APP2) echo 130 ;; G-APP3) echo 30 ;; G-APP4) echo 30 ;; G-APP5) echo 25 ;; G-APP6) echo 60 ;;
     *) echo 30 ;;

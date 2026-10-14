@@ -8,14 +8,15 @@
 # -force-d3d11 through peakpack_steam_launcher.exe; the hub's agent confirms the main menu renders
 # (CU-mainmenu: the DXMT render proof when G-A1 had no probe) and the script reads Player.log.
 # Needs: G-A1 (runtime + prefix), G-B5 (game in the job dir), Mac Steam running + signed in.
-# Args: [--t5-seconds N] (default 240)
+# Args: [--t5-seconds N] (default 600: PEAK logs Steam only after its first scene loaded, and a cold prefix
+#   translates the scene's shaders with DXMT first)
 set -u
 . "$PP_KIT_DIR/lib/common.sh"
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-B2 "Steam bridge in Wine (T3-T5)"
 gate_require_mac
 gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
-t5s=240
+t5s=600
 while [ $# -gt 0 ]; do case "$1" in --t5-seconds) t5s=$2; shift 2 ;; *) shift ;; esac; done
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"
 steam_running || gate_finish_as needs-human "Mac Steam is not running" "Run H-STEAM (Steam open and signed in under the fleet user), then re-run G-B2."

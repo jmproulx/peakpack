@@ -53,7 +53,7 @@ No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself
 8. Launches PEAK with `-force-d3d11 -screen-width 1440 -screen-height 900 -screen-fullscreen 1 -window-mode borderless`, with `PP_HUD=1`.
    - Default: the launcher starts `PEAK.exe` with those arguments.
    - `--modded`: the launcher starts with `--no-launch`. The script waits 8 s, then runs `PeakPack.exe --headless --launch`. The screen arguments are not passed on this path. PEAK uses its saved resolution, and the gate records a note saying so.
-9. Criterion `started`: waits up to 300 s for "Steam runtime manager initialized" in Player.log. If it does not appear, the gate ends now with status fail.
+9. Criterion `started`: waits up to 600 s (the line is logged after the first scene load) for "Steam runtime manager initialized" in Player.log. If it does not appear, the gate ends now with status fail.
 10. CU-menu (see below). Records the menu FPS as metric `fps_main_menu`. A `fail` answer records `reached_menu` as fail and ends the gate now. A skip or a timeout records nothing, and the script goes on.
 11. CU-shore (see below). Records metrics `reached_airport` and `reached_level_1` from Player.log. The step passes by itself once Player.log shows "Update current scene: Level_1".
 12. Criterion `reached_shore`: pass for an ok answer or the automatic pass. Fail for any other answer, including skip or timeout. If it fails, the FPS step does not run.

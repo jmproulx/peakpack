@@ -33,7 +33,7 @@ bash testkit/run_gate.sh G-D2 --job-dir "$JOB" [-- <args>]
 |---|---|---|
 | `--expect-plugins FILE` | `expect/pack-plugins.txt` | File of plugin names that must load, one per line. Blank lines and lines starting with `#` are ignored. |
 | `--sync-timeout S` | 900 | Time limit for the `--sync` run, in seconds. |
-| `--launch-timeout S` | 300 | How long to wait for BepInEx's "Chainloader startup complete" line and PEAK's Steam line. The launch calls themselves are capped at 300 s. |
+| `--launch-timeout S` | 600 | How long to wait for BepInEx's "Chainloader startup complete" line and PEAK's Steam line. The launch calls themselves are capped at 300 s. |
 
 ## What the script does
 

@@ -20,6 +20,10 @@ on:
         type: choice
         options: [macos-15, macos-15-intel]
         default: macos-15   # Apple Silicon + Rosetta (the Intel VM has no usable Metal device)
+      peakpack_tag:
+        description: "Release whose PeakPack.exe the PeakPack step runs (rev-N or mac-build-peakpack-*)"
+        type: string
+        default: "rev-5"
       wine_debug:
         description: "WINEDEBUG for the diagnostic runs"
         type: string
@@ -40,12 +44,15 @@ jobs:
       RUN_ID: ${{ inputs.run_id }}
       RID: ${{ inputs.runtime_id }}
       DBG: ${{ inputs.wine_debug }}
+      PPTAG: ${{ inputs.peakpack_tag }}
     steps:
       - name: Validate inputs
         run: |
           case "$RUN_ID" in (*[!0-9]*|"") echo "::error::bad run_id"; exit 1;; esac
           case "$RID" in (*[!A-Za-z0-9._-]*|"") echo "::error::bad runtime_id"; exit 1;; esac
           case "$DBG" in (*[!A-Za-z0-9,+._-]*) echo "::error::bad wine_debug"; exit 1;; esac
+          case "$PPTAG" in (rev-[0-9]*|mac-build-peakpack-*) ;; (*) echo "::error::bad peakpack_tag"; exit 1;; esac
+          case "$PPTAG" in (*[!A-Za-z0-9._-]*) echo "::error::bad peakpack_tag"; exit 1;; esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           sparse-checkout: mac/runtime
@@ -186,7 +193,32 @@ jobs:
           grep -a -E '^RESULT|^\[peakpack-steam\]' logs/t3-nosteam.log | head -40
           grep -a -i -E 'lsteamclient|steamclient64|err:module|failed to load|status c0' logs/t3-nosteam.log \
             | grep -a -v -E '^\s+VK_' | head -40
-      - name: PeakPack --headless --status under Wine (rev-5 release; crypto/TLS check)
+      - name: D3D11 through DXMT (d3d11_clear.exe run as PEAK.exe, like G-A1)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set +e -uo pipefail
+          mkdir -p logs
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          P="$RUNNER_TEMP/pfx-abs"
+          tdir=$(mktemp -d); t=$(ls art/peakpack-steam-tests-*.tar.xz 2>/dev/null | head -1)
+          [ -n "$t" ] && tar -xJf "$t" -C "$tdir"
+          probe=$(find "$tdir" -name d3d11_clear.exe | head -1)
+          [ -n "$probe" ] || { echo "no d3d11_clear.exe in the artifact's Steam test kit"; exit 0; }
+          d="$P/drive_c/PeakPackTests/dxprobe"; mkdir -p "$d"; cp "$probe" "$d/PEAK.exe"
+          (
+            # shellcheck source=/dev/null
+            . "$R/share/peakpack/prefix/pp-env.sh"
+            PP_WINEDEBUG="err+all,+loaddll" pp_env "$R" "$P" logs >/dev/null
+            to 120 "$WINELOADER" 'C:\PeakPackTests\dxprobe\PEAK.exe' --frames 300 --width 1280 --height 720 --hold-ms 3000 \
+              > logs/d3d11-probe.log 2>&1
+            echo "probe exit $?"
+            "$WINESERVER" -k 2>/dev/null
+          )
+          tr -d '\r' < logs/d3d11-probe.log | grep -a -E '^RESULT' | head -40
+          tr -d '\r' < logs/d3d11-probe.log | grep -a -i -E 'Loaded.*(d3d11|dxgi|winemetal)' | head -10
+      - name: PeakPack --headless --status under Wine (inputs.peakpack_tag; crypto/TLS check)
         if: ${{ always() }}
         continue-on-error: true
         timeout-minutes: 15
@@ -197,8 +229,8 @@ jobs:
           P="$RUNNER_TEMP/pfx-abs"
           u=$(ls "$P/drive_c/users" | grep -v -x -E 'Public|public|crossover' | head -1)
           ppd="$P/drive_c/users/$u/AppData/Local/PeakPack"; mkdir -p "$ppd" "$P/drive_c/Games/PEAK" "$P/drive_c/PeakPackTests"
-          curl -fsSL -o "$ppd/PeakPack.exe" https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack.exe
-          curl -fsSL -o pp.sha256 https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack.exe.sha256
+          curl -fsSL -o "$ppd/PeakPack.exe" "https://github.com/jmproulx/peakpack/releases/download/$PPTAG/PeakPack.exe"
+          curl -fsSL -o pp.sha256 "https://github.com/jmproulx/peakpack/releases/download/$PPTAG/PeakPack.exe.sha256"
           echo "PeakPack.exe $(shasum -a 256 "$ppd/PeakPack.exe" | cut -d' ' -f1) (release says: $(cut -c1-64 pp.sha256))"
           for run in plain debug; do
             (

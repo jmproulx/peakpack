@@ -38,11 +38,11 @@ Joshua ideally does **one** thing: sign in to Mac Steam under `fleet` once (gate
 | **H-STEAM** | 1 | Mac Steam is running (never reads login/config files; G-B1 proves the login) | only if a sign-in window appears | 1 min (3) |
 | **G-B0** | 1 | T0: `steamclient.dylib` has an x86_64 slice and the exports lsteamclient needs | no | 1 min (5) |
 | **G-B1** | 1 | T1/T2: an x86_64 probe under Rosetta gets the SteamID, the logged-on state and an auth ticket. Mac Steam shows "Playing PEAK" | no | 3 min (10) |
-| **G-A1** | 1 | Runtime boots. Release assets verified; prefix in the job dir; wineboot, `cmd`, `reg`, `regedit`; D3D11 through DXMT | no | 20 min (45) |
+| **G-A1** | 1 | Runtime boots. Release assets verified; prefix in the job dir; wineboot, `cmd`, `reg`, `regedit`; D3D11 through DXMT | no | 20 min (60) |
 | **G-B5** | 1 | T15: game files via Mac Steam `download_depot 3527290 3527291` (CU), verified against the Windows reference, moved into the job dir | no | 30 min (100) |
-| **G-B2** | 1 | T3–T5: bridge in Wine (forwarder, PEAK's `steam_api64.dll`, PEAK itself). Main menu renders (DXMT proof) | no | 10 min (30) |
+| **G-B2** | 1 | T3–T5: bridge in Wine (forwarder, PEAK's `steam_api64.dll`, PEAK itself). Main menu renders (DXMT proof) | no | 10 min (40) |
 | **G-D2** | 1 | PeakPack in the prefix: `--sync`; the modded launch loads every pack plugin; the vanilla launch has no BepInEx | no | 20 min (45) |
-| **G-A2-lite** | 1 | Short performance run: Metal HUD, solo to the Shore, 2 min. Memory sampled every 10 s | no | 15 min (35) |
+| **G-A2-lite** | 1 | Short performance run: Metal HUD, solo to the Shore, 2 min. Memory sampled every 10 s | no | 15 min (50) |
 | **G-X1** | 3 | Cross-play with a friend: room code, Steam join, voice, companion, networked mods | **yes** (Joshua and a friend) | 60 min (150) |
 | **H-MIC** | 3 | Microphone prompt for voice | **yes** (privacy decision) | with G-X1 |
 | **G-C0** | 4 | Native smoke with the Unity Mac player: (a) stock data, (b) shaders converted on the Mac | no | 60 min (150) |
@@ -56,8 +56,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.4.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.4/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.5.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.5/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &

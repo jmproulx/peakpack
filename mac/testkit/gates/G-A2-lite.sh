@@ -91,8 +91,9 @@ else
   PP_HUD=1 pp_wine normal 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
      --log 'C:\PeakPackTests\launcher-a2.log' -- 'C:\Games\PEAK\PEAK.exe' $ARGS > "$GLOG/peak-wine.out" 2>&1 &
 fi
-if wait_for_file_text "$plog" "Steam runtime manager initialized" 300 "$t_launch"; then crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
-else crit started fail "PEAK started within 300 s"; gate_end; fi
+# PEAK logs the Steam line after its first scene load (a cold prefix translates that scene's shaders first)
+if wait_for_file_text "$plog" "Steam runtime manager initialized" 600 "$t_launch"; then crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
+else crit started fail "PEAK started within 600 s"; gate_end; fi
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 
 # ---- the agent drives the game

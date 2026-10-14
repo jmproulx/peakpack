@@ -38,9 +38,9 @@
     "verification": "every zip is checked against the release's SHA256SUMS by lib/app.sh (ensure_app); the game depot is checked file by file against expect/peak-win-<version>-*.manifest when the version matches"
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.4.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.3.4/mac/testkit",
-    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.4/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.5.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.3.5/mac/testkit",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.5/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
     "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
   },
   "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",
