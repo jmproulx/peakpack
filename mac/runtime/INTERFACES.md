@@ -109,7 +109,7 @@ Installed at `~/Library/Application Support/PeakPack/runtime/<RUNTIME_ID>/` (DES
   lib/peakpack/dxvk/x86_64-windows/   DXVK-macOS d3d11.dll, dxgi.dll, d3d10core.dll (fallback; copied into the prefix)
   share/wine/                   wine.inf, nls, fonts
   share/peakpack/prefix/        prefix scripts and .reg files (copy of mac/runtime/prefix)
-  share/peakpack/steam/         Steam team's non-builtin files (steamclient64.dll forwarder, helper)
+  share/peakpack/steam/         steamclient64.dll (forwarder) + peakpack_steam_launcher.exe (§4.1)
   LICENSES/                     every licence text + NOTICE.md + SOURCES.md (LGPL source offer and links)
   manifest.json                 versions, pins, SHA-256 of every file (schema §5)
 ```
@@ -161,7 +161,7 @@ The front end, or the Steam team's helper when it launches PEAK, builds the envi
 | `WINESERVER` | `$PP_RUNTIME/bin/wineserver` | pins the server binary |
 | `WINELOADER` | `$PP_RUNTIME/bin/wine` | |
 | `DYLD_FALLBACK_LIBRARY_PATH` | `$PP_RUNTIME/lib:/usr/lib` | Wine dlopens bare sonames (`libfreetype.6.dylib`, `libgnutls.30.dylib`, `libMoltenVK.dylib`); this is how it finds our bundled copies. **Set it in the process that execs `wine` directly.** SIP strips `DYLD_*` across `/bin/sh` and other protected binaries, so `pp-env.sh` is sourced by bash and then `exec`s `wine` |
-| `WINEDEBUG` | `-all`; logs mode: `err+all,warn-all,fixme-all` | perf |
+| `WINEDEBUG` | `-all`; logs mode: `err+all,warn-all,fixme-all`; **`PP_WINEDEBUG` (if set) overrides both** (diagnostics/support) | perf |
 | `WINEMSYNC` / `WINEESYNC` | `1`/`0`; knob `PP_SYNC=msync\|esync\|none` | Mach-semaphore sync (CrossOver's msync) |
 | `WINEDLLOVERRIDES` | **Unset by `pp_env`.** During prefix creation only: `mscoree,mshtml=;winemenubuilder.exe=d`. At PEAK launch: only `winhttp=n,b`, set by PeakPack (see §3.1 rule) | the env var beats AppDefaults per DLL |
 | `DXMT_LOG_LEVEL` / `DXMT_LOG_PATH` | `none`/`none`; logs mode: `info` / `<prefix>/../logs` | DXMT logging |
@@ -170,12 +170,35 @@ The front end, or the Steam team's helper when it launches PEAK, builds the envi
 | `DXMT_SHADER_CACHE_PATH` | `$WINEPREFIX/peakpack/dxmt-cache` | keeps the cache inside our folder |
 | `MTL_HUD_ENABLED` | knob `PP_HUD` (`0`/`1`, menu: Show FPS) | Metal HUD |
 | `ROSETTA_ADVERTISE_AVX` | knob `PP_AVX=1` sets it; default unset | TUNING.md row R7 |
-| *(Steam team)* `SteamAppId`, `SteamGameId`, `STEAM_COMPAT_CLIENT_INSTALL_PATH` | set by the helper | §5.3 of DESIGN |
+| `STEAM_COMPAT_CLIENT_INSTALL_PATH` | default `~/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS` (dir of Mac Steam's `steamclient.dylib`); an existing value is kept | lsteamclient loads the Mac client from here |
+| `SteamAppId`, `SteamGameId` | set by `peakpack_steam_launcher.exe` (3527290) for itself and the game | §5.3 of DESIGN |
+
+**Paths:** `pp_env` and every prefix script canonicalise `<runtime_dir>` and `<prefix_dir>` to absolute paths (the prefix dir is created if missing). Wine child processes start in another working directory, so relative paths are not supported.
+
+**GUI session (required):** Wine's Mac driver needs the logged-in user's GUI (Aqua) session. A process started from Finder/the Dock (the front-end app) has it; a remote shell (SSH, `launchctl managername` = `Background`) does not, and then every window fails ("nodrv_CreateWindow: The graphics driver is missing", explorer fails). Prefix creation itself works headless but logs those errors.
 
 **Graphics backend selection:**
 - Run `prefix/pp-backend.sh <dxmt|dxvk|wined3d>`. It copies the chosen DLL set into `drive_c/windows/system32`, then writes or removes `HKCU\Software\Wine\AppDefaults\PEAK.exe\DllOverrides`.
 - This is per prefix and persistent, so the launcher does not pass it per run.
 - Default: `dxmt`.
+
+### 4.1 `peakpack_steam_launcher.exe` (Steam bridge launcher; runs inside Wine)
+
+```
+wine 'C:\…\peakpack_steam_launcher.exe' [--appid 3527290] [--steam-dir 'C:\Program Files (x86)\Steam'] [--client-dll …]
+    [--forwarder-src …] [--no-install] [--steam-client-dir /Users/…/MacOS] [--language english]
+    [--connect-lobby <id>] [--cwd …] [--log WINPATH] [--dry-run] [--registry-root Software\PeakPackTest [--delete-test-root]]
+    [--no-launch [--hold-ms N]] [--keep-registry] [--no-warmup]  --  <game.exe> [game args…]
+```
+
+- It installs the forwarder at `<steam-dir>\steamclient64.dll`, advertises itself as the running Steam (`ActiveProcess\pid`), sets `SteamAppId`/`SteamGameId`, starts the game, waits, and resets `pid`/`Running` at exit.
+- **Exit code:** the game's. The launcher's own errors: 120 usage, 121 refused (outside Wine), 122 registry, 123 launch, 124 install.
+- Arguments after `--` reach the game unchanged. A first argument `steam://…` is logged and ignored (exit 0).
+- **Auth-ticket warm-up (launcher 0.2.0, runtime pp2 and later; pp1 ships 0.1.0 without it).**
+  - Before starting the game, the launcher requests and cancels one auth session ticket exactly as PEAK does. This guards PEAK's one-shot EOS login against a cold Steam client.
+  - It takes at most ~5 s on a cold client and ~0.1 s on a warm one, and logs `warm-up:` lines.
+  - It never runs with `--dry-run`, `--registry-root`, `--no-warmup`, or outside Wine.
+  - Front ends need do nothing. Pass `--no-warmup` only for tests that measure a cold request.
 
 ## 5. `manifest.json` schema (v1)
 
@@ -196,8 +219,17 @@ The front end, or the Steam team's helper when it launches PEAK, builds the envi
 }
 ```
 
+## 5a. Released runtimes
+
+| Runtime ID | Release (prerelease, never latest) | Contents / status |
+|---|---|---|
+| `pp1-cx26.3.0` | `mac-build-runtime-pp1-cx26.3.0` (commit 168a11e, CI run 38366553896) | Wine 11 (CrossOver 26.3 sources) + DXMT 0.80 + DXVK fallback + Steam bridge; launcher 0.1.0. On the M1 iMac: G-A1 (D3D11 via DXMT, 57 fps probe) and G-B1 pass |
+| `pp2-…` | not built yet | Batched: launcher 0.2.0 (auth-ticket warm-up), plus the first computer-use slot's findings (DESIGN §1). `PP_REVISION` is bumped in `build/pins.env` |
+
+The test-kit-side packages are separate prereleases: Steam tests `mac-build-steam-tests-<ver>` and kit tags `mac-testkit-<ver>` (git tags only).
+
 ## 6. Requests / open items
 
-- *(Steam team)* Do you need `i386` builtins of lsteamclient? Recommendation: x86_64 only, since PEAK is 64-bit; B1 Windows Steam is 32-bit but uses Valve's own client.
-- *(Steam team)* Confirm your subdirectory name under `share/peakpack/steam/`.
+- *(Steam team, resolved)* lsteamclient ships **x86_64 only**; `assemble_runtime.sh` drops the in-tree i386 PE.
+- *(Steam team, resolved)* The subdirectory is `share/peakpack/steam/`. It holds `steamclient64.dll` and `peakpack_steam_launcher.exe`.
 - *(front end)* `NSMicrophoneUsageDescription` must be in the front-end app's `Info.plist`. Wine runs as a child of the app, so TCC attributes the mic request to the app.
