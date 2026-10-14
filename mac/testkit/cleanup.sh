@@ -45,6 +45,8 @@ allowed_outside() {
     "$HOME/Library/Application Support/LandCrab"|"$HOME/Library/Application Support/LandCrab/PEAK"|"$HOME/Library/Application Support/unity.LandCrab.PEAK") return 0 ;;
     "$HOME/Library/Preferences/unity.LandCrab.PEAK.plist") return 0 ;;
     "$HOME/Library/Saved Application State/com.peakpack.testkit.native.savedState"|"$HOME/Library/Caches/com.peakpack.testkit.native"|"$HOME/Library/Caches/LandCrab") return 0 ;;
+    # PEAK (Modded).app's own macOS entries (G-APP gates; the app's data itself is in the job dir)
+    "$HOME/Library/Preferences/com.peakpack.modded.plist"|"$HOME/Library/Saved Application State/com.peakpack.modded.savedState"|"$HOME/Library/Caches/com.peakpack.modded") return 0 ;;
   esac
   return 1
 }

@@ -27,6 +27,7 @@ Joshua ideally does **one** thing: sign in to Mac Steam under `fleet` once (gate
 | `probes/d3d11_clear.c` | D3D11 clear/present/read-back probe for G-A1 (CI builds it; see `NOTES-for-lead.md`) |
 | `expect/peak-win-2.6.b-build25739797.manifest` | Per-file SHA-256 reference of PEAK 2.6.b (Windows depot), for G-B5 |
 | `NOTES-for-lead.md` | Requests to the runtime/Steam/CI/PeakPack owners, and open questions |
+| `slot-app.job.json`, `lib/app.sh`, `gates/G-APP*.sh`, `gates/APP-README.md` | The PEAK (Modded).app slot (written by the Mac app lead): app release `mac-build-app-*`, its own data in `$JOB/appdata` |
 
 ## Gates
 
@@ -45,6 +46,7 @@ Joshua ideally does **one** thing: sign in to Mac Steam under `fleet` once (gate
 | **H-MIC** | 3 | Microphone prompt for voice | **yes** (privacy decision) | with G-X1 |
 | **G-C0** | 4 | Native smoke with the Unity Mac player: (a) stock data, (b) shaders converted on the Mac | no | 60 min (150) |
 | **G-A2-CX** | 4 (optional) | CrossOver baseline for G-A2's 90 % criterion | **yes** (trial and licence are Joshua's call) | detect only |
+| **G-APP1…G-APP6** | app slot | PEAK (Modded).app (prerelease `mac-build-app-*`): first run and setup, game step (Steam console paste or an existing PEAK folder) with PeakPack and mods, daily launch, modded/vanilla options, repair, uninstall. Details in `gates/APP-README.md` | no (computer use for clicks and the console paste) | 45 / 130 / 30 / 30 / 25 / 60 min (timeouts) |
 
 The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate>.json → criteria[]`.
 
@@ -53,8 +55,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.2.6.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.2.6/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.0.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.0/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &
