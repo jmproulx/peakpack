@@ -127,8 +127,9 @@ cu1=$?; fps_menu=$(cu_kv fps); metric fps_main_menu "${fps_menu:-}"
 [ -n "$td_go" ] && date -u +%Y-%m-%dT%H:%M:%SZ > "$td_go"   # test drive: start the solo run now
 [ "$cu1" = 1 ] && { crit reached_menu fail "main menu reached (agent)" "$CU_NOTE"; gate_end; }
 t_shore_req=$(now_s)
-# Player.log scene markers (measured on Windows 2.6.b): "Update current scene: Airport" (lobby), "...: Level_1" (island, Shore)
-on_shore() { grep -a -q "Update current scene: Level_1" "$plog" 2>/dev/null; }
+# Player.log scene markers: "Update current scene: Airport" (lobby), then "...: Level_<N>" for the island. N is the
+# day's map (Level_1 on Windows 2.6.b on 13 Oct, Level_4 in Joshua's iMac session on 14 Oct), so any Level_<N> counts.
+on_shore() { grep -a -q -E "Update current scene: Level_[0-9]+" "$plog" 2>/dev/null; }
 bep_log="${bep:-}/LogOutput.log"
 td_seen() { grep -a -q "TESTDRIVE $1" "$bep_log" 2>/dev/null; }
 td_stop_or_walk() { td_seen walk_start || td_seen 'fail ' || td_seen 'inert '; }
@@ -143,7 +144,8 @@ cu_request shore 600 "Start a SOLO game and get to the Shore: in the main menu c
 cu2=$?
 fi
 grep -a -q "Update current scene: Airport" "$plog" 2>/dev/null && metric reached_airport true || metric reached_airport false
-on_shore && metric reached_level_1 true || metric reached_level_1 false
+if on_shore; then metric reached_level true; metric island_scene "$(grep -a -o -E 'Update current scene: Level_[0-9]+' "$plog" | tail -1 | sed 's/.*: //')" str
+else metric reached_level false; fi
 metric menu_to_shore_s "$(( $(now_s) - t_shore_req ))"
 if [ "$cu2" != 0 ]; then
   crit reached_shore fail "solo game reached the Shore (agent)" "$CU_ANSWER $CU_NOTE"
@@ -183,8 +185,8 @@ fpslog=""
 [ "$modded" = 1 ] && fpslog="$PFX/drive_c/users/$(wine_user)/AppData/Local/PeakPack/profile/BepInEx/PeakPack/macpreset-fps.log"
 if [ -n "$fpslog" ] && [ -f "$fpslog" ]; then
   cp "$fpslog" "$GLOG/macpreset-fps.log"
-  # Shore = scene Level_1. avg = frames / seconds; 1 % low (conservative) = 1000 / worst per-interval p99 frame time.
-  lstats=$(awk '/ scene=Level_1 / {
+  # Shore = the island scene Level_<N>. avg = frames / seconds; 1 % low (conservative) = 1000 / worst per-interval p99.
+  lstats=$(awk '/ scene=Level_[0-9]+ / {
       delete v; for (i = 1; i <= NF; i++) { k = $i; sub(/=.*/, "", k); x = $i; sub(/^[^=]*=/, "", x); v[k] = x }
       fr += v["frames"]; secs += v["frames"] * v["frametime_ms"] / 1000; if (v["p99_ms"] + 0 > p99) p99 = v["p99_ms"] + 0; n++ }
     END { if (n && secs > 0 && p99 > 0) printf "%.1f %.1f %d", fr / secs, 1000 / p99, n }' "$fpslog")
@@ -198,10 +200,15 @@ if [ -n "$fpslog" ] && [ -f "$fpslog" ]; then
       crit fps_1pct_low fail "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "avg $1, 1 % low $2 over $3 s"
     fi
   else
-    crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "log present but no Level_1 intervals"
+    crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "log present but no Level_<N> (island) intervals; scenes seen: $(grep -a -o -E 'scene=[^ ]+' "$fpslog" | sort -u | tr '\n' ' ')"
   fi
+elif [ "$modded" = 1 ]; then
+  # MacPreset's FpsLogSeconds defaults to 0 (off in friends' sessions); this gate turns it on in the TEST profile.
+  mpb="$PFX/drive_c/users/$(wine_user)/AppData/Local/PeakPack/profile/BepInEx"
+  crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" \
+    "no frame-time log: $(path_detail "$fpslog"); config: $(grep -a -m1 '^FpsLogSeconds' "$mpb/config/peakpack.macpreset.cfg" 2>/dev/null || echo 'no FpsLogSeconds line'); LogOutput: $(grep -a -m1 -E 'FpsLogger|PeakPack MacPreset' "$mpb/LogOutput.log" 2>/dev/null | cut -c1-160 || echo none)"
 else
-  crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "vanilla run, or MacPreset not in the pack (HUD readings above apply)"
+  crit fps_1pct_low skip "1 % low on the Shore >= 30 fps (MacPreset frame-time log)" "vanilla run (HUD readings above apply)"
 fi
 
 # ---- crash check + memory verdict

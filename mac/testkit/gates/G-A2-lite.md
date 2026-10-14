@@ -55,7 +55,7 @@ No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself
    - `--modded`: the launcher starts with `--no-launch`. The script waits 8 s, then runs `PeakPack.exe --headless --launch`. The screen arguments are not passed on this path. PEAK uses its saved resolution, and the gate records a note saying so.
 9. Criterion `started`: waits up to 600 s (the line is logged after the first scene load) for "Steam runtime manager initialized" in Player.log. If it does not appear, the gate ends now with status fail.
 10. CU-menu (see below). Records the menu FPS as metric `fps_main_menu`. A `fail` answer records `reached_menu` as fail and ends the gate now. A skip or a timeout records nothing, and the script goes on.
-11. CU-shore (see below). Records metrics `reached_airport` and `reached_level_1` from Player.log. The step passes by itself once Player.log shows "Update current scene: Level_1".
+11. CU-shore (see below). Records metrics `reached_airport` and `reached_level`, `island_scene` from Player.log. The step passes by itself once Player.log shows "Update current scene: Level_<N>" (N = the day's map, e.g. Level_1 or Level_4).
 12. Criterion `reached_shore`: pass for an ok answer or the automatic pass. Fail for any other answer, including skip or timeout. If it fails, the FPS step does not run.
 13. CU-fps (only after `reached_shore` passed). Records metrics `fps_readings`, `fps_avg`, `fps_min` and `fps_samples`. Criterion `fps_floor` checks the lowest reading. A `fail` answer records criterion `run_ok` as fail.
 14. Records `vs_crossover` as skip. It is always skip.
@@ -80,8 +80,8 @@ No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself
 ### CU-shore
 
 - **When:** right after CU-menu, if the menu did not fail. Timeout 600 s.
-- **Automatic pass:** every 5 s the script checks Player.log. Once it contains "Update current scene: Level_1", the step is recorded as ok with the note "condition met without an answer file (auto)". No answer is needed for that.
-- **Scene markers:** "Update current scene: Airport" is the airport lobby. "Update current scene: Level_1" is the island, whose first biome is the Shore.
+- **Automatic pass:** every 5 s the script checks Player.log. Once it contains "Update current scene: Level_<N>" (N = the day's map, e.g. Level_1 or Level_4), the step is recorded as ok with the note "condition met without an answer file (auto)". No answer is needed for that.
+- **Scene markers:** "Update current scene: Airport" is the airport lobby. "Update current scene: Level_<N>" (N = the day's map, e.g. Level_1 or Level_4) is the island, whose first biome is the Shore.
 - **Actions:**
   1. In the main menu choose Play. Pick a solo or offline option if PEAK offers one. Otherwise host a private lobby and invite nobody.
   2. In the airport lobby, walk (W, mouse to steer) to the boarding desk or kiosk. Press E to start the expedition. Confirm if asked.
@@ -107,7 +107,7 @@ No gate-specific environment variables are read. The gate sets `PP_HUD=1` itself
 |---|---|---|
 | `started` | PEAK started with Steam initialised | "Steam runtime manager initialized" appears in Player.log within 300 s. Otherwise fail, and the gate ends. |
 | `reached_menu` | main menu reached (agent) | Written only on a fail answer, which ends the gate. Never pass. Skip and timeout write nothing. |
-| `reached_shore` | solo game reached the Shore (agent) | Pass on ok or the automatic Level_1 pass. Fail on any other answer. |
+| `reached_shore` | solo game reached the Shore (agent) | Pass on ok or the automatic Level_<N> pass. Fail on any other answer. |
 | `run_ok` | no crash or freeze on the Shore (agent) | Written only on a fail answer. Never pass. |
 | `fps_floor` | lowest HUD FPS on the Shore is 30 or more | Pass if the lowest reading is 30 or more. Fail if below. Skip if the answer has no readings. |
 | `vs_crossover` | average FPS at least 90 % of CrossOver | Always skip. It needs G-A2-CX, which this gate does not read. |
@@ -126,7 +126,7 @@ How the overall status is decided (from `lib/common.sh`):
 ## Results and evidence
 
 - `results/G-A2-lite.json`: status, criteria, metrics, CU answers, evidence list, notes.
-- Metrics: `unity_args`, `hud`, `modded`, `start_to_steam_s`, `fps_main_menu`, `reached_airport`, `reached_level_1`, `menu_to_shore_s`, `shore_seconds`, `fps_readings`, `fps_avg`, `fps_min`, `fps_samples`, `peak_alive_at_end`, `crash_markers`, `samples`, `mem_free_min_pct`, `peak_rss_max_mb`, `wine_rss_max_mb`, `swap_growth_mb`, `pressure_level_max`.
+- Metrics: `unity_args`, `hud`, `modded`, `start_to_steam_s`, `fps_main_menu`, `reached_airport`, `reached_level`, `island_scene`, `menu_to_shore_s`, `shore_seconds`, `fps_readings`, `fps_avg`, `fps_min`, `fps_samples`, `peak_alive_at_end`, `crash_markers`, `samples`, `mem_free_min_pct`, `peak_rss_max_mb`, `wine_rss_max_mb`, `swap_growth_mb`, `pressure_level_max`.
 - Versions: `runtime_id`, `runtime_built_at` (if the manifest exists), `steam_tests`, and `peakpack_exe_sha256` with `--modded`.
 - `logs/G-A2-lite/`: Player.log copy; `pp-sample.csv` (the gate reads column 2 as free %, column 3 as swap, column 4 as PEAK RSS and column 5 as Wine RSS); `pressure-level.csv`; `t12/`, `t12.out` and `t12-summary.txt`; `launcher.out`; `peak-wine.out` (or `peakpack-launch.out` with `--modded`); `cu-<step>.answer.txt`; `wine/` (Wine and DXMT logs).
 - `evidence/G-A2-lite/`: `a2-01-main-menu.png`, `a2-02-lobby.png`, `a2-03-shore.png`, `a2-fps-<n>.png`, `a2-end.png`.
@@ -162,3 +162,19 @@ How the overall status is decided (from `lib/common.sh`):
 - **Fail, `mem_pressure`:** level 4 was seen. **Fail, `swap_growth`:** swap grew by 1024 MB or more.
 - **Error (exit 4), "interrupted":** the 35 min watchdog or a signal stopped the gate. The cleanup step stops Wine and the samplers.
 - **A menu timeout (300 s)** does not fail the gate. The run goes on to the Shore step.
+
+## Test drive (`--test-drive`, kit 0.3.12+)
+
+With `--modded --test-drive` the gate copies the TEST-ONLY plugin `PeakPack.TestDrive.dll` (Steam tests 1.3.0+,
+`probes/testdrive`) into the test prefix's PeakPack profile and writes `BepInEx/config/com.peakpack.testdrive.cfg`
+(`WalkSeconds` = minutes x 60). After CU-menu it writes `BepInEx/config/peakpack.testdrive.go`; the plugin then
+presses Play Solo, starts the expedition at the airport kiosk and walks the scout on the island for the window.
+CU-shore is replaced by waiting for `TESTDRIVE walk_start` in LogOutput.log (900 s); CU-fps only reads the HUD
+(no keys). Criterion `test_drive_walk` checks `TESTDRIVE walk_end`; `logs/G-A2-lite/testdrive.log` has every
+`TESTDRIVE` line. The plugin, its config and the go file are removed at the end of the gate. It never ships.
+
+## Frame-time log
+
+MacPreset's `[Diagnostics] FpsLogSeconds` defaults to 0, so friends' sessions write no `macpreset-fps.log`. The gate
+sets it to 1 in the test profile before the launch; if the log is still missing, `fps_1pct_low` says where it looked,
+the config value and MacPreset's LogOutput line.

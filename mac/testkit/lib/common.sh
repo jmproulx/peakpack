@@ -70,6 +70,36 @@ path_detail() {
   d=$(dirname "$p"); while [ -n "$d" ] && [ "$d" != / ] && [ ! -d "$d" ]; do d=$(dirname "$d"); done
   printf 'looked for %s: missing (nearest existing folder: %s; prefix users: %s)' "$(rel_to_job "$p")" "$(rel_to_job "$d")" "$(users_seen "${PFX:-${APP_PFX:-}}")"
 }
+# ---------------------------------------------------------------- privacy: secrets never leave the Mac
+# PEAK's Player.log has "Authenticating with EOS using token <token> and provider steam"; other logs can carry
+# Steam session tickets or auth tokens. redact_text (stdin -> stdout) keeps every line and the key word and replaces
+# the value with <redacted>: the EOS line's token; any value of 16+ token characters after "token"/"ticket"
+# (any case; "token=…", "token: …", "\"token\": \"…\"", "token …"); and hex runs of 32+ characters on lines that
+# mention token/ticket/auth/session/secret/password (file SHA-256s elsewhere stay). Portable sed -E (BSD + GNU).
+redact_text() {
+  LC_ALL=C sed -E \
+    -e 's/(Authenticating with EOS using token )[^ ]+/\1<redacted>/g' \
+    -e 's/([Tt][Oo][Kk][Ee][Nn]|[Tt][Ii][Cc][Kk][Ee][Tt])(["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?|[[:space:]]+)[A-Za-z0-9._~+\/=-]{16,}/\1\2<redacted>/g' \
+    -e '/[Tt][Oo][Kk][Ee][Nn]|[Tt][Ii][Cc][Kk][Ee][Tt]|[Aa][Uu][Tt][Hh]|[Ss][Ee][Ss][Ss][Ii][Oo][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]/ s/[0-9A-Fa-f]{32,}/<hex-redacted>/g'
+}
+# redact_file FILE -> in place, text files only (binary files are left alone); 0 always
+redact_file() {
+  local f=$1
+  [ -f "$f" ] && [ -s "$f" ] || return 0
+  LC_ALL=C grep -Iq . "$f" 2>/dev/null || return 0
+  redact_text < "$f" > "$f.redact.$$" && cat "$f.redact.$$" > "$f"
+  rm -f "$f.redact.$$"
+  return 0
+}
+# redact_dir DIR -> every text file under DIR (up to 200 MB each)
+redact_dir() {
+  local f
+  [ -d "$1" ] || return 0
+  while IFS= read -r f; do redact_file "$f"; done <<EOF
+$(find "$1" -type f -size -204800k 2>/dev/null)
+EOF
+  return 0
+}
 rel_to_job() { case "$1" in "$PP_JOB_DIR"/*) printf '%s' "${1#"$PP_JOB_DIR"/}" ;; *) printf '%s' "$1" ;; esac; }
 
 # JSON string literal (with quotes) for arbitrary text.
@@ -260,6 +290,7 @@ gate_on_signal() {
 }
 crit() {  # crit ID RESULT DESC [DETAIL]
   local id=$1 res=$2 desc=$3 det=${4:-}
+  det=$(printf '%s' "$det" | redact_text)
   if [ -z "$det" ] && [ "$res" = fail ]; then det="no detail from the gate; see $(rel_to_job "${GLOG:-logs}")/"; fi
   printf '{"id": %s, "result": %s, "check": %s, "detail": %s}\n' \
     "$(json_str "$id")" "$(json_str "$res")" "$(json_str "$desc")" "$(json_str "$(oneline "$det")")" >> "$GTMP/criteria.jsonl"
@@ -324,6 +355,7 @@ gate_write_json() {
 gate_end() {
   trap '' TERM INT HUP
   gate_cleanup
+  redact_dir "$GLOG"   # copied Player.log / LogOutput.log / tool output: no tokens or tickets in what goes back
   if [ -z "$GATE_STATUS" ]; then
     if [ "$(crit_count fail)" -gt 0 ]; then GATE_STATUS=fail; GATE_REASON=${GATE_REASON:-"$(crit_count fail) criterion/criteria failed"}
     elif [ "$(crit_count pass)" -gt 0 ]; then GATE_STATUS=pass
