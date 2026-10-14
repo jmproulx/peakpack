@@ -263,7 +263,8 @@ app_require_setup() {
     *) gate_finish_as blocked "the app is not set up in this job (phase '${ph:-none}'): $hint" ;; esac
   sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced); sst=$(app_status_get stepState)
   # set up = state.json setupComplete, or the stale status itself says the setup step finished (stepState done)
-  [ "$sc" = true ] || [ "$sst" = done ]     || gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}', stepState '${sst:-missing}'): $hint"
+  [ "$sc" = true ] || [ "$sst" = "done" ] ||
+    gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}', stepState '${sst:-missing}'): $hint"
   log "stale app phase '$ph' from an earlier run (setupComplete=${sc:-unset}, stepState=${sst:-unset}): recovering"
   app_job_stop_leftovers || gate_finish_as error "PEAK is still running outside this job's prefix; stop it first"
   keep="$APP_STATUS.stale-$ph-$(now_s)"; mv "$APP_STATUS" "$keep" 2>/dev/null
