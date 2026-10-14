@@ -56,10 +56,19 @@ struct MaintenanceService {
             ("Free space", SystemProbe.freeBytes(at: p.dataRoot).map { String(format: "%.1f GB", Double($0) / 1e9) } ?? "?"),
             ("Show FPS", env.state.showFPS ? "on" : "off"),
         ]
+        if let o = env.testPeakPack { facts.append(("TEST", o.label)) }
+        if let sig = lastSignatureLine() { facts.append(("PeakPack signature check", sig)) }
         facts += extra
         let err = lastError.map { "\($0.heading) [\($0.code)]\n\($0.advice)\n\($0.details)" }
         let tail = AppLog.shared.fileURL.map { Diagnostics.tail(of: $0, maxLines: 80) } ?? ""
         return Diagnostics.report(title: Date().description, facts: facts, error: err, logTail: tail, userName: NSUserName())
+    }
+
+    /// PeakPack 0.4.3+ logs why a manifest signature check failed ("signature check (…)" lines in log.txt).
+    func lastSignatureLine() -> String? {
+        let f = env.paths.peakPackDir(user: env.wineUser).appendingPathComponent("log.txt")
+        let tail = Diagnostics.tail(of: f, maxLines: 400, maxBytes: 256 * 1024)
+        return tail.split(whereSeparator: { $0.isNewline }).last { $0.contains("signature check") }.map { String($0.suffix(400)) }
     }
 
     /// Moves our data, logs and the app itself to the Trash (recoverable). Steam and its files are untouched.

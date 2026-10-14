@@ -42,13 +42,23 @@ struct ModsService {
     /// PeakPack.exe at C:\users\<u>\AppData\Local\PeakPack\PeakPack.exe (the only supported place).
     /// PeakPack updates itself afterwards; we only install it when it is missing or damaged.
     func installPeakPack(manifest: PackManifest, progress: @escaping (String, Double?) -> Void) async throws {
-        guard let app = manifest.app, let url = URL(string: app.url), Hashing.isSHA256Hex(app.sha256) else {
+        guard var app = manifest.app, Hashing.isSHA256Hex(app.sha256) else {
             throw FriendError.from(ManifestError.noAppEntry, context: "manifest app entry")
         }
+        let override = env.testPeakPack
+        if let o = override {
+            app = PackManifest.AppEntry(version: "test-" + String(o.sha256.prefix(8)), url: o.url.absoluteString, sha256: o.sha256, size: nil)
+        }
+        guard let url = URL(string: app.url) else { throw FriendError.from(ManifestError.noAppEntry, context: "manifest app entry url") }
         let user = env.wineUser
         let dest = env.paths.peakPackExe(user: user)
         let fm = FileManager.default
-        if fm.fileExists(atPath: dest.path) { return } // PeakPack self-updates; never downgrade it
+        if fm.fileExists(atPath: dest.path) {
+            // PeakPack self-updates; never downgrade it. A TEST override replaces a different build (test mode only).
+            guard let o = override, (try? Hashing.sha256Hex(fileAt: dest)) != o.sha256 else { return }
+            log.warn("\(o.label): replacing the installed PeakPack.exe")
+            try fm.removeItem(at: dest)
+        }
         let tmp = env.paths.downloads.appendingPathComponent("PeakPack-\(app.version).exe")
         let dl = FileDownloader(isAllowed: env.kit.isAllowed)
         if !(fm.fileExists(atPath: tmp.path) && (try? Hashing.sha256Hex(fileAt: tmp)) == app.sha256.lowercased()) {
@@ -65,7 +75,7 @@ struct ModsService {
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.moveItem(at: tmp, to: dest)
         env.update { $0.peakPackSha256 = app.sha256.lowercased() }
-        log.info("PeakPack \(app.version) installed")
+        log.info("PeakPack \(app.version) installed\(override != nil ? " (TEST PeakPack override)" : "")")
     }
 
     struct HeadlessOutcome {

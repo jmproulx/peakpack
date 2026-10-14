@@ -43,7 +43,8 @@ public enum PeakPackProblemKind: Equatable {
         let text = [s?.problem?.heading, s?.problem?.advice, s?.problem?.details, s?.message]
             .compactMap { $0 }.joined(separator: " ").lowercased()
         if text.contains("signature") || text.contains("tampered") || text.contains("ecdsa")
-            || text.contains("cryptographic") || text.contains("ncrypt") || text.contains("verifier") { return .signatureCheck }
+            || text.contains("cryptographic") || text.contains("ncrypt") || text.contains("verifier")
+            || text.contains("signature check") || text.contains("p-256") { return .signatureCheck }
         if text.contains("safety check") || text.contains("sha-256") || text.contains("sha256") || text.contains("hash") { return .downloadIntegrity }
         return .other
     }

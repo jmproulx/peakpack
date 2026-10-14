@@ -107,6 +107,31 @@ final class FlowTests: XCTestCase {
         XCTAssertNil(PeakPackExit.from(9))
     }
 
+    func testTestPeakPackOverride() {
+        let url = "https://github.com/jmproulx/peakpack/releases/download/mac-build-peakpack-0.4.3-test/PeakPack.exe"
+        let sha = "b5c3dbe06e277e893a29a4289e08e69d1ae444ec55f98ced16315bd8d8818fcd"
+        let (ok, none) = TestPeakPackOverride.validate(url: url, sha256: sha.uppercased(), repo: "jmproulx/peakpack", testMode: true)
+        XCTAssertNil(none)
+        XCTAssertEqual(ok?.sha256, sha)
+        XCTAssertTrue(ok!.label.hasPrefix("TEST PeakPack override: "))
+        XCTAssertEqual(TestPeakPackOverride.validate(url: nil, sha256: nil, repo: "jmproulx/peakpack", testMode: false).0, nil)
+        XCTAssertEqual(TestPeakPackOverride.validate(url: url, sha256: sha, repo: "jmproulx/peakpack", testMode: false).1, .notTestMode,
+                       "never honoured outside test mode")
+        XCTAssertEqual(TestPeakPackOverride.validate(url: url, sha256: nil, repo: "jmproulx/peakpack", testMode: true).1, .incomplete)
+        XCTAssertEqual(TestPeakPackOverride.validate(url: url, sha256: "abc", repo: "jmproulx/peakpack", testMode: true).1, .badHash)
+        for bad in ["http://github.com/jmproulx/peakpack/releases/download/t/PeakPack.exe",
+                    "https://github.com/someone/else/releases/download/t/PeakPack.exe",
+                    "https://evil.example/jmproulx/peakpack/releases/download/t/PeakPack.exe",
+                    "https://github.com/jmproulx/peakpack/releases/download/t/../x/PeakPack.exe",
+                    "https://github.com/jmproulx/peakpack/releases/download/t/PeakPack.zip",
+                    "https://github.com/jmproulx/peakpack/releases/download/PeakPack.exe",
+                    "https://github.com/jmproulx/peakpack/releases/download/t/PeakPack.exe?x=1"] {
+            if case .badURL = TestPeakPackOverride.validate(url: bad, sha256: sha, repo: "jmproulx/peakpack", testMode: true).1 {} else {
+                XCTFail("must refuse \(bad)")
+            }
+        }
+    }
+
     func testPeakPackProblemClassification() throws {
         func status(_ heading: String, _ details: String) throws -> HeadlessStatus {
             let j = #"{"state":"failed","problem":{"heading":"\#(heading)","advice":"a","details":"\#(details)"},"exitCode":1}"#

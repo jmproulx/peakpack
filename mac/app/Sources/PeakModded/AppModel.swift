@@ -424,7 +424,11 @@ final class AppModel: ObservableObject {
             _ = try await wait(for: .adoptConfirm)
             outcome = try await mods.headless(.sync(adopt: true), name: "sync-adopt", timeout: 1800, onStatus: headlessSink())
         }
-        guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "sync", appVerifiedManifest: true) }
+        guard outcome.exit == 0 else {
+            var f = mods.error(for: outcome, during: "sync", appVerifiedManifest: true)
+            if let line = maintenance.lastSignatureLine() { f.details += "\nPeakPack log: \(line)" }
+            throw f
+        }
         env.update { $0.modsSynced = true }
     }
 
@@ -694,6 +698,7 @@ final class AppModel: ObservableObject {
         s.packRevision = env.state.packRevision
         s.lastLaunch = lastLaunch
         s.pid = ProcessInfo.processInfo.processIdentifier
+        if env.testPeakPack != nil { s.testOverrides = ["peakpack"] }
         s.sessionStarted = sessionStarted
         s.write(to: env.paths.statusFile)
     }

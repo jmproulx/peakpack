@@ -9,6 +9,9 @@ public struct PackManifest: Decodable, Equatable {
         public var url: String
         public var sha256: String
         public var size: Int64?
+        public init(version: String, url: String, sha256: String, size: Int64?) {
+            self.version = version; self.url = url; self.sha256 = sha256; self.size = size
+        }
     }
     public struct RuntimePin: Decodable, Equatable {
         public var id: String

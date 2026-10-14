@@ -32,6 +32,8 @@ public struct FrontEndStatus: Codable, Equatable {
     public var lastLaunch: String?
     /// The app process that wrote this file, and when that process started (stale-file detection for gates).
     public var pid: Int32?
+    /// Test-only overrides in effect for this run (e.g. "peakpack"); absent in normal use.
+    public var testOverrides: [String]?
     public var sessionStarted: Date?
     public var updatedAt: Date
 

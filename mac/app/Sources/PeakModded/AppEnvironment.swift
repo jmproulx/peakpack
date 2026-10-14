@@ -29,6 +29,9 @@ struct LaunchOptions {
     var demoScreen: String?
     /// light | dark: force the appearance (screenshots).
     var appearance: String?
+    /// TEST-ONLY (with --data-dir): PeakPack.exe from this URL with this exact SHA-256 instead of the manifest's.
+    var testPeakPackURL: String?
+    var testPeakPackSHA256: String?
 
     /// A test run keeps everything in its job dir and never asks to move the app.
     var isTestRun: Bool { dataDir != nil }
@@ -45,6 +48,8 @@ struct LaunchOptions {
             case "--uninstall-to": if let v = value() { o.uninstallTo = URL(fileURLWithPath: v, isDirectory: true) }
             case "--demo-screen": o.demoScreen = value()
             case "--appearance": o.appearance = value()
+            case "--test-peakpack-url": o.testPeakPackURL = value()
+            case "--test-peakpack-sha256": o.testPeakPackSHA256 = value()
             case "--options": o.showOptions = true
             case "--no-autoplay": o.noAutoplay = true
             case "--print-status": o.printStatus = true
@@ -84,6 +89,15 @@ final class AppEnvironment {
         store = StateStore(url: paths.stateFile)
         state = store.load()
     }
+
+    /// The validated test override, if any (see TestPeakPackOverride). Computed from this run's arguments only.
+    lazy var testPeakPack: TestPeakPackOverride? = {
+        let (o, why) = TestPeakPackOverride.validate(url: options.testPeakPackURL, sha256: options.testPeakPackSHA256,
+                                                     repo: kit.repo, testMode: options.isTestRun)
+        if let why { AppLog.shared.warn("--test-peakpack-*: \(why)") }
+        if let o { AppLog.shared.warn(o.label) }
+        return o
+    }()
 
     func update(_ change: (inout FrontEndState) -> Void) {
         var s = state
