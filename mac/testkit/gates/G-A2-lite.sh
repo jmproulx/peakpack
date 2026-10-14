@@ -13,14 +13,17 @@
 #   (kern.memorystatus_vm_pressure_level never 4; min free % recorded); swap growth < 1 GB;
 #   average fps recorded; ">= 90 % of CrossOver" skipped.
 # Args: [--modded] start through PeakPack (needs G-D2) instead of vanilla  [--minutes N] (Shore time, default 2)
+#       [--test-drive] (with --modded): the TEST-ONLY plugin PeakPack.TestDrive (Steam tests tarball, probes/testdrive)
+#       is put into the test prefix's profile for this run only: it starts the solo run, the expedition, and walks
+#       the scout on the Shore for N minutes (the agent cannot hold keys). Removed again at the end of the gate.
 set -u
 . "$PP_KIT_DIR/lib/common.sh"
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-A2-lite "PEAK performance, short run"
 gate_require_mac
 gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
-modded=0; minutes=2
-while [ $# -gt 0 ]; do case "$1" in --modded) modded=1; shift ;; --minutes) minutes=$2; shift 2 ;; *) shift ;; esac; done
+modded=0; minutes=2; test_drive=0
+while [ $# -gt 0 ]; do case "$1" in --modded) modded=1; shift ;; --minutes) minutes=$2; shift 2 ;; --test-drive) test_drive=1; shift ;; *) shift ;; esac; done
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"
 steam_running || gate_finish_as needs-human "Mac Steam is not running" "Run H-STEAM, then re-run G-A2-lite."
 keep_awake
@@ -35,12 +38,20 @@ cp "$BRIDGE/peakpack_steam_launcher.exe" "$BRIDGE/steamclient64.dll" "$tests_dir
 plog=$(player_log_path)
 
 samp_pids=""
+td_dir=""; td_cfg=""; td_go=""
+td_remove() {  # the test-only plugin never stays in the profile
+  [ -n "$td_dir" ] && rm -rf "$td_dir"
+  [ -n "$td_cfg" ] && rm -f "$td_cfg"
+  [ -n "$td_go" ] && rm -f "$td_go"
+  return 0
+}
 stop_all() {
   for p in $samp_pids; do kill -INT "$p" 2>/dev/null; done
   sleep 2
   for p in $samp_pids; do kill "$p" 2>/dev/null; done
   samp_pids=""
   wine_stop
+  td_remove
 }
 GATE_CLEANUP=stop_all
 
@@ -81,6 +92,18 @@ if [ "$modded" = 1 ]; then
   else
     metric macpreset_fps_log 0
   fi
+  if [ "$test_drive" = 1 ]; then
+    td_dll=$( [ -n "${TESTS:-}" ] && find "$TESTS" -name 'PeakPack.TestDrive.dll' 2>/dev/null | head -n 1)
+    if [ -n "$td_dll" ] && [ -d "$bep/plugins" ]; then
+      td_dir="$bep/plugins/PeakPack.TestDrive"; td_cfg="$bep/config/com.peakpack.testdrive.cfg"; td_go="$bep/config/peakpack.testdrive.go"
+      mkdir -p "$td_dir" "$bep/config"; cp "$td_dll" "$td_dir/"; rm -f "$td_go"
+      printf '[TestDrive]\n\nWalkSeconds = %s\n\nGoWaitSeconds = 900\n\nStageTimeoutSeconds = 600\n\nAscent = 0\n' "$(( minutes * 60 ))" > "$td_cfg"
+      metric test_drive "on" str; metric test_drive_dll_sha256 "$(sha256_of "$td_dll")" str
+    else
+      test_drive=0; metric test_drive "unavailable" str
+      note "--test-drive: PeakPack.TestDrive.dll not in the Steam tests (${TESTS:-none}) or no profile plugins folder; the agent drives instead"
+    fi
+  fi
   PP_HUD=1 pp_wine normal 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
      --log 'C:\PeakPackTests\launcher-a2.log' --no-launch --hold-ms 3000000 > "$GLOG/launcher.out" 2>&1 &
   sleep 8
@@ -101,12 +124,24 @@ metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 # ---- the agent drives the game
 cu_request_peak menu 300 "PEAK is starting fullscreen with the Metal HUD (top-right overlay with FPS). When the main menu is drawn: screenshot evidence/G-A2-lite/a2-01-main-menu.png and read the HUD's FPS. Answer: ok fps=<number>. If a crash dialog or a black screen stays for 60 s, answer fail <what>."
 cu1=$?; fps_menu=$(cu_kv fps); metric fps_main_menu "${fps_menu:-}"
+[ -n "$td_go" ] && date -u +%Y-%m-%dT%H:%M:%SZ > "$td_go"   # test drive: start the solo run now
 [ "$cu1" = 1 ] && { crit reached_menu fail "main menu reached (agent)" "$CU_NOTE"; gate_end; }
 t_shore_req=$(now_s)
 # Player.log scene markers (measured on Windows 2.6.b): "Update current scene: Airport" (lobby), "...: Level_1" (island, Shore)
 on_shore() { grep -a -q "Update current scene: Level_1" "$plog" 2>/dev/null; }
+bep_log="${bep:-}/LogOutput.log"
+td_seen() { grep -a -q "TESTDRIVE $1" "$bep_log" 2>/dev/null; }
+td_stop_or_walk() { td_seen walk_start || td_seen 'fail ' || td_seen 'inert '; }
+if [ "$test_drive" = 1 ]; then
+  # the plugin drives: menu -> Play Solo -> Airport -> kiosk -> Shore; wait for its walk_start (or its failure)
+  t0=$(now_s); while ! td_stop_or_walk && [ $(( $(now_s) - t0 )) -lt 900 ]; do sleep 5; done
+  grep -a 'TESTDRIVE' "$bep_log" > "$GLOG/testdrive.log" 2>/dev/null
+  if td_seen walk_start; then cu2=0; CU_ANSWER=ok; CU_NOTE="test drive: $(grep -a -m1 'TESTDRIVE island_ready' "$bep_log" | sed 's/.*TESTDRIVE //')"
+  else cu2=1; CU_ANSWER=fail; CU_NOTE="test drive did not reach the Shore within 900 s: $(grep -a 'TESTDRIVE' "$bep_log" 2>/dev/null | tail -2 | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
+else
 cu_request shore 600 "Start a SOLO game and get to the Shore: in the main menu choose Play (pick the solo/offline option if PEAK offers one; otherwise host a private lobby, do not invite anyone). In the airport lobby walk (W, mouse to steer) to the boarding desk/kiosk and press E to start the expedition; confirm if asked. Wait until the island has loaded and you control your scout on the beach (Shore). Take screenshots a2-02-lobby.png and a2-03-shore.png. Answer ok when standing on the Shore, fail <where it got stuck> otherwise. Exact menu wording may differ; follow what PEAK shows. Never open the Steam overlay or invite friends." on_shore
 cu2=$?
+fi
 grep -a -q "Update current scene: Airport" "$plog" 2>/dev/null && metric reached_airport true || metric reached_airport false
 on_shore && metric reached_level_1 true || metric reached_level_1 false
 metric menu_to_shore_s "$(( $(now_s) - t_shore_req ))"
@@ -115,8 +150,18 @@ if [ "$cu2" != 0 ]; then
 else
   crit reached_shore pass "solo game reached the Shore (agent)"
   t_shore=$(now_s)
-  cu_request fps $(( minutes * 60 + 180 )) "On the Shore, for $minutes minutes: look around slowly / walk along the beach. Every 30 s read the Metal HUD FPS and take a screenshot a2-fps-<n>.png (n = 1, 2, ...). Then answer: ok fps=<comma separated readings, e.g. 58,60,57,59> min=<lowest> notes=<stutter, hitches, artefacts>. Answer fail <what> if the game crashes or freezes."
+  if [ "$test_drive" = 1 ]; then drive_text="The scout walks by itself for $minutes minutes (test drive): do NOT touch the keyboard or mouse in PEAK."
+  else drive_text="On the Shore, for $minutes minutes: look around slowly / walk along the beach."; fi
+  cu_request fps $(( minutes * 60 + 180 )) "$drive_text Every 30 s read the Metal HUD FPS and take a screenshot a2-fps-<n>.png (n = 1, 2, ...). Then answer: ok fps=<comma separated readings, e.g. 58,60,57,59> min=<lowest> notes=<stutter, hitches, artefacts>. Answer fail <what> if the game crashes or freezes."
   cu3=$?
+  if [ "$test_drive" = 1 ]; then
+    t0=$(now_s); while ! td_seen walk_end && ! td_seen 'fail ' && [ $(( $(now_s) - t0 )) -lt $(( minutes * 60 + 120 )) ]; do sleep 5; done
+    grep -a 'TESTDRIVE' "$bep_log" > "$GLOG/testdrive.log" 2>/dev/null
+    we=$(grep -a -m1 'TESTDRIVE walk_end' "$bep_log" | sed 's/.*TESTDRIVE //')
+    metric test_drive_walk "${we:-none}" str
+    if [ -n "$we" ]; then crit test_drive_walk pass "test drive walked on the Shore for the whole window" "$we"
+    else crit test_drive_walk fail "test drive walked on the Shore for the whole window" "$(tail -2 "$GLOG/testdrive.log" 2>/dev/null | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
+  fi
   metric shore_seconds "$(( $(now_s) - t_shore ))"
   readings=$(cu_kv fps | tr -c '0-9.,\n' ' ' | tr -d ' ')
   metric fps_readings "$readings" str

@@ -229,6 +229,47 @@ app_wine_stop() {
   return 0
 }
 # PEAK itself (a Wine process: its command line names PEAK.exe)
+# app_pid_is_ours PID -> 0 when PID is alive and runs this job's app bundle (never touches other processes)
+app_pid_is_ours() {
+  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null || return 1
+  case "$(ps -p "$1" -o command= 2>/dev/null)" in *"$APP_BUNDLE/Contents/MacOS/"*) return 0 ;; esac
+  return 1
+}
+# app_job_stop_leftovers -> stops only what this job started: the app's recorded pid (if it is this job's bundle),
+# any other process of this job's app bundle, and the Wine processes of this job's app prefix (wineserver -k with
+# WINEPREFIX=$APP_PFX). A PEAK.exe that survives belongs to another prefix and is only reported.
+app_job_stop_leftovers() {
+  local pid t0
+  pid=$(app_status_get pid)
+  if app_pid_is_ours "$pid"; then
+    log "stopping this job's app (recorded pid $pid)"; kill -TERM "$pid" 2>/dev/null
+    t0=$(now_s); while kill -0 "$pid" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt 20 ]; do sleep 1; done
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+  fi
+  app_quit || log "app processes of $APP_BUNDLE still running after TERM"
+  app_wine_stop; sleep 2
+  if app_peak_running; then log "a PEAK.exe is still running after stopping this job's prefix: not ours, left alone"; return 1; fi
+  return 0
+}
+# app_require_setup HINT -> returns when the app is set up in this job. A phase left by an interrupted earlier
+# gate (launching|playing|error|message; e.g. PEAK sat on its mic chooser and the quit step timed out) is
+# recovered when frontend/state.json has setupComplete=true and the recorded app pid is gone or is this job's
+# app: this job's leftovers are stopped and status.json is set aside (the app rewrites it on its next start).
+app_require_setup() {
+  local hint=$1 ph sc mods keep
+  ph=$(app_status_get phase)
+  case "$ph" in done|ready) return 0 ;; launching|playing|error|message) ;;
+    *) gate_finish_as blocked "the app is not set up in this job (phase '${ph:-none}'): $hint" ;; esac
+  sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced)
+  [ "$sc" = true ] || gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}'): $hint"
+  log "stale app phase '$ph' from an earlier run (setupComplete=true, modsSynced=${mods:-unset}): recovering"
+  app_job_stop_leftovers || gate_finish_as error "PEAK is still running outside this job's prefix; stop it first"
+  keep="$APP_STATUS.stale-$ph-$(now_s)"; mv "$APP_STATUS" "$keep" 2>/dev/null
+  metric stale_phase_recovered "$ph" str
+  crit stale_phase info "stale app phase from an earlier run recovered" "phase '$ph', setupComplete=true, modsSynced=${mods:-unset}; status.json kept as $(rel_to_job "$keep")"
+  return 0
+}
 app_peak_running() { pgrep -f '(^|[/\\])PEAK\.exe' >/dev/null 2>&1; }
 
 # app_end_peak STEP TEXT -> 0 when PEAK is gone. Gives the agent 60 s to quit PEAK from its main menu

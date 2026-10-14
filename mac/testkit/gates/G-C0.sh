@@ -170,7 +170,8 @@ else crit steam_lib fail "Steamworks.NET zip download" "$SWN_URL"; fi
 assemble() {
   local app=$1 src=$2 d e b r m n_mac=0 exe
   rm -rf "$app"; cp -R "$VAR/$variation/UnityPlayer.app" "$app"
-  exe=$(player_exe "$app") || { note "assemble: no player executable in $(rel_to_job "$app")/Contents/MacOS"; return 1; }
+  ASM_ERR=""
+  exe=$(player_exe "$app") || { ASM_ERR="no player executable in $(rel_to_job "$app")/Contents/MacOS"; note "assemble: $ASM_ERR"; return 1; }
   chmod +x "$app/Contents/MacOS/$exe"; ASM_EXE=$exe
   d="$app/Contents/Resources/Data"; mkdir -p "$d/Managed" "$d/Resources"
   if [ "$src" = stock ]; then
@@ -216,8 +217,8 @@ assemble() {
  <key>LSMinimumSystemVersion</key><string>11.0</string>
 </dict></plist>
 EOF
-  plutil -lint "$app/Contents/Info.plist" > /dev/null 2>&1 || { note "assemble: Info.plist does not lint"; return 1; }
-  [ -x "$app/Contents/MacOS/$exe" ] || { note "assemble: $exe is not executable"; return 1; }
+  plutil -lint "$app/Contents/Info.plist" > /dev/null 2>&1 || { ASM_ERR="Info.plist does not lint"; note "assemble: $ASM_ERR"; return 1; }
+  [ -x "$app/Contents/MacOS/$exe" ] || { ASM_ERR="$exe is not executable"; note "assemble: $ASM_ERR"; return 1; }
   # Steam: PEAK's Steamworks.NET was built for Windows and imports "steam_api64"; offer the macOS library under
   # every name Unity's Mono may probe (bundle and dylib, PlugIns and Frameworks). App id for SteamAPI_Init and
   # so RestartAppIfNecessary does not relaunch through Steam.
@@ -228,15 +229,23 @@ EOF
     cp "$steam_bundle/Contents/MacOS/libsteam_api.dylib" "$app/Contents/PlugIns/libsteam_api64.dylib"
     cp "$steam_bundle/Contents/MacOS/libsteam_api.dylib" "$app/Contents/Frameworks/libsteam_api64.dylib"
   fi
-  printf '3527290\n' > "$app/Contents/MacOS/steam_appid.txt"
+  # steam_appid.txt is NOT put in the bundle: codesign rejects it as unsigned code in Contents/MacOS (0.3.11).
+  # Steamworks reads it from the working directory, so run_player writes it into the run folder (cwd) instead.
+  rm -f "$app/Contents/MacOS/steam_appid.txt"
   xattr -cr "$app" 2>/dev/null
   # Re-sign only Unity's own dylibs; Valve's libsteam_api keeps its own signature.
   for e in "$app"/Contents/Frameworks/*.dylib; do
     case "$(basename "$e")" in libsteam_api64.dylib) continue ;; esac
     [ -f "$e" ] && codesign --force -s - "$e" >> "$GLOG/codesign.log" 2>&1
   done
-  codesign --force -s - "$app" >> "$GLOG/codesign.log" 2>&1
-  codesign --verify --deep --strict "$app" >> "$GLOG/codesign.log" 2>&1
+  # sign last, after everything is in place; nested code (Unity dylibs above, Valve's bundles as shipped) first
+  if ! codesign --force -s - "$app" >> "$GLOG/codesign.log" 2>&1; then
+    ASM_ERR="codesign of the bundle failed: $(tail -2 "$GLOG/codesign.log" | tr '\n' ' ' | cut -c1-240)"; return 1
+  fi
+  if ! codesign --verify --deep --strict "$app" >> "$GLOG/codesign.log" 2>&1; then
+    ASM_ERR="codesign --verify --deep --strict failed: $(tail -2 "$GLOG/codesign.log" | tr '\n' ' ' | cut -c1-240)"; return 1
+  fi
+  ASM_ERR=""
 }
 
 # Unity's per-user folders (both phases use the same bundle id)
@@ -245,20 +254,46 @@ for p in "$HOME/Library/Preferences/unity.$UNITY_COMPANY.$UNITY_PRODUCT.plist" "
          "$HOME/Library/Caches/com.peakpack.testkit.native" "$HOME/Library/Caches/$UNITY_COMPANY" "$HOME/Library/Logs/$UNITY_COMPANY"; do
   preexisted "$p" || outside_record "$p" created-by-us "Unity Mac player per-user data (G-C0); removed by cleanup.sh if present"
 done
-stop_player() { pkill -TERM -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/" 2>/dev/null; sleep 3; pkill -KILL -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/" 2>/dev/null; return 0; }
+# Players are started by ABSOLUTE path from a run folder outside the bundle; their PIDs are recorded in
+# PLAYER_PIDS. stop_player ends those PIDs (and their children), then anything still running from the job's
+# native bundles; every wait is bounded (0.3.11 matched only an absolute path while launching ./UnityPlayer and
+# waited forever).
+PLAYER_PIDS=""
+players_alive() {
+  local p
+  for p in $PLAYER_PIDS; do kill -0 "$p" 2>/dev/null && return 0; done
+  pgrep -U "$(id -u)" -f "$JOB/native/.*[.]app/Contents/MacOS/" > /dev/null 2>&1
+}
+stop_player() {
+  local p sig t0
+  for sig in TERM KILL; do
+    for p in $PLAYER_PIDS; do pkill -"$sig" -P "$p" 2>/dev/null; kill -"$sig" "$p" 2>/dev/null; done
+    pkill -"$sig" -U "$(id -u)" -f "$JOB/native/.*[.]app/Contents/MacOS/" 2>/dev/null
+    t0=$(now_s)
+    while players_alive && [ $(( $(now_s) - t0 )) -lt 10 ]; do sleep 1; done
+    players_alive || break
+  done
+  for p in $PLAYER_PIDS; do wait "$p" 2>/dev/null; done   # already gone: returns at once
+  PLAYER_PIDS=""
+  return 0
+}
+# run_dir TAG -> a run folder outside the bundle with steam_appid.txt (Steamworks reads it from the cwd)
+run_dir() { local d="$JOB/native/run-$1"; mkdir -p "$d"; printf '3527290\n' > "$d/steam_appid.txt"; printf '%s' "$d"; }
 GATE_CLEANUP=stop_player
 
 # run_player APP TAG -> player log in logs/G-C0/<TAG>-player.log; RUN_ALIVE=1 when it was still running at the end
 run_player() {
   local app=$1 tag=$2 t0 ppid plog="$GLOG/$2-player.log"
   t0=$(now_s)
-  # SteamAppId/SteamGameId + cwd = Contents/MacOS (steam_appid.txt): Steam treats the run as app 3527290.
+  # SteamAppId/SteamGameId + cwd = a run folder with steam_appid.txt: Steam treats the run as app 3527290.
+  local rd exe; rd=$(run_dir "$tag"); exe="$app/Contents/MacOS/$(player_exe "$app")"
   if [ "$bep" = 1 ] && [ "$tag" = a ] && [ -f "$JOB/native/run_bepinex.sh" ]; then
-    ( cd "$JOB/native" && SteamAppId=3527290 SteamGameId=3527290 bash ./run_bepinex.sh "$app" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
+    printf '3527290\n' > "$JOB/native/steam_appid.txt"
+    ( cd "$JOB/native" && export SteamAppId=3527290 SteamGameId=3527290 && exec bash ./run_bepinex.sh "$app" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   else
-    ( cd "$app/Contents/MacOS" && SteamAppId=3527290 SteamGameId=3527290 "./$(player_exe "$app")" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
+    ( cd "$rd" && export SteamAppId=3527290 SteamGameId=3527290 && exec "$exe" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   fi
-  ppid=$!
+  ppid=$!; PLAYER_PIDS="$PLAYER_PIDS $ppid"; metric "${tag}_player_pid" "$ppid"
   sleep 45
   snap "native-$tag-45s"
   RUN_PPID=$ppid; RUN_T0=$t0
@@ -269,7 +304,6 @@ finish_player() {  # TAG
   metric "$1_alive_after_s" "$(( $(now_s) - RUN_T0 ))"; metric "$1_still_running" "$RUN_ALIVE"
   snap "native-$1-end"
   stop_player
-  wait "$RUN_PPID" 2>/dev/null
 }
 # analyse LOG PREFIX (criterion ids get the prefix: a_..., b_...)
 analyse() {
@@ -323,7 +357,7 @@ bep=0
 if case "$phase" in *a*) true ;; *) false ;; esac; then
   APP_A="$JOB/native/a-stock/PEAK.app"; mkdir -p "$(dirname "$APP_A")"
   if assemble "$APP_A" stock; then crit a_assemble pass "phase a: bundle assembled, Info.plist valid, ad-hoc signature verifies" "$ASM_N_MAC Mac UnityEngine assemblies"
-  else crit a_assemble fail "phase a: bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
+  else crit a_assemble fail "phase a: bundle assembled and signed" "${ASM_ERR:-see logs/G-C0/codesign.log}"; fi
   metric mac_unityengine_assemblies "$ASM_N_MAC"
   metric exe_archs "$(file -b "$APP_A/Contents/MacOS/$ASM_EXE" | tr '\n' ' ')" str
   # optional BepInEx (HarmonyX on arm64), installed next to the bundle inside the job dir
@@ -425,7 +459,7 @@ if case "$phase" in *b*) true ;; *) false ;; esac; then
   if [ -d "$out/Data" ]; then
     APP_B="$JOB/native/b-converted/PEAK.app"; mkdir -p "$(dirname "$APP_B")"
     if assemble "$APP_B" "$out/Data"; then crit b_assemble pass "phase b: bundle with converted loose files (no data.unity3d), signed"
-    else crit b_assemble fail "phase b: bundle assembled and signed"; fi
+    else crit b_assemble fail "phase b: bundle assembled and signed" "${ASM_ERR:-see logs/G-C0/codesign.log}"; fi
     [ -f "$APP_B/Contents/Resources/Data/data.unity3d" ] && crit b_no_archive fail "phase b: no data.unity3d next to the loose files" || crit b_no_archive pass "phase b: no data.unity3d next to the loose files"
     run_player "$APP_B" b
     cu_request_peak menu 240 "Phase b (converted Metal shaders): when PEAK's main menu shows, screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-b-menu. Then click Play and wait for the Airport lobby (up to 2 min); screenshot native-b-level. Look for and report: upside-down or mirrored image (y orientation), objects drawn through each other (depth), washed-out or too dark colours (sRGB), black/garbled full-screen copies (framebuffer fetch, CoreCopy), flickering or repeated objects (instancing), pink/missing materials. Answer: ok menu=<yes|no> level=<yes|no> yflip=<ok|bad> depth=<ok|bad> srgb=<ok|bad> fbfetch=<ok|bad> instancing=<ok|bad> missing=<none|list>, or fail <what happened> if it crashed or stayed black."
@@ -462,7 +496,8 @@ if case "$phase" in *b*) true ;; *) false ;; esac; then
     if [ "$bundle_variant" = 1 ] && crit_failed b_main_menu && [ -f "$out/data.unity3d" ]; then
       APP_C="$JOB/native/c-bundle/PEAK.app"; mkdir -p "$(dirname "$APP_C")"
       assemble "$APP_C" stock && rm -f "$APP_C/Contents/Resources/Data/data.unity3d" && clone "$out/data.unity3d" "$APP_C/Contents/Resources/Data/" \
-        && codesign --force -s - "$APP_C" >> "$GLOG/codesign.log" 2>&1
+        && codesign --force -s - "$APP_C" >> "$GLOG/codesign.log" 2>&1 \
+        && codesign --verify --deep --strict "$APP_C" >> "$GLOG/codesign.log" 2>&1
       run_player "$APP_C" c
       finish_player c
       analyse "$GLOG/c-player.log" c_
@@ -503,7 +538,7 @@ if case "$phase" in *m*) true ;; *) false ;; esac; then
     VAR_SAVE=$variation; variation=$mvar
     APP_U="$JOB/native/m-universal/PEAK.app"; mkdir -p "$(dirname "$APP_U")"
     if assemble "$APP_U" stock; then crit m_assemble pass "phase m: universal bundle assembled and signed" "$ASM_EXE: $(file -b "$APP_U/Contents/MacOS/$ASM_EXE" | cut -c1-120)"
-    else crit m_assemble fail "phase m: universal bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
+    else crit m_assemble fail "phase m: universal bundle assembled and signed" "${ASM_ERR:-see logs/G-C0/codesign.log}"; fi
     variation=$VAR_SAVE
     # mods_run CONFIG ARCH BEPZIP DOORSTOPZIP(or "") -> crit m_<CONFIG>
     mods_run() {
@@ -519,20 +554,21 @@ if case "$phase" in *m*) true ;; *) false ;; esac; then
       [ -n "$jb" ] && cp "$jb" "$root/BepInEx/plugins/"
       xattr -cr "$root" 2>/dev/null
       t0=$(now_s)
-      ( cd "$root/PEAK.app/Contents/MacOS" && arch -"$a" \
+      mrd=$(run_dir "m-$c")
+      ( cd "$mrd" && exec arch -"$a" \
           -e DYLD_INSERT_LIBRARIES="$root/libdoorstop.dylib" -e DOORSTOP_ENABLED=1 \
           -e DOORSTOP_TARGET_ASSEMBLY="$root/BepInEx/core/BepInEx.Preloader.dll" -e DOORSTOP_IGNORE_DISABLED_ENV=0 \
           -e DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE= -e DOORSTOP_MONO_DEBUG_ENABLED=0 -e DOORSTOP_MONO_DEBUG_SUSPEND=0 \
           -e DOORSTOP_MONO_DEBUG_ADDRESS=127.0.0.1:10000 -e DOORSTOP_BOOT_CONFIG_OVERRIDE= \
           -e DOORSTOP_CLR_RUNTIME_CORECLR_PATH=.dylib -e DOORSTOP_CLR_CORLIB_DIR= \
           -e SteamAppId=3527290 -e SteamGameId=3527290 \
-          "./$ASM_EXE" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/m-$c-run.out" 2>&1 &
-      pid=$!
+          "$root/PEAK.app/Contents/MacOS/$ASM_EXE" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/m-$c-run.out" 2>&1 &
+      pid=$!; PLAYER_PIDS="$PLAYER_PIDS $pid"
       while kill -0 "$pid" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt "$mods_s" ]; do
         grep -a -q "Chainloader startup complete" "$root/BepInEx/LogOutput.log" 2>/dev/null && [ $(( $(now_s) - t0 )) -ge 30 ] && break
         sleep 3
       done
-      stop_player; wait "$pid" 2>/dev/null
+      stop_player
       bl="$root/BepInEx/LogOutput.log"
       [ -f "$bl" ] && cp "$bl" "$GLOG/m-$c-LogOutput.log"
       find "$root" -maxdepth 5 -name 'preloader_*.log' -exec sh -c 'cp "$1" "$2/m-$3-$(basename "$1")"' _ {} "$GLOG" "$c" \; 2>/dev/null

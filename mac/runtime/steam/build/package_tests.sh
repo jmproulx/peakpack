@@ -3,7 +3,8 @@
 # Part of PeakPack for Mac (runtime/steam). MIT licence (see ../docs/README.md).
 #
 #   <name>.tar.xz -> <name>/probe/  steam_client_probe.exe, steam_api_probe.exe, and when present
-#                                   d3d11_clear.exe, cng_ecdsa_probe.exe, steam_client_probe-macos-x86_64, HarmonyProbe.dll;
+#                                   d3d11_clear.exe, cng_ecdsa_probe.exe, steam_client_probe-macos-x86_64, HarmonyProbe.dll,
+#                                   PeakPack.TestDrive.dll (test only);
 #                                   our probe sources
 #                    <name>/mac/    tests/mac/*.sh (the Mac gate scripts)
 #                    <name>/build-info.txt (when --info FILE is given)
@@ -22,7 +23,7 @@ while [ $# -gt 0 ]; do
         *) echo "unknown argument $1" >&2; exit 2 ;;
     esac
 done
-[ -n "$pe" ] && [ -n "$dist" ] && [ -n "$tname" ] || { sed -n '2,11p' "$0"; exit 2; }
+[ -n "$pe" ] && [ -n "$dist" ] && [ -n "$tname" ] || { sed -n '2,12p' "$0"; exit 2; }
 case "$tname" in *[!A-Za-z0-9._-]*) echo "bad package name $tname" >&2; exit 2 ;; esac
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 
@@ -31,7 +32,7 @@ trap 'rm -rf "$stage"' EXIT
 troot=$stage/$tname
 mkdir -p "$troot/probe" "$troot/mac"
 cp "$pe/steam_client_probe.exe" "$pe/steam_api_probe.exe" "$troot/probe/"
-for p in d3d11_clear.exe cng_ecdsa_probe.exe steam_client_probe-macos-x86_64 HarmonyProbe.dll; do
+for p in d3d11_clear.exe cng_ecdsa_probe.exe steam_client_probe-macos-x86_64 HarmonyProbe.dll PeakPack.TestDrive.dll; do
     if [ -f "$pe/$p" ]; then cp "$pe/$p" "$troot/probe/"; fi
 done
 cp "$steam_root"/tests/probe/*.c "$steam_root"/tests/probe/*.h "$troot/probe/"

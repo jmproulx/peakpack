@@ -32,15 +32,10 @@ ensure_app; rc=$?
 case $rc in 0) ;; 2) crit app_download fail "app zip matches its SHA256SUMS" "see G-APP1"; gate_end ;; *) gate_finish_as blocked "app release $APP_TAG is not available (run G-APP1)" ;; esac
 
 # ---- 1. preconditions: setup done in this job (G-APP2), no PEAK left over from an earlier run
-ph0=$(app_status_get phase)
-case "$ph0" in
-  done|ready) ;;
-  *) gate_finish_as blocked "the app is not set up in this job (phase '${ph0:-none}'): run G-APP1 and G-APP2 first" ;;
-esac
+app_require_setup "run G-APP1 and G-APP2 first"
 if app_peak_running; then
-  log "PEAK from an earlier run is still running: stopping the app's prefix first"
-  app_wine_stop; sleep 3
-  app_peak_running && gate_finish_as error "PEAK is still running from before this gate and could not be stopped"
+  log "PEAK from an earlier run is still running: stopping this job's leftovers first"
+  app_job_stop_leftovers || gate_finish_as error "PEAK is still running from before this gate (not this job's prefix)"
 fi
 
 # ---- 2. start the app like a Dock click (no --no-autoplay)

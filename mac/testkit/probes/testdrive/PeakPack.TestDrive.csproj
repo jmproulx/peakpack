@@ -1,0 +1,35 @@
+<Project>
+  <!-- TEST ONLY. Never part of the pack, never sent to friends: the Mac test kit (G-A2-lite --test-drive) copies it
+       into the TEST prefix's PeakPack profile for one run and removes it afterwards.
+       Build intermediates and output live outside this folder (see tools/nativework/testdrive). -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>..\..\..\tools\nativework\testdrive\obj\</BaseIntermediateOutputPath>
+    <BaseOutputPath>..\..\..\tools\nativework\testdrive\bin\</BaseOutputPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>PeakPack.TestDrive</AssemblyName>
+    <RootNamespace>PeakPack.TestDrive</RootNamespace>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile-time only. NO reference to PEAK's Assembly-CSharp: every game member is reached by name through
+         cached reflection/AccessTools accessors, so our IL never references a game member directly and PEAK's
+         Mono cannot throw FieldAccessException/MethodAccessException at JIT time. -->
+    <PackageReference Include="BepInEx.BaseLib" Version="5.4.21" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="HarmonyX" Version="2.9.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="6000.3.15" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>

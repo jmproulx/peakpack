@@ -229,8 +229,8 @@
       "id": "G-A2-lite",
       "title": "Short performance run (Metal HUD, solo to the Shore, 2 min)",
       "doc": "testkit/gates/G-A2-lite.md",
-      "command": "bash testkit/run_gate.sh G-A2-lite --job-dir $JOB -- --modded --minutes 2",
-      "args": "--modded --minutes 2",
+      "command": "bash testkit/run_gate.sh G-A2-lite --job-dir $JOB -- --modded --test-drive --minutes 2",
+      "args": "--modded --test-drive --minutes 2",
       "requires": [
         "G-A1",
         "G-B5"

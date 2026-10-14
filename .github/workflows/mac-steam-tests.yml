@@ -73,6 +73,9 @@ jobs:
           # HarmonyX probe plugin for the native-macOS mod test (G-C0 mods matrix); our MIT code, BepInEx 5 API
           dotnet build mac/testkit/probes/harmony_probe/HarmonyProbe.csproj -c Release -o "$RUNNER_TEMP/hp" --nologo
           cp "$RUNNER_TEMP/hp/HarmonyProbe.dll" "$pe/"
+          # TEST-ONLY auto-walk plugin for G-A2-lite --test-drive (never in the pack); no game assembly referenced
+          dotnet build mac/testkit/probes/testdrive/PeakPack.TestDrive.csproj -c Release -o "$RUNNER_TEMP/td" --nologo
+          cp "$RUNNER_TEMP/td/PeakPack.TestDrive.dll" "$pe/"
           file "$pe"/*
           {
             echo "tests_version=${{ steps.ver.outputs.version }}"

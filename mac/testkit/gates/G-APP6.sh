@@ -29,10 +29,7 @@ keep_awake
 GATE_CLEANUP=app_wine_stop
 ensure_app; rc=$?
 case $rc in 0) ;; 2) crit app_download fail "app zip matches its SHA256SUMS" "see G-APP1"; gate_end ;; *) gate_finish_as blocked "app release $APP_TAG is not available (run G-APP1)" ;; esac
-case "$(app_status_get phase)" in
-  done|ready) ;;
-  *) gate_finish_as blocked "the app is not set up in this job: run G-APP1 to G-APP5 first" ;;
-esac
+app_require_setup "run G-APP1 to G-APP5 first"
 
 # ---- (a) damage, inside the job's app data only
 if app_running; then app_quit || gate_finish_as error "could not quit the app before the damage step"; fi
