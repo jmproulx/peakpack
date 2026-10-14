@@ -42,14 +42,14 @@ if wait_for_player_log "Steam runtime manager initialized" $(( t5s - 30 )) "$lau
   metric player_log "$(rel_to_job "$PLAYER_LOG_USED")" str
   sleep 20
   snap peak-main-menu-script
-  cu_request mainmenu 120 "PEAK should be on screen (started by the test). Wait until the main menu is fully drawn (title art, buttons). Screenshot evidence/G-B2/peak-main-menu.png. Answer ok if the menu renders correctly (no black screen, no garbled colours or missing text), fail <what is wrong> otherwise. Do not click anything in PEAK; the script quits it."
+  cu_request_peak mainmenu 300 "PEAK should be on screen (started by the test). Wait until the main menu is fully drawn (title art, buttons). Screenshot evidence/G-B2/peak-main-menu.png. Answer ok if the menu renders correctly (no black screen, no garbled colours or missing text), fail <what is wrong> otherwise. Do not click anything in PEAK; the script quits it."
   cu_rc=$?
 else
   metric player_log "$(rel_to_job "${PLAYER_LOG_USED:-none}") (candidates: $(player_log_candidates | wc -l | tr -d ' '))" str
   note "Player.log did not show the Steam line within $(( t5s - 30 )) s; asking the agent to look at the screen anyway"
   hang_snapshot t5; metric t5_progress "$(progress_verdict t5)" str
   # The screen is the ground truth for the menu (slot 1, 0.3.5: the menu was up while the log check missed it)
-  cu_request mainmenu 120 "PEAK should be on screen (started by the test; its log check did not see it). If PEAK's main menu is shown (title art, Host/Join/Quit signs), screenshot evidence/G-B2/peak-main-menu.png and answer ok <what you see>. If it is black, garbled, crashed or still loading, answer fail <what you see>. Do not click anything in PEAK."
+  cu_request_peak mainmenu 300 "PEAK should be on screen (started by the test; its log check did not see it). If PEAK's main menu is shown (title art, Host/Join/Quit signs), screenshot evidence/G-B2/peak-main-menu.png and answer ok <what you see>. If it is black, garbled, crashed or still loading, answer fail <what you see>. Do not click anything in PEAK."
   cu_rc=$?
 fi
 wait "$tpid"; trc=$?

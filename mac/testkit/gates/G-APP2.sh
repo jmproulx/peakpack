@@ -177,11 +177,11 @@ ppd=$(app_pp_dir)
 if [ -f "$ppd/PeakPack.exe" ]; then crit peakpack_exe pass "PeakPack.exe installed by the app"
 else crit peakpack_exe fail "PeakPack.exe installed by the app" "$ppd"; fi
 if [ -f "$ppd/profile/BepInEx/core/BepInEx.Preloader.dll" ]; then crit profile_bepinex pass "BepInEx core in the PeakPack profile"
-else crit profile_bepinex fail "BepInEx core in the PeakPack profile"; fi
+else crit profile_bepinex fail "BepInEx core in the PeakPack profile" "$(path_detail "$ppd/profile/BepInEx/core/BepInEx.Preloader.dll")"; fi
 if app_has_key "$APP_STATEFILE" packRevision; then
   prv=$(json_get "$APP_STATEFILE" packRevision); version_set pack_revision "$prv"
   crit state_pack_revision pass "frontend/state.json has packRevision" "$prv"
-else crit state_pack_revision fail "frontend/state.json has packRevision"; fi
+else crit state_pack_revision fail "frontend/state.json has packRevision" "$( [ -f "$APP_STATEFILE" ] && printf '%s: %s' "$(rel_to_job "$APP_STATEFILE")" "$(head -c 200 "$APP_STATEFILE" | tr '\n' ' ')" || path_detail "$APP_STATEFILE")"; fi
 
 # ---- 7. Steam's side: the depot must have left Steam's content folder; the depotcache entries are recorded
 steam_res=pass; steam_det="content folders clear"
@@ -198,6 +198,6 @@ app_record_depotcache
 
 # ---- 8. quit the app (G-APP3 starts it again like a friend would)
 if app_quit; then crit app_quit pass "app quit at the end of the game step"
-else crit app_quit fail "app quit at the end of the game step"; fi
+else crit app_quit fail "app quit at the end of the game step" "app still running after the quit request; last phase '$(app_status_get phase)'"; fi
 version_set app_status_version "$(app_status_get appVersion)"
 gate_end

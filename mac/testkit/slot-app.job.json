@@ -42,9 +42,9 @@
     "note": "test-only PeakPack for the app (app 0.1.3+): lib/app.sh passes --test-peakpack-url/--test-peakpack-sha256 (sha from this release's SHA256SUMS) with --data-dir, and the APP gates check status testOverrides lists peakpack. Remove to use the app's normal PeakPack."
   },
   "kit": {
-    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.10.tar.gz",
-    "path_in_archive": "peakpack-mac-testkit-0.3.10/mac/testkit",
-    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.10/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.11.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.3.11/mac/testkit",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.11/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
     "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
   },
   "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",

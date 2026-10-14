@@ -6,7 +6,7 @@
   "machine": {"host": "M1 iMac", "macos_user": "fleet", "screen": "ours for the slot; Joshua at the iMac for voice"},
   "release": {"repo": "jmproulx/peakpack", "tag": "mac-build-runtime-pp1-cx26.3.0"},
   "steam_tests": {"tag": "mac-build-steam-tests-1.2.1", "note": "tests-only prerelease (probes with the PEAK-style ticket call); verified against its SHA256SUMS"},
-  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.10.tar.gz", "setup": "as slot1.job.json"},
+  "kit": {"source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.11.tar.gz", "setup": "as slot1.job.json"},
   "time_budget_min": 150,
   "expected_machine_min": 110,
   "schedule_with": "Joshua (at the iMac) and the pilot friend (own Windows PC, own Steam account, PeakPack synced to the same pack revision) for about 45 min after the setup gates",

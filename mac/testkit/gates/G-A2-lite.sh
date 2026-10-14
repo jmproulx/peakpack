@@ -99,7 +99,7 @@ else hang_snapshot start; metric start_progress "$(progress_verdict start)" str;
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 
 # ---- the agent drives the game
-cu_request menu 300 "PEAK is starting fullscreen with the Metal HUD (top-right overlay with FPS). When the main menu is drawn: screenshot evidence/G-A2-lite/a2-01-main-menu.png and read the HUD's FPS. Answer: ok fps=<number>. If a crash dialog or a black screen stays for 60 s, answer fail <what>."
+cu_request_peak menu 300 "PEAK is starting fullscreen with the Metal HUD (top-right overlay with FPS). When the main menu is drawn: screenshot evidence/G-A2-lite/a2-01-main-menu.png and read the HUD's FPS. Answer: ok fps=<number>. If a crash dialog or a black screen stays for 60 s, answer fail <what>."
 cu1=$?; fps_menu=$(cu_kv fps); metric fps_main_menu "${fps_menu:-}"
 [ "$cu1" = 1 ] && { crit reached_menu fail "main menu reached (agent)" "$CU_NOTE"; gate_end; }
 t_shore_req=$(now_s)

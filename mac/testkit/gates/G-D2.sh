@@ -103,7 +103,7 @@ else
 fi
 sleep 20
 snap peak-modded-menu-script
-cu_request modded 180 "Modded PEAK should be on screen (started by PeakPack). Wait for the main menu. Screenshot evidence/G-D2/peak-modded-main-menu.png. If a mod shows a notice or version text (e.g. PeakPack/companion), note it. Answer ok if the main menu works, fail <what> if it is black/crashed/stuck. Do not click in PEAK; the script quits it."
+cu_request_peak modded 300 "Modded PEAK should be on screen (started by PeakPack). Wait for the main menu. Screenshot evidence/G-D2/peak-modded-main-menu.png. If a mod shows a notice or version text (e.g. PeakPack/companion), note it. Answer ok if the main menu works, fail <what> if it is black/crashed/stuck. Do not click in PEAK; the script quits it."
 cu_m=$?
 [ -f "$bep_log" ] && cp "$bep_log" "$GLOG/LogOutput-modded.log"
 plog=$(player_log_path "$t_mod"); [ -f "$plog" ] && cp "$plog" "$GLOG/Player-modded.log"
@@ -113,7 +113,7 @@ if [ -f "$L" ]; then
   n_expect=$(sed -n 's/.*\] \([0-9][0-9]*\) plugins\{0,1\} to load.*/\1/p' "$L" | tail -1)
   n_loaded=$(grep -a -c '\] Loading \[' "$L" | tr -d ' ')
   grep -a 'Loading \[' "$L" | sed 's/.*Loading \[\(.*\)\].*/\1/' > "$GLOG/plugins-loaded.txt"
-  grep -a -E '\[(Error|Fatal) *: *BepInEx\]|Could not load \[|Skipping \[|Error loading \[|missing dependenc|incompatible' "$L" > "$GLOG/bepinex-errors.txt"
+  bepinex_load_errors "$L"
   n_err=$(wc -l < "$GLOG/bepinex-errors.txt" | tr -d ' ')
   grep -a -E '\[(Error|Fatal) *:' "$L" > "$GLOG/all-error-lines.txt"
   metric any_error_lines "$(wc -l < "$GLOG/all-error-lines.txt" | tr -d ' ')"

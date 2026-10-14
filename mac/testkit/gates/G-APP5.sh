@@ -66,7 +66,7 @@ plog=$(app_player_log)
 if wait_for_file_text "$plog" "Steam runtime manager initialized" "$launch_to" "$t_cu"; then
   crit vanilla_started pass "Player.log rewritten: Steam runtime manager initialized (vanilla)"
 else
-  crit vanilla_started fail "Player.log rewritten: Steam runtime manager initialized within ${launch_to}s"
+  crit vanilla_started fail "Player.log rewritten: Steam runtime manager initialized within ${launch_to}s" "looked in $(rel_to_job "$plog"): $( [ -f "$plog" ] && printf 'modified %s s after the click, last line: %s' "$(( $(mtime_of "$plog") - t_cu ))" "$(tail -1 "$plog" | cut -c1-120)" || printf 'missing (prefix users: %s)' "$(users_seen "$APP_PFX")")"
 fi
 sleep 15
 [ -f "$plog" ] && cp "$plog" "$GLOG/Player-vanilla.log"
@@ -78,7 +78,9 @@ if [ "$bep_after" = "$bep_before" ]; then crit vanilla_no_bepinex pass "vanilla 
 else crit vanilla_no_bepinex fail "vanilla launch did not start BepInEx" "LogOutput.log was rewritten"; fi
 if [ -f "$GLOG/Player-vanilla.log" ] && ! grep -a -i -q -E 'BepInEx|Doorstop|Chainloader' "$GLOG/Player-vanilla.log"; then
   crit vanilla_player_log pass "no BepInEx/Doorstop/Chainloader lines in the vanilla Player.log"
-else crit vanilla_player_log fail "no BepInEx/Doorstop/Chainloader lines in the vanilla Player.log"; fi
+elif [ -f "$GLOG/Player-vanilla.log" ]; then crit vanilla_player_log fail "no BepInEx/Doorstop/Chainloader lines in the vanilla Player.log" \
+  "$(rel_to_job "$plog"): $(grep -a -i -m2 -E 'BepInEx|Doorstop|Chainloader' "$GLOG/Player-vanilla.log" | tr '\n' ' ' | cut -c1-240)"
+else crit vanilla_player_log fail "no BepInEx/Doorstop/Chainloader lines in the vanilla Player.log" "no vanilla Player.log: $(path_detail "$plog")"; fi
 ll=$(app_status_get lastLaunch)
 if [ "$ll" = vanilla ]; then crit last_launch pass "app status lastLaunch is vanilla" "$ll"
 else crit last_launch fail "app status lastLaunch is vanilla" "got '$ll'"; fi

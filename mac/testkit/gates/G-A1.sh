@@ -89,34 +89,34 @@ t0=$(now_s)
 if ensure_prefix; then crit prefix_create pass "pp-create-prefix.sh created the prefix in the job dir" "$(( $(now_s) - t0 )) s"
 else tail -40 "$GLOG/create-prefix.log"; crit prefix_create fail "pp-create-prefix.sh" "see logs/G-A1/create-prefix.log"; gate_end; fi
 metric prefix_create_s "$(( $(now_s) - t0 ))"
-[ -f "$PFX/system.reg" ] && crit wineboot pass "wineboot wrote system.reg" || crit wineboot fail "wineboot wrote system.reg"
+[ -f "$PFX/system.reg" ] && crit wineboot pass "wineboot wrote system.reg" || crit wineboot fail "wineboot wrote system.reg" "$(path_detail "$PFX/system.reg"); logs/G-A1/create-prefix.log"
 if [ -f "$GLOG/create-prefix.log" ]; then
   ms=$(macdrv_state "$GLOG/create-prefix.log"); metric macdrv_boot "$ms" str
   grep -a -E 'winemac|macdrv|winediag|nodrv_|explorer' "$GLOG/create-prefix.log" | head -40 > "$GLOG/macdrv-boot-excerpt.txt"
   case "$ms" in ok) crit macdrv_boot pass "Mac driver loaded during wineboot" ;; *) crit macdrv_boot fail "Mac driver loaded during wineboot" "$ms (logs/G-A1/macdrv-boot-excerpt.txt)" ;; esac
 fi
 stamp="$PFX/peakpack/prefix.json"
-[ -f "$stamp" ] && grep -q "\"backend\": *\"dxmt\"" "$stamp" && crit prefix_stamp pass "prefix stamp: backend dxmt" "$(tr -d '\n' < "$stamp")" || crit prefix_stamp fail "prefix stamp with backend dxmt"
-if cmp -s "$RT/lib/peakpack/dxmt/x86_64-windows/d3d11.dll" "$PFX/drive_c/windows/system32/d3d11.dll"; then crit dxmt_installed pass "system32/d3d11.dll is DXMT's"; else crit dxmt_installed fail "system32/d3d11.dll is DXMT's"; fi
+[ -f "$stamp" ] && grep -q "\"backend\": *\"dxmt\"" "$stamp" && crit prefix_stamp pass "prefix stamp: backend dxmt" "$(tr -d '\n' < "$stamp")" || crit prefix_stamp fail "prefix stamp with backend dxmt" "$( [ -f "$stamp" ] && tr -d '\n' < "$stamp" | cut -c1-200 || path_detail "$stamp")"
+if cmp -s "$RT/lib/peakpack/dxmt/x86_64-windows/d3d11.dll" "$PFX/drive_c/windows/system32/d3d11.dll"; then crit dxmt_installed pass "system32/d3d11.dll is DXMT's"; else crit dxmt_installed fail "system32/d3d11.dll is DXMT's" "compared $(rel_to_job "$PFX")/drive_c/windows/system32/d3d11.dll ($(file_size "$PFX/drive_c/windows/system32/d3d11.dll") bytes) with the runtime's lib/peakpack/dxmt/x86_64-windows/d3d11.dll ($(file_size "$RT/lib/peakpack/dxmt/x86_64-windows/d3d11.dll") bytes)"; fi
 wu=$(wine_user); metric wine_user "$wu" str
 sandboxed=1; for d in Desktop Documents Downloads; do [ -L "$PFX/drive_c/users/$wu/$d" ] && sandboxed=0; done
-[ "$sandboxed" = 1 ] && crit sandbox pass "user shell folders are real folders (no links to the Mac home)" || crit sandbox fail "user shell folders are real folders"
+[ "$sandboxed" = 1 ] && crit sandbox pass "user shell folders are real folders (no links to the Mac home)" || crit sandbox fail "user shell folders are real folders" "links in drive_c/users/$wu: $(for d in Desktop Documents Downloads; do [ -L "$PFX/drive_c/users/$wu/$d" ] && printf '%s->%s ' "$d" "$(readlink "$PFX/drive_c/users/$wu/$d")"; done)"
 du -sk "$PFX" 2>/dev/null | awk '{ printf "%d\n", $1/1024 }' > "$GTMP/pfxmb"; metric prefix_mb "$(cat "$GTMP/pfxmb")"
 
 # ---- 4. cmd / reg / regedit
 out=$(pp_wine normal cmd /c ver 2>"$GLOG/cmd.err" | tr -d '\r'); printf '%s\n' "$out" > "$GLOG/cmd-ver.txt"
 case "$out" in *Windows*) crit cmd_ver pass "wine cmd /c ver" "$(printf '%s' "$out" | grep -m1 Windows)" ;; *) crit cmd_ver fail "wine cmd /c ver" "$(head -c 200 "$GLOG/cmd.err")" ;; esac
 q=$(pp_wine normal reg query 'HKCU\Software\Wine\AppDefaults\PEAK.exe\DllOverrides' 2>/dev/null | tr -d '\r'); printf '%s\n' "$q" > "$GLOG/reg-peak-overrides.txt"
-printf '%s' "$q" | grep -qi 'winhttp.*native,builtin' && crit reg_winhttp pass "PEAK.exe winhttp=native,builtin" || crit reg_winhttp fail "PEAK.exe winhttp=native,builtin"
-printf '%s' "$q" | grep -qi 'd3d11.*native,builtin' && crit reg_d3d11 pass "PEAK.exe d3d11=native,builtin (DXMT)" || crit reg_d3d11 fail "PEAK.exe d3d11=native,builtin"
+printf '%s' "$q" | grep -qi 'winhttp.*native,builtin' && crit reg_winhttp pass "PEAK.exe winhttp=native,builtin" || crit reg_winhttp fail "PEAK.exe winhttp=native,builtin" "reg query HKCU\\Software\\Wine\\AppDefaults\\PEAK.exe\\DllOverrides: $(printf '%s' "$q" | grep -i -E 'winhttp|ERROR' | head -2 | tr '\n' ' ')(logs/G-A1/reg-peak-overrides.txt)"
+printf '%s' "$q" | grep -qi 'd3d11.*native,builtin' && crit reg_d3d11 pass "PEAK.exe d3d11=native,builtin (DXMT)" || crit reg_d3d11 fail "PEAK.exe d3d11=native,builtin" "reg query PEAK.exe DllOverrides: $(printf '%s' "$q" | grep -i -E 'd3d11|ERROR' | head -2 | tr '\n' ' ')(logs/G-A1/reg-peak-overrides.txt)"
 q2=$(pp_wine normal reg query 'HKCU\Software\Wine\Mac Driver' 2>/dev/null | tr -d '\r'); printf '%s\n' "$q2" > "$GLOG/reg-macdriver.txt"
-printf '%s' "$q2" | grep -qi 'RetinaMode.*n' && crit reg_retina pass "Mac Driver RetinaMode=n" || crit reg_retina fail "Mac Driver RetinaMode=n"
+printf '%s' "$q2" | grep -qi 'RetinaMode.*n' && crit reg_retina pass "Mac Driver RetinaMode=n" || crit reg_retina fail "Mac Driver RetinaMode=n" "reg query HKCU\\Software\\Wine\\Mac Driver: $(printf '%s' "$q2" | grep -i -E 'Retina|ERROR' | head -2 | tr '\n' ' ')(logs/G-A1/reg-macdriver.txt)"
 pp_wine normal regedit /E 'C:\pp-wine-export.reg' 'HKEY_CURRENT_USER\Software\Wine' >/dev/null 2>&1
 exp="$PFX/drive_c/pp-wine-export.reg"
 if [ -s "$exp" ]; then
   LC_ALL=C tr -d '\000' < "$exp" > "$GLOG/regedit-export-hkcu-wine.reg"; rm -f "$exp"
-  grep -qi 'AppDefaults\\PEAK\.exe' "$GLOG/regedit-export-hkcu-wine.reg" && crit regedit pass "regedit /E export contains the PEAK.exe AppDefaults" || crit regedit fail "regedit /E export contains the PEAK.exe AppDefaults"
-else crit regedit fail "regedit /E produced an export"; fi
+  grep -qi 'AppDefaults\\PEAK\.exe' "$GLOG/regedit-export-hkcu-wine.reg" && crit regedit pass "regedit /E export contains the PEAK.exe AppDefaults" || crit regedit fail "regedit /E export contains the PEAK.exe AppDefaults" "no AppDefaults\\PEAK.exe key in logs/G-A1/regedit-export-hkcu-wine.reg ($(wc -l < "$GLOG/regedit-export-hkcu-wine.reg" | tr -d ' ') lines)"
+else crit regedit fail "regedit /E produced an export" "$(path_detail "$exp")"; fi
 wine_stop
 
 # ---- 5. D3D11 via DXMT

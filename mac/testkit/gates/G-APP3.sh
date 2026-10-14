@@ -5,7 +5,7 @@
 # Needs G-APP2 (setup done, the app quit). The app is started WITHOUT --no-autoplay, the way a Dock click starts it:
 # after setup it starts PEAK modded at once (phase launching, then playing). The script checks the PEAK process,
 # Player.log ("Steam runtime manager initialized: True"), the main menu (agent, CU-mainmenu), then ends PEAK
-# (agent, CU-quit: the main menu's Quit button; after 60 s the script stops the app's prefix with wineserver -k).
+# (agent, CU-quit: the main menu's Quit button; after 180 s the script stops the app's prefix with wineserver -k).
 # The app must quit by itself within 60 s after PEAK is gone (it does so after a modded daily launch).
 # Args: [--app-release TAG] [--start-timeout S] (default 300) [--main-menu-timeout S] (default 600)
 set -u
@@ -91,7 +91,7 @@ sleep 6
 metric phase_after_playing "$(app_status_get phase)" str
 
 # ---- 4. the main menu (agent)
-cu_request mainmenu "$menu_to" "PEAK should be running, started by the app (the app's window hides itself). Wait until the PEAK main menu is fully drawn (no loading screen). Do not click anything in PEAK. If a macOS microphone prompt appears, do NOT click Allow or Don't Allow: screenshot it as dialog-1 and say so in your answer. Screenshot: bash testkit/cu.sh \"$JOB\" shot G-APP3 peak-main-menu-app. Answer ok (the main menu is fully drawn), or fail with what you see."
+cu_request_peak mainmenu "$menu_to" "PEAK should be running, started by the app (the app's window hides itself). Wait until the PEAK main menu is fully drawn (no loading screen). Do not click anything in PEAK. If a macOS microphone prompt appears, do NOT click Allow or Don't Allow: screenshot it as dialog-1 and say so in your answer. Screenshot: bash testkit/cu.sh \"$JOB\" shot G-APP3 peak-main-menu-app. Answer ok (the main menu is fully drawn), or fail with what you see."
 rc=$?
 case $rc in
   0) crit main_menu pass "PEAK main menu fully drawn (agent)" "$CU_NOTE" ;;

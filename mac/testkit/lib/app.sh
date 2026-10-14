@@ -234,10 +234,12 @@ app_peak_running() { pgrep -f '(^|[/\\])PEAK\.exe' >/dev/null 2>&1; }
 # app_end_peak STEP TEXT -> 0 when PEAK is gone. Gives the agent 60 s to quit PEAK from its main menu
 # (computer-use step STEP); then, if PEAK still runs, stops the app's prefix with wineserver -k.
 # Sets END_METHOD (menu|wineserver) and END_CU_RC (the cu_request code).
+app_peak_gone() { ! app_peak_running; }
 app_end_peak() {
   local step=$1 text=$2 t0
   END_METHOD=menu
-  cu_request "$step" 60 "$text"; END_CU_RC=$?
+  # 180 s: the hub's agent can be busy elsewhere (0.3.10 missed 60 s); the step also ends as soon as PEAK is gone
+  cu_request "$step" "${PP_CU_QUIT_S:-180}" "$text" app_peak_gone; END_CU_RC=$?
   t0=$(now_s)
   while app_peak_running && [ $(( $(now_s) - t0 )) -lt 30 ]; do sleep 3; done
   if app_peak_running; then

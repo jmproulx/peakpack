@@ -69,11 +69,28 @@ pkgutil --check-signature "$pkg" > "$GLOG/pkg-signature.txt" 2>&1 && crit unity_
 # searched anywhere under X. An expansion is only reused when it carries our completeness marker (written
 # after pkgutil exits 0 and the checks pass); a partial one (e.g. interrupted) is deleted and redone.
 X="$JOB/unity/expanded"
+# player_exe APP -> name of the player executable in APP/Contents/MacOS ("UnityPlayer" preferred). Unity 6000.3's
+# pkg ships UnityPlayer.app WITHOUT Info.plist (the editor writes it at build time; assemble writes ours), so a
+# player is recognised by its Mach-O executable, not by Info.plist.
+player_exe() {
+  local m="$1/Contents/MacOS" f only="" n=0
+  [ -d "$m" ] || return 1
+  if [ -f "$m/UnityPlayer" ]; then echo UnityPlayer; return 0; fi
+  for f in "$m"/*; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in *.dylib|*.txt|*.plist|*.json|*.meta) continue ;; esac
+    if [ -x "$f" ] || file -b "$f" 2>/dev/null | grep -q 'Mach-O.*executable'; then basename "$f"; return 0; fi
+    n=$((n + 1)); only=$(basename "$f")
+  done
+  # a single plain file without the exec bit (lost in an expansion) is the player too
+  [ "$n" = 1 ] && { printf '%s\n' "$only"; return 0; }
+  return 1
+}
 # find_variations -> the Variations dir that holds at least one macOS Mono player
 find_variations() {
   local d
   while IFS= read -r d; do
-    for v in "$d"/macos_*_player_*_mono; do [ -f "$v/UnityPlayer.app/Contents/Info.plist" ] && { printf '%s' "$d"; return 0; }; done
+    for v in "$d"/macos_*_player_*_mono; do player_exe "$v/UnityPlayer.app" > /dev/null && { printf '%s' "$d"; return 0; }; done
   done <<EOF
 $(find "$X" -type d -name Variations 2>/dev/null)
 EOF
@@ -86,6 +103,11 @@ expansion_ok() {  # complete = our marker + a player app with its binary + Mono'
   [ "$(find "$var/mono/Managed" -maxdepth 1 -name '*.dll' 2>/dev/null | wc -l | tr -d ' ')" -ge 60 ] || return 1
   return 0
 }
+# $X only ever exists after pkgutil exited 0 (it expands into $X.partial, then mv), so an unmarked $X from a kit
+# whose player check was too strict (0.3.10: required Info.plist) is complete when today's checks pass: mark it.
+if [ -d "$X" ] && [ ! -f "$X/.peakpack-expanded-ok" ] && find_variations > /dev/null; then
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$X/.peakpack-expanded-ok"; note "marked the existing pkg expansion complete (player found)"
+fi
 if ! expansion_ok; then
   [ -d "$X" ] && { note "removing an incomplete or unmarked pkg expansion ($(find "$X" -maxdepth 1 | tr '\n' ' ' | cut -c1-200))"; rm -rf "$X"; }
   rm -rf "$X.partial"; mkdir -p "$JOB/unity"
@@ -104,7 +126,7 @@ ls "$VAR" > "$GLOG/variations.txt"
 # Player variation: --variation if given and present, else arm64 Mono -> universal x64arm64 Mono, development first.
 pick_variation() {
   local v
-  for v in "$@"; do [ -n "$v" ] && [ -f "$VAR/$v/UnityPlayer.app/Contents/Info.plist" ] && { printf '%s' "$v"; return 0; }; done
+  for v in "$@"; do [ -n "$v" ] && player_exe "$VAR/$v/UnityPlayer.app" > /dev/null && { printf '%s' "$v"; return 0; }; done
   return 1
 }
 want=$variation
@@ -113,6 +135,9 @@ variation=$(pick_variation "$want" macos_arm64_player_development_mono macos_arm
   || gate_finish_as error "no usable Mac Mono player variation in $(rel_to_job "$VAR") (logs/G-C0/variations.txt)"
 [ -n "$want" ] && [ "$want" != "$variation" ] && note "requested variation $want not in the pkg; using $variation"
 metric unity_variation "$variation" str
+PLAYER_EXE=$(player_exe "$VAR/$variation/UnityPlayer.app"); metric player_exe "$PLAYER_EXE" str
+metric player_info_plist_in_pkg "$([ -f "$VAR/$variation/UnityPlayer.app/Contents/Info.plist" ] && echo 1 || echo 0)"
+metric player_framework_dylib "$([ -f "$VAR/$variation/UnityPlayer.app/Contents/Frameworks/UnityPlayer.dylib" ] && echo 1 || echo 0)"
 version_set unity_player "$UNITY_VER $variation"
 # MonoBleedingEdge/etc: next to Variations in the editor layout; elsewhere in the pkg layout
 MBE_ETC="$MSS/MonoBleedingEdge/etc"; [ -d "$MBE_ETC" ] || MBE_ETC=$(find "$X" -type d -path '*/MonoBleedingEdge/etc' 2>/dev/null | head -1)
@@ -143,8 +168,10 @@ else crit steam_lib fail "Steamworks.NET zip download" "$SWN_URL"; fi
 
 # assemble APP DATA_SRC  (DATA_SRC: "stock" = PEAK_Data; else a convert output Data dir, used without data.unity3d)
 assemble() {
-  local app=$1 src=$2 d e b r m n_mac=0
+  local app=$1 src=$2 d e b r m n_mac=0 exe
   rm -rf "$app"; cp -R "$VAR/$variation/UnityPlayer.app" "$app"
+  exe=$(player_exe "$app") || { note "assemble: no player executable in $(rel_to_job "$app")/Contents/MacOS"; return 1; }
+  chmod +x "$app/Contents/MacOS/$exe"; ASM_EXE=$exe
   d="$app/Contents/Resources/Data"; mkdir -p "$d/Managed" "$d/Resources"
   if [ "$src" = stock ]; then
     for e in "$GAME_DIR"/PEAK_Data/*; do
@@ -176,9 +203,11 @@ assemble() {
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
- <key>CFBundleExecutable</key><string>UnityPlayer</string>
+ <key>CFBundleExecutable</key><string>$exe</string>
  <key>CFBundleIdentifier</key><string>com.peakpack.testkit.native</string>
  <key>CFBundleName</key><string>PEAK native smoke</string>
+ <key>CFBundleDisplayName</key><string>PEAK native smoke</string>
+ <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
  <key>CFBundlePackageType</key><string>APPL</string>
  <key>CFBundleShortVersionString</key><string>${pv:-0}</string>
  <key>CFBundleVersion</key><string>1</string>
@@ -187,7 +216,8 @@ assemble() {
  <key>LSMinimumSystemVersion</key><string>11.0</string>
 </dict></plist>
 EOF
-  plutil -lint "$app/Contents/Info.plist" > /dev/null 2>&1 || return 1
+  plutil -lint "$app/Contents/Info.plist" > /dev/null 2>&1 || { note "assemble: Info.plist does not lint"; return 1; }
+  [ -x "$app/Contents/MacOS/$exe" ] || { note "assemble: $exe is not executable"; return 1; }
   # Steam: PEAK's Steamworks.NET was built for Windows and imports "steam_api64"; offer the macOS library under
   # every name Unity's Mono may probe (bundle and dylib, PlugIns and Frameworks). App id for SteamAPI_Init and
   # so RestartAppIfNecessary does not relaunch through Steam.
@@ -215,7 +245,7 @@ for p in "$HOME/Library/Preferences/unity.$UNITY_COMPANY.$UNITY_PRODUCT.plist" "
          "$HOME/Library/Caches/com.peakpack.testkit.native" "$HOME/Library/Caches/$UNITY_COMPANY" "$HOME/Library/Logs/$UNITY_COMPANY"; do
   preexisted "$p" || outside_record "$p" created-by-us "Unity Mac player per-user data (G-C0); removed by cleanup.sh if present"
 done
-stop_player() { pkill -TERM -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/UnityPlayer" 2>/dev/null; sleep 3; pkill -KILL -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/UnityPlayer" 2>/dev/null; return 0; }
+stop_player() { pkill -TERM -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/" 2>/dev/null; sleep 3; pkill -KILL -U "$(id -u)" -f "$JOB/native/.*/Contents/MacOS/" 2>/dev/null; return 0; }
 GATE_CLEANUP=stop_player
 
 # run_player APP TAG -> player log in logs/G-C0/<TAG>-player.log; RUN_ALIVE=1 when it was still running at the end
@@ -226,7 +256,7 @@ run_player() {
   if [ "$bep" = 1 ] && [ "$tag" = a ] && [ -f "$JOB/native/run_bepinex.sh" ]; then
     ( cd "$JOB/native" && SteamAppId=3527290 SteamGameId=3527290 bash ./run_bepinex.sh "$app" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   else
-    ( cd "$app/Contents/MacOS" && SteamAppId=3527290 SteamGameId=3527290 ./UnityPlayer -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
+    ( cd "$app/Contents/MacOS" && SteamAppId=3527290 SteamGameId=3527290 "./$(player_exe "$app")" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/$tag-run.out" 2>&1 &
   fi
   ppid=$!
   sleep 45
@@ -295,7 +325,7 @@ if case "$phase" in *a*) true ;; *) false ;; esac; then
   if assemble "$APP_A" stock; then crit a_assemble pass "phase a: bundle assembled, Info.plist valid, ad-hoc signature verifies" "$ASM_N_MAC Mac UnityEngine assemblies"
   else crit a_assemble fail "phase a: bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
   metric mac_unityengine_assemblies "$ASM_N_MAC"
-  metric exe_archs "$(file -b "$APP_A/Contents/MacOS/UnityPlayer" | tr '\n' ' ')" str
+  metric exe_archs "$(file -b "$APP_A/Contents/MacOS/$ASM_EXE" | tr '\n' ' ')" str
   # optional BepInEx (HarmonyX on arm64), installed next to the bundle inside the job dir
   if [ -n "$bep_zip" ] && [ -f "$bep_zip" ]; then
     ditto -x -k "$bep_zip" "$JOB/native" > "$GLOG/bepinex-unzip.log" 2>&1 && bep=1
@@ -309,7 +339,7 @@ if case "$phase" in *a*) true ;; *) false ;; esac; then
     fi
   fi
   run_player "$APP_A" a
-  cu_request look 120 "Phase a: a window 'PEAK native smoke' (Unity Mac player with PEAK's stock Windows data) should be open. Screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-a-window. Describe it: black, pink/magenta surfaces (expected: no Metal shaders yet), a recognisable PEAK main menu (even pink), an error dialog, or nothing (crashed). Answer ok <description> (any of these is data, not a failure), or skip if nothing appeared. Do not click in the window."
+  cu_request_peak look 120 "Phase a: a window 'PEAK native smoke' (Unity Mac player with PEAK's stock Windows data) should be open. Screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-a-window. Describe it: black, pink/magenta surfaces (expected: no Metal shaders yet), a recognisable PEAK main menu (even pink), an error dialog, or nothing (crashed). Answer ok <description> (any of these is data, not a failure), or skip if nothing appeared. Do not click in the window."
   finish_player a
   analyse "$GLOG/a-player.log" a_   # also records EOS-absent lines, Steam init and lobby lines (analyse_online)
   crit a_dllnotfound info "native plugins that failed to load (expected: EOSSDK, opus_egpv, AudioIn, webrtc-audio, MemoryWrapper; steam_api64 should load)" "$(wc -l < "$GLOG/a_dllnotfound.txt" 2>/dev/null | tr -d ' ') unique"
@@ -398,7 +428,7 @@ if case "$phase" in *b*) true ;; *) false ;; esac; then
     else crit b_assemble fail "phase b: bundle assembled and signed"; fi
     [ -f "$APP_B/Contents/Resources/Data/data.unity3d" ] && crit b_no_archive fail "phase b: no data.unity3d next to the loose files" || crit b_no_archive pass "phase b: no data.unity3d next to the loose files"
     run_player "$APP_B" b
-    cu_request menu 240 "Phase b (converted Metal shaders): when PEAK's main menu shows, screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-b-menu. Then click Play and wait for the Airport lobby (up to 2 min); screenshot native-b-level. Look for and report: upside-down or mirrored image (y orientation), objects drawn through each other (depth), washed-out or too dark colours (sRGB), black/garbled full-screen copies (framebuffer fetch, CoreCopy), flickering or repeated objects (instancing), pink/missing materials. Answer: ok menu=<yes|no> level=<yes|no> yflip=<ok|bad> depth=<ok|bad> srgb=<ok|bad> fbfetch=<ok|bad> instancing=<ok|bad> missing=<none|list>, or fail <what happened> if it crashed or stayed black."
+    cu_request_peak menu 240 "Phase b (converted Metal shaders): when PEAK's main menu shows, screenshot: bash testkit/cu.sh \$JOB shot G-C0 native-b-menu. Then click Play and wait for the Airport lobby (up to 2 min); screenshot native-b-level. Look for and report: upside-down or mirrored image (y orientation), objects drawn through each other (depth), washed-out or too dark colours (sRGB), black/garbled full-screen copies (framebuffer fetch, CoreCopy), flickering or repeated objects (instancing), pink/missing materials. Answer: ok menu=<yes|no> level=<yes|no> yflip=<ok|bad> depth=<ok|bad> srgb=<ok|bad> fbfetch=<ok|bad> instancing=<ok|bad> missing=<none|list>, or fail <what happened> if it crashed or stayed black."
     cub=$?; visual_note=$CU_NOTE; visual_ans=$CU_ANSWER
     for k in menu level yflip depth srgb fbfetch instancing missing; do v=$(cu_kv "$k"); [ -n "$v" ] && metric "b_visual_$k" "$v" str; done
     # Key finding: does a Steam lobby still work without EOS (EOS sign-in creates the online player id)?
@@ -472,7 +502,7 @@ if case "$phase" in *m*) true ;; *) false ;; esac; then
     metric m_inputs "probe=$([ -n "$hp" ] && echo y || echo n) jetpack=$([ -n "$jb" ] && echo y || echo n) bepinex_master=$([ -n "$bepm" ] && echo y || echo n) doorstop46=$([ -n "$ds46" ] && echo y || echo n) stock=$([ -n "$beps" ] && echo y || echo n)" str
     VAR_SAVE=$variation; variation=$mvar
     APP_U="$JOB/native/m-universal/PEAK.app"; mkdir -p "$(dirname "$APP_U")"
-    if assemble "$APP_U" stock; then crit m_assemble pass "phase m: universal bundle assembled and signed" "$(file -b "$APP_U/Contents/MacOS/UnityPlayer" | cut -c1-120)"
+    if assemble "$APP_U" stock; then crit m_assemble pass "phase m: universal bundle assembled and signed" "$ASM_EXE: $(file -b "$APP_U/Contents/MacOS/$ASM_EXE" | cut -c1-120)"
     else crit m_assemble fail "phase m: universal bundle assembled and signed" "see logs/G-C0/codesign.log"; fi
     variation=$VAR_SAVE
     # mods_run CONFIG ARCH BEPZIP DOORSTOPZIP(or "") -> crit m_<CONFIG>
@@ -496,7 +526,7 @@ if case "$phase" in *m*) true ;; *) false ;; esac; then
           -e DOORSTOP_MONO_DEBUG_ADDRESS=127.0.0.1:10000 -e DOORSTOP_BOOT_CONFIG_OVERRIDE= \
           -e DOORSTOP_CLR_RUNTIME_CORECLR_PATH=.dylib -e DOORSTOP_CLR_CORLIB_DIR= \
           -e SteamAppId=3527290 -e SteamGameId=3527290 \
-          ./UnityPlayer -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/m-$c-run.out" 2>&1 &
+          "./$ASM_EXE" -logFile "$plog" -screen-fullscreen 0 -screen-width 1280 -screen-height 720 ) > "$GLOG/m-$c-run.out" 2>&1 &
       pid=$!
       while kill -0 "$pid" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt "$mods_s" ]; do
         grep -a -q "Chainloader startup complete" "$root/BepInEx/LogOutput.log" 2>/dev/null && [ $(( $(now_s) - t0 )) -ge 30 ] && break

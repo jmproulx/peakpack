@@ -68,7 +68,7 @@ path_detail() {
   local p=$1 d
   if [ -e "$p" ]; then printf 'looked for %s: present' "$(rel_to_job "$p")"; return 0; fi
   d=$(dirname "$p"); while [ -n "$d" ] && [ "$d" != / ] && [ ! -d "$d" ]; do d=$(dirname "$d"); done
-  printf 'looked for %s: missing (nearest existing folder: %s; prefix users: %s)' "$(rel_to_job "$p")" "$(rel_to_job "$d")" "$(users_seen "$PFX")"
+  printf 'looked for %s: missing (nearest existing folder: %s; prefix users: %s)' "$(rel_to_job "$p")" "$(rel_to_job "$d")" "$(users_seen "${PFX:-${APP_PFX:-}}")"
 }
 rel_to_job() { case "$1" in "$PP_JOB_DIR"/*) printf '%s' "${1#"$PP_JOB_DIR"/}" ;; *) printf '%s' "$1" ;; esac; }
 
@@ -416,6 +416,19 @@ cu_request() {
     "$(json_str "$(oneline "$CU_NOTE")")" "$(json_str "$(now_utc)")" >> "$GTMP/cu.jsonl"
   log "[CU-ANSWER] $key: $CU_ANSWER ${CU_NOTE:+- $CU_NOTE}"
   case "$CU_ANSWER" in ok) return 0 ;; skip) return 2 ;; timeout) return 3 ;; *) return 1 ;; esac
+}
+# PEAK's first launch on a fresh profile shows its own microphone chooser page (MainMenuFirstTimeSetupPage: a
+# microphone dropdown + Continue) instead of the main menu; PEAK sets PlayerPrefs FirstTimeStartup2 when it shows it,
+# so it appears once per prefix/profile. Kit 0.3.11 lets the agent click Continue (selection unchanged) in every
+# CU step that waits for PEAK's main menu; it is expected, never a failure. The answer's mic_chooser=continued
+# is recorded as metric mic_chooser_<step>. (Pre-seeding was not chosen: under Wine the PlayerPrefs value lives in
+# the registry under a hashed name, and the native player uses a plist; a CU click works for both.)
+MIC_CHOOSER_HINT="FIRST-LAUNCH NOTE: if PEAK shows its own MICROPHONE CHOOSER page (a microphone dropdown and a Continue button) instead of the main menu, click Continue once WITHOUT changing the selection. That is PEAK's normal first-launch page on a fresh profile, it is expected and not a failure, and it is the only click allowed in PEAK for this step. Then carry on with the step and add mic_chooser=continued to your answer (mic_chooser=none if it did not appear)."
+cu_request_peak() {  # cu_request for a step that waits for PEAK's main menu: adds the microphone-chooser note
+  local step=$1 timeout=$2 text=$3 rc; shift 3
+  cu_request "$step" "$timeout" "$text $MIC_CHOOSER_HINT" "$@"; rc=$?
+  local mc; mc=$(cu_kv mic_chooser); [ -n "$mc" ] && metric "mic_chooser_$step" "$mc" str
+  return "$rc"
 }
 cu_kv() {  # value of KEY from the answer: key=value lines after line 1, or key=value words on line 1
   [ -f "${CU_DONE_FILE:-}" ] || return 0

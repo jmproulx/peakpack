@@ -68,7 +68,7 @@ if [ -f "$L" ]; then
   n_expect=$(sed -n 's/.*\] \([0-9][0-9]*\) plugins\{0,1\} to load.*/\1/p' "$L" | tail -1)
   n_loaded=$(grep -a -c '\] Loading \[' "$L" | tr -d ' ')
   grep -a 'Loading \[' "$L" | sed 's/.*Loading \[\(.*\)\].*/\1/' > "$GLOG/plugins-loaded.txt"
-  grep -a -E '\[(Error|Fatal) *: *BepInEx\]|Could not load \[|Skipping \[|Error loading \[|missing dependenc|incompatible' "$L" > "$GLOG/bepinex-errors.txt"
+  bepinex_load_errors "$L"
   n_err=$(wc -l < "$GLOG/bepinex-errors.txt" | tr -d ' ')
   grep -a -E '\[(Error|Fatal) *:' "$L" > "$GLOG/all-error-lines.txt"
   metric any_error_lines "$(wc -l < "$GLOG/all-error-lines.txt" | tr -d ' ')"
@@ -103,7 +103,7 @@ if [ "$ll" = modded ]; then crit launch_mode pass "app status lastLaunch is modd
 else crit launch_mode fail "app status lastLaunch is modded" "got '$ll'"; fi
 
 # ---- 3. Metal HUD (agent)
-cu_request hud 300 "PEAK is running modded, started by the app. With 'Show FPS' on, the Metal HUD (an FPS overlay) should show in the corner of the screen. Wait about 30 s for the value to settle. Do not click in PEAK. Screenshot: bash testkit/cu.sh \"$JOB\" shot G-APP4 peak-modded-hud. Answer ok fps=<the number the HUD shows>, or fail with what you see (no HUD, black screen, crash). Example: bash testkit/cu.sh \"$JOB\" done G-APP4.hud ok \"HUD visible\" fps=58"
+cu_request_peak hud 300 "PEAK is running modded, started by the app. With 'Show FPS' on, the Metal HUD (an FPS overlay) should show in the corner of the screen. Wait about 30 s for the value to settle. Do not click in PEAK. Screenshot: bash testkit/cu.sh \"$JOB\" shot G-APP4 peak-modded-hud. Answer ok fps=<the number the HUD shows>, or fail with what you see (no HUD, black screen, crash). Example: bash testkit/cu.sh \"$JOB\" done G-APP4.hud ok \"HUD visible\" fps=58"
 rc=$?
 fps=$(cu_kv fps)
 [ -n "$fps" ] && metric fps "$fps"

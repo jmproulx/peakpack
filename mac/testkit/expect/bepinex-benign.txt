@@ -1,0 +1,5 @@
+# Known-benign BepInEx LogOutput.log lines (fixed strings, one per line; # = comment). G-D2 records matches as
+# info (criterion benign_bepinex_lines), never as load errors. Every entry needs a Windows baseline.
+# Unity log writer: logged on every launch of Joshua's Windows PEAK 2.6.b install too (LogOutput.log, 13 Oct 2026;
+# all 12 pack plugins load after it; also in FriendInstaller sandbox/real-pc-test). Seen on the M1 iMac, kit 0.3.10.
+Unable to start Unity log writer

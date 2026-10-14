@@ -234,6 +234,26 @@ ensure_peakpack() {
   version_set peakpack_exe_verified "$verified"
   return 0
 }
+# bepinex_load_errors LOGOUTPUT -> writes $GLOG/bepinex-errors.txt (load errors) and $GLOG/bepinex-benign.txt
+# (known-benign lines from expect/bepinex-benign.txt, each backed by the Windows baseline); records the metric
+# bepinex_benign_lines and, when any matched, the info criterion benign_bepinex_lines. Used by G-D2 and G-APP4.
+bepinex_load_errors() {
+  local log=$1 list="$PP_KIT_DIR/expect/bepinex-benign.txt" n
+  grep -a -E '\[(Error|Fatal) *: *BepInEx\]|Could not load \[|Skipping \[|Error loading \[|missing dependenc|incompatible' "$log" \
+    > "$GLOG/bepinex-errors-raw.txt"
+  grep -v -E '^[[:space:]]*(#|$)' "$list" 2>/dev/null > "$GTMP/benign.txt"
+  if [ -s "$GTMP/benign.txt" ]; then
+    grep -a -v -F -f "$GTMP/benign.txt" "$GLOG/bepinex-errors-raw.txt" > "$GLOG/bepinex-errors.txt"
+    grep -a -F -f "$GTMP/benign.txt" "$GLOG/bepinex-errors-raw.txt" > "$GLOG/bepinex-benign.txt"
+  else
+    cp "$GLOG/bepinex-errors-raw.txt" "$GLOG/bepinex-errors.txt"; : > "$GLOG/bepinex-benign.txt"
+  fi
+  n=$(wc -l < "$GLOG/bepinex-benign.txt" | tr -d ' ')
+  metric bepinex_benign_lines "$n"
+  [ "$n" = 0 ] || crit benign_bepinex_lines info "known-benign BepInEx lines (also logged on Windows; expect/bepinex-benign.txt)" \
+    "$n line(s): $(sort -u "$GLOG/bepinex-benign.txt" | head -3 | tr '\n' ' ')"
+  return 0
+}
 # Newest PEAK Player.log in the prefix (Unity: AppData/LocalLow/LandCrab/PEAK/Player.log)
 # PEAK's Player.log: Unity writes it to C:\users\<user>\AppData\LocalLow\LandCrab\PEAK. The user folder Wine uses
 # can differ from the one the prefix was created with (USER differs between a remote shell and the GUI session's
