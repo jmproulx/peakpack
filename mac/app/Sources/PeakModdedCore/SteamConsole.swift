@@ -22,6 +22,7 @@ public struct DepotFailure: Equatable {
     /// The line does not name our command or depot (e.g. a bare "No connection"); it only counts once the
     /// command has been seen in the console, so unrelated console noise never fails the step.
     public var standalone: Bool
+    public init(kind: DepotFailureKind, line: String, standalone: Bool) { self.kind = kind; self.line = line; self.standalone = standalone }
 }
 
 public enum ConsoleEvent: Equatable {
