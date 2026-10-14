@@ -34,6 +34,9 @@ public struct FrontEndState: Codable, Equatable {
         public var toVersion: String
         public var backupPath: String
         public var startedAt: Date
+        public init(fromVersion: String, toVersion: String, backupPath: String, startedAt: Date) {
+            self.fromVersion = fromVersion; self.toVersion = toVersion; self.backupPath = backupPath; self.startedAt = startedAt
+        }
     }
 
     public init() {}

@@ -15,6 +15,7 @@ security unlock-keychain -p "$kcpw" "$kc"
 printf '%s' "$MAC_DEVID_P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
 security import "$RUNNER_TEMP/devid.p12" -k "$kc" -P "$MAC_DEVID_P12_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" >/dev/null
+# shellcheck disable=SC2046  # word splitting of the existing keychain list is intended
 security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
 rm -f "$RUNNER_TEMP/devid.p12"
 # Rebuild with the real identity (same script, same entitlements, hardened runtime already on).

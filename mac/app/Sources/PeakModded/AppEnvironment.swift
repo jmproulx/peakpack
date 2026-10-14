@@ -23,6 +23,8 @@ struct LaunchOptions {
     var afterUpdate = false
     var afterRollback = false
     var skipUpdateCheck = false
+    /// Test gates: uninstall moves files here instead of the Trash (the Trash is privacy-protected for scripts).
+    var uninstallTo: URL?
 
     /// A test run keeps everything in its job dir and never asks to move the app.
     var isTestRun: Bool { dataDir != nil }
@@ -36,6 +38,7 @@ struct LaunchOptions {
             case "--data-dir": if let v = value() { o.dataDir = URL(fileURLWithPath: v, isDirectory: true) }
             case "--logs-dir": if let v = value() { o.logsDir = URL(fileURLWithPath: v, isDirectory: true) }
             case "--kit": if let v = value() { o.kitFile = URL(fileURLWithPath: v) }
+            case "--uninstall-to": if let v = value() { o.uninstallTo = URL(fileURLWithPath: v, isDirectory: true) }
             case "--options": o.showOptions = true
             case "--no-autoplay": o.noAutoplay = true
             case "--print-status": o.printStatus = true

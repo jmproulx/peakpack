@@ -86,7 +86,7 @@ public enum ProcessRunner {
     }
 }
 
-final class Flag {
+final class Flag: @unchecked Sendable {
     private var v = false
     private let lock = NSLock()
     func set() { lock.lock(); v = true; lock.unlock() }

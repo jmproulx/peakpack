@@ -69,9 +69,17 @@ struct MaintenanceService {
         var failed: [String] = []
         var targets = [env.paths.dataRoot, env.paths.logs]
         if !env.options.isTestRun { targets.append(Bundle.main.bundleURL) }
-        for u in targets where FileManager.default.fileExists(atPath: u.path) {
-            do { try FileManager.default.trashItem(at: u, resultingItemURL: nil); trashed.append(u) }
-            catch { failed.append("\(u.lastPathComponent): \(error.localizedDescription)") }
+        let fm = FileManager.default
+        for u in targets where fm.fileExists(atPath: u.path) {
+            do {
+                if let dest = env.options.uninstallTo {
+                    try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+                    try fm.moveItem(at: u, to: dest.appendingPathComponent(u.lastPathComponent + "-" + String(Int(Date().timeIntervalSince1970))))
+                } else {
+                    try fm.trashItem(at: u, resultingItemURL: nil)
+                }
+                trashed.append(u)
+            } catch { failed.append("\(u.lastPathComponent): \(error.localizedDescription)") }
         }
         log.info("uninstall: trashed \(trashed.map(\.path)), failed \(failed)")
         return failed

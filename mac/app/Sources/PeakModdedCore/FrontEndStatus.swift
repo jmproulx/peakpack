@@ -7,11 +7,13 @@ public struct FrontEndStatus: Codable, Equatable {
         public var code: String
         public var heading: String
         public var advice: String
+        public init(code: String, heading: String, advice: String) { self.code = code; self.heading = heading; self.advice = advice }
     }
     public struct Game: Codable, Equatable {
         public var version: String?
         public var manifestId: String?
         public var files: Int?
+        public init(version: String?, manifestId: String?, files: Int?) { self.version = version; self.manifestId = manifestId; self.files = files }
     }
 
     public var schema = 1

@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var model: AppModel?
     private var window: NSWindow?
     private var cancellables = Set<AnyCancellable>()
-    private var hideTimer: Timer?
+    private var hideTask: Task<Void, Never>?
 
     init(options: LaunchOptions) {
         self.options = options
@@ -66,10 +66,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func screenChanged(_ s: AppModel.Screen) {
-        hideTimer?.invalidate()
+        hideTask?.cancel()
         if s == .playing {
-            hideTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
-                guard let self, self.model?.screen == .playing, self.model?.problem == nil else { return }
+            hideTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled, let self, self.model?.screen == .playing, self.model?.problem == nil else { return }
                 self.window?.orderOut(nil)
             }
         }
