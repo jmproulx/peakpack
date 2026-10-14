@@ -188,17 +188,29 @@ The front end, or the Steam team's helper when it launches PEAK, builds the envi
 wine 'C:\…\peakpack_steam_launcher.exe' [--appid 3527290] [--steam-dir 'C:\Program Files (x86)\Steam'] [--client-dll …]
     [--forwarder-src …] [--no-install] [--steam-client-dir /Users/…/MacOS] [--language english]
     [--connect-lobby <id>] [--cwd …] [--log WINPATH] [--dry-run] [--registry-root Software\PeakPackTest [--delete-test-root]]
-    [--no-launch [--hold-ms N]] [--keep-registry] [--no-warmup]  --  <game.exe> [game args…]
+    [--no-launch [--hold-ms N] [--hold-until-exit IMAGE]] [--keep-registry] [--no-warmup] [--version]
+    --  <game.exe> [game args…]
 ```
 
 - It installs the forwarder at `<steam-dir>\steamclient64.dll`, advertises itself as the running Steam (`ActiveProcess\pid`), sets `SteamAppId`/`SteamGameId`, starts the game, waits, and resets `pid`/`Running` at exit.
-- **Exit code:** the game's. The launcher's own errors: 120 usage, 121 refused (outside Wine), 122 registry, 123 launch, 124 install.
+- **Exit code:** the game's. The launcher's own codes: 120 usage, 121 refused (outside Wine), 122 registry, 123 launch, 124 install, **125 game never started** (`--hold-until-exit` timeout).
 - Arguments after `--` reach the game unchanged. A first argument `steam://…` is logged and ignored (exit 0).
 - **Auth-ticket warm-up (launcher 0.2.0, runtime pp2 and later; pp1 ships 0.1.0 without it).**
   - Before starting the game, the launcher requests and cancels one auth session ticket exactly as PEAK does. This guards PEAK's one-shot EOS login against a cold Steam client.
   - It takes at most ~5 s on a cold client and ~0.1 s on a warm one, and logs `warm-up:` lines.
   - It never runs with `--dry-run`, `--registry-root`, `--no-warmup`, or outside Wine.
   - Front ends need do nothing. Pass `--no-warmup` only for tests that measure a cold request.
+- **Hold mode (launcher 0.2.0, runtime pp2 and later):** `--no-launch --hold-until-exit PEAK.exe [--hold-ms N]`. It is for a front end that starts the game itself.
+  - After the warm-up, the launcher stays alive as the advertised Steam.
+  - It waits up to `--hold-ms` (default 120000) for a process with that image name (case-insensitive) to **appear**, then until it **exits**. Then it resets `pid`/`Running` and exits **0**.
+  - If the process never appears it exits **125**.
+  - It logs a `hold:` line at each transition: waiting, started (pid), exited, timeout, done.
+  - `--hold-until-exit` without `--no-launch` is a usage error (120).
+- **Feature detection (key on this per runtime):**
+  - `manifest.json` → `"launcher": {"version": "0.2.0", "features": ["warmup", "hold-until-exit"], "warmup": true, "holdUntilExit": true}`. It is read from markers embedded in the launcher binary.
+  - **A missing `launcher` key or `holdUntilExit: false` means launcher 0.1.0 (pp1): no hold mode and no warm-up.**
+  - The same values are in the release's `BUILD-STATUS.txt` as `launcher_version=`, `launcher_warmup=yes|no` and `launcher_hold_until_exit=yes|no`.
+  - At run time, `peakpack_steam_launcher.exe --version` prints `PPLAUNCHER-VERSION:<v> PPLAUNCHER-FEATURES:<list>`. Launcher 0.1.0 rejects `--version` (exit 120).
 
 ## 5. `manifest.json` schema (v1)
 
@@ -224,7 +236,7 @@ wine 'C:\…\peakpack_steam_launcher.exe' [--appid 3527290] [--steam-dir 'C:\Pro
 | Runtime ID | Release (prerelease, never latest) | Contents / status |
 |---|---|---|
 | `pp1-cx26.3.0` | `mac-build-runtime-pp1-cx26.3.0` (commit 168a11e, CI run 38366553896) | Wine 11 (CrossOver 26.3 sources) + DXMT 0.80 + DXVK fallback + Steam bridge; launcher 0.1.0. On the M1 iMac: G-A1 (D3D11 via DXMT, 57 fps probe) and G-B1 pass |
-| `pp2-…` | not built yet | Batched: launcher 0.2.0 (auth-ticket warm-up), plus the first computer-use slot's findings (DESIGN §1). `PP_REVISION` is bumped in `build/pins.env` |
+| `pp2-…` | not built yet | Batched: launcher 0.2.0 (auth-ticket warm-up, `--hold-until-exit`, `--version`, manifest `launcher` block), plus the first computer-use slot's findings (DESIGN §1). `PP_REVISION` is bumped in `build/pins.env` |
 
 The test-kit-side packages are separate prereleases: Steam tests `mac-build-steam-tests-<ver>` and kit tags `mac-testkit-<ver>` (git tags only).
 

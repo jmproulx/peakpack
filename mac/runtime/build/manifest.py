@@ -59,6 +59,31 @@ def cmd(args):
         return ""
 
 
+def launcher_info(runtime):
+    """Version/features of share/peakpack/steam/peakpack_steam_launcher.exe, read from the markers the launcher
+    embeds (UTF-16LE "PPLAUNCHER-VERSION:<v> PPLAUNCHER-FEATURES:<f ...>"). Launchers without markers (0.1.0, pp1)
+    get {"version": "0.1.0-or-older", "features": []}. None if the bridge is not in this runtime.
+    Front ends key on manifest["launcher"]["holdUntilExit"] (missing = False)."""
+    exe = os.path.join(runtime, "share", "peakpack", "steam", "peakpack_steam_launcher.exe")
+    if not os.path.isfile(exe):
+        return None
+    with open(exe, "rb") as f:
+        data = f.read()
+    info = {"version": "0.1.0-or-older", "features": []}
+    tag = "PPLAUNCHER-VERSION:".encode("utf-16-le")
+    i = data.find(tag)
+    if i >= 0:
+        end = data.find(b"\x00\x00", i)
+        while end >= 0 and (end - i) % 2:
+            end = data.find(b"\x00\x00", end + 1)
+        text = data[i:end].decode("utf-16-le", "replace")
+        ver, _, feats = text[len("PPLAUNCHER-VERSION:"):].partition(" PPLAUNCHER-FEATURES:")
+        info = {"version": ver.strip(), "features": feats.split()}
+    info["warmup"] = "warmup" in info["features"]
+    info["holdUntilExit"] = "hold-until-exit" in info["features"]
+    return info
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runtime", required=True)
@@ -159,6 +184,9 @@ def main():
         "files": files,
         "extra_builtins": [],
     }
+    li = launcher_info(a.runtime)
+    if li is not None:
+        manifest["launcher"] = li
     json.dump(manifest, sys.stdout, indent=1, sort_keys=False)
     sys.stdout.write("\n")
 

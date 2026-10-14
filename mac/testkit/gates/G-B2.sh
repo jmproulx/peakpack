@@ -63,6 +63,13 @@ chk t4_steamid "T4 SteamID" "T4: real SteamID through steam_api64.dll" "T4 Steam
 chk t4_appid "T4 app id 3527290" "T4: app id 3527290" "T4 app id"
 chk t4_ticket "T4 ticket via manual dispatch" "T4: ticket via manual dispatch" "T4 ticket callback"
 chk t5_player_log "T5 Player.log" "T5: Player.log shows 'Steam runtime manager initialized: True' (+ persona)" "T5 Player.log"
+# T5h (launcher 0.2.0+, runtime pp2): the Mac app's model, the launcher holds and PEAK is started separately
+if grep -q -E '^(PASS|FAIL): T5h' "$o"; then
+  chk t5h_hold "T5h hold-until-exit" "T5h: launcher --hold-until-exit held while PEAK ran, exit 0 after it exited" "T5h hold"
+  chk t5h_player_log "T5h Player.log" "T5h: Steam initialised with PEAK started outside the launcher" "T5h Player.log"
+else
+  crit t5h_hold skip "T5h: launcher --hold-until-exit" "launcher without the option (runtime pp1)"
+fi
 # Cold start (tests 1.1.0+): did the FIRST ticket request return a ticket? PEAK's EOS login uses its first.
 for t in t3 t4; do
   f="$GLOG/t3_t5/$t.log"; [ -f "$f" ] || continue

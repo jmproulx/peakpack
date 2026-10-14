@@ -6,6 +6,9 @@
 #   T4  steam_api_probe.exe with PEAK's own steam_api64.dll: RestartAppIfNecessary
 #       false, SteamAPI_InitEx OK, SteamID/persona, ticket via manual dispatch
 #   T5  (--t5) PEAK.exe -force-d3d11 itself; then t5_check_player_log.sh
+#   T5h (with --t5, launcher 0.2.0+): front-end model - the launcher only holds
+#       (--no-launch --hold-until-exit PEAK.exe), PEAK is started separately; checks the hold lines, the
+#       launcher's exit 0 after PEAK exits, and Steam init in Player.log (--t5h-seconds, default 90)
 # Mac Steam must be running and logged in. Steam itself is never touched.
 # Part of PeakPack for Mac (runtime/steam). MIT licence (see ../../docs/README.md).
 #
@@ -17,7 +20,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
-runtime=""; prefix=""; bridge=""; install=0; game='C:\Games\PEAK'; t5=0; t5_seconds=180
+runtime=""; prefix=""; bridge=""; install=0; game='C:\Games\PEAK'; t5=0; t5_seconds=180; t5h_seconds=90
 steam_dir=$STEAM_MACOS_DEFAULT; logs=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -28,6 +31,7 @@ while [ $# -gt 0 ]; do
         --game) game=$2; shift 2 ;;
         --steam-dir) steam_dir=$2; shift 2 ;;
         --t5) t5=1; shift ;;
+        --t5h-seconds) t5h_seconds=$2; shift 2 ;;
         --t5-seconds) t5_seconds=$2; shift 2 ;;
         --logs) logs=$2; shift 2 ;;
         *) echo "unknown argument $1 (see the header of $0)" >&2; exit 2 ;;
@@ -110,5 +114,34 @@ if [ "$t5" = 1 ]; then
     # launcher 0.2.0+: the auth-ticket warm-up before PEAK (cold-start defence for PEAK's EOS login)
     wl=$(grep -a 'warm-up:' "$LOGS/launcher.log" 2>/dev/null | tail -n 4 | tr '\r\n' '  ')
     [ -n "$wl" ] && info "T5 launcher warm-up: $wl"
+
+    # T5h: the Mac app's model (launcher holds, the app starts PEAK itself). Only launchers that have it.
+    if grep -q 'hold-until-exit' <<<"$("$WINELOADER" "$launcher" --version 2>&1)"; then
+        say "T5h: launcher --no-launch --hold-until-exit PEAK.exe, PEAK started separately for $t5h_seconds s"
+        "$WINELOADER" taskkill /im PEAK.exe /f >/dev/null 2>&1; "$WINESERVER" -w 2>/dev/null
+        # shellcheck disable=SC2086
+        "$WINELOADER" "$launcher" $lopts --no-launch --hold-until-exit PEAK.exe --hold-ms 60000 > "$LOGS/t5h-launcher.out" 2>&1 &
+        lpid=$!
+        sleep 10   # registry setup + ticket warm-up, like the app would wait for the launcher's "hold: waiting" line
+        SteamAppId=3527290 SteamGameId=3527290 "$WINELOADER" "$game\\PEAK.exe" -force-d3d11 > "$LOGS/t5h-wine.log" 2>&1 &
+        gpid=$!
+        waited=0
+        while kill -0 "$gpid" 2>/dev/null && [ "$waited" -lt "$t5h_seconds" ]; do sleep 5; waited=$((waited + 5)); done
+        "$here/t5_check_player_log.sh" --wineprefix "$WINEPREFIX" --logs "$LOGS/t5h" ${persona:+--expect-persona "$persona"} \
+            && pass "T5h Player.log: Steam initialised with PEAK started outside the launcher" || fail "T5h Player.log checks"
+        "$WINELOADER" taskkill /im PEAK.exe /f >/dev/null 2>&1
+        waited=0
+        while kill -0 "$lpid" 2>/dev/null && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+        if kill -0 "$lpid" 2>/dev/null; then lrc=timeout; kill "$lpid" 2>/dev/null; else wait "$lpid"; lrc=$?; fi
+        hl=$(grep -a 'hold:' "$LOGS/t5h-launcher.out" | tr '\r\n' '  ')
+        info "T5h launcher: exit $lrc; $hl"
+        if [ "$lrc" = 0 ] && grep -a -q 'hold: PEAK.exe (pid' "$LOGS/t5h-launcher.out" && grep -a -q 'exited' "$LOGS/t5h-launcher.out"; then
+            pass "T5h hold-until-exit: launcher held while PEAK ran, exit 0 after PEAK exited"
+        else
+            fail "T5h hold: launcher exit $lrc (want 0 with hold started/exited lines)"
+        fi
+    else
+        info "T5h skipped: launcher has no --hold-until-exit (runtime pp1, launcher 0.1.0)"
+    fi
 fi
 pp_finish

@@ -303,6 +303,12 @@ jobs:
             echo "dxmt_runtime=built"
             echo "dxvk_fallback=$dxvk"
             echo "steam_bridge=$bridge"
+            # front ends key on these (manifest.json "launcher"; missing = launcher 0.1.0 without options)
+            python3 -I -c 'import json, sys
+          m = json.load(open(sys.argv[1])); li = m.get("launcher") or {}
+          print("launcher_version=" + li.get("version", "none"))
+          print("launcher_warmup=" + ("yes" if li.get("warmup") else "no"))
+          print("launcher_hold_until_exit=" + ("yes" if li.get("holdUntilExit") else "no"))' "_work/dist/$RID/manifest.json"
             echo "commit=$GITHUB_SHA"
             echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > out/BUILD-STATUS.txt

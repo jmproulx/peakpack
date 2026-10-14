@@ -22,6 +22,14 @@
  * very first launch) would give it an empty ticket. Costs ~0.1 s when warm.
  * The ticket bytes are never logged. --no-warmup turns it off.
  *
+ * Hold mode (0.2.0): --no-launch --hold-until-exit PEAK.exe keeps this process
+ * alive as the advertised Steam while a front end starts the game itself: it
+ * waits up to --hold-ms (default 120 s) for a process with that image name to
+ * appear, then until it exits, then resets pid/Running and exits 0 (125 if the
+ * game never appeared). Each transition logs a "hold:" line.
+ * --version prints the version and the feature list (also embedded as
+ * PPLAUNCHER-VERSION:/PPLAUNCHER-FEATURES: strings for the runtime manifest).
+ *
  * It never touches the Steam client: the real Mac Steam client, logged in
  * with the player's own account, does every licence check through Valve's
  * own steamclient.dylib.
@@ -44,9 +52,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <tlhelp32.h>
 #include "../../tests/probe/steam_abi_min.h"
 
 #define LAUNCHER_VERSION L"0.2.0"
+#define LAUNCHER_FEATURES L"warmup hold-until-exit"
+/* read by runtime/build/manifest.py from the binary (UTF-16LE) -> manifest.json "launcher" */
+static const wchar_t launcher_marker[] = L"PPLAUNCHER-VERSION:" LAUNCHER_VERSION L" PPLAUNCHER-FEATURES:" LAUNCHER_FEATURES;
 #define PEAK_APPID 3527290u
 #define DEFAULT_STEAM_DIR L"C:\\Program Files (x86)\\Steam"
 
@@ -56,6 +68,7 @@
 #define EXIT_REGISTRY 122
 #define EXIT_LAUNCH 123
 #define EXIT_INSTALL 124
+#define EXIT_NEVER_STARTED 125
 
 enum hive { HIVE_HKCU, HIVE_HKLM64, HIVE_HKLM32 };
 static const wchar_t *hive_name[] = { L"HKCU", L"HKLM", L"HKLM32" };
@@ -79,6 +92,7 @@ struct options
     int delete_test_root;
     int steam_dir_given;
     int no_warmup;
+    const wchar_t *hold_image;   /* --hold-until-exit IMAGE (with --no-launch) */
     DWORD hold_ms;
     int game_index; /* index into argv of the game exe */
 };
@@ -133,6 +147,9 @@ static void usage(void)
     logmsg(L"  --hold-ms N               with --no-launch: stay alive N ms (stands in for the game)");
     logmsg(L"  --keep-registry           do not reset pid/Running at exit");
     logmsg(L"  --no-warmup               skip the auth-ticket warm-up before the game starts");
+    logmsg(L"  --hold-until-exit IMAGE   with --no-launch: wait (up to --hold-ms, default 120000) for a process");
+    logmsg(L"                            named IMAGE (e.g. PEAK.exe) to appear, then until it exits; 125 = never appeared");
+    logmsg(L"  --version                 print version and features");
     logmsg(L"A first argument starting with steam:// is accepted and ignored (exit 0).");
 }
 
@@ -532,6 +549,59 @@ static void warm_ticket(void)
     logmsg(L"warm-up: done in %lu ms", (unsigned long)(GetTickCount() - t0));
 }
 
+/* ---------- hold mode ---------- */
+
+/* pid of a running process whose image name equals `image` (case-insensitive), or 0 */
+static DWORD find_process(const wchar_t *image)
+{
+    PROCESSENTRY32W pe;
+    DWORD pid = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return 0;
+    pe.dwSize = sizeof(pe);
+    if (Process32FirstW(snap, &pe))
+    {
+        do
+        {
+            if (pe.th32ProcessID != GetCurrentProcessId() && !_wcsicmp(pe.szExeFile, image)) { pid = pe.th32ProcessID; break; }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return pid;
+}
+
+/* returns 0 when the game appeared and exited, EXIT_NEVER_STARTED on timeout */
+static int hold_until_exit(const wchar_t *image, DWORD appear_ms)
+{
+    DWORD start = GetTickCount(), pid = 0;
+    HANDLE h;
+    logmsg(L"hold: waiting up to %lu ms for %ls to start", (unsigned long)appear_ms, image);
+    while (!(pid = find_process(image)))
+    {
+        if (GetTickCount() - start >= appear_ms)
+        {
+            logmsg(L"hold: %ls did not start within %lu ms (exit %d, game never started)", image,
+                   (unsigned long)appear_ms, EXIT_NEVER_STARTED);
+            return EXIT_NEVER_STARTED;
+        }
+        Sleep(250);
+    }
+    logmsg(L"hold: %ls started (pid %lu) after %lu ms; waiting for it to exit", image, (unsigned long)pid,
+           (unsigned long)(GetTickCount() - start));
+    if ((h = OpenProcess(SYNCHRONIZE, FALSE, pid)))
+    {
+        WaitForSingleObject(h, INFINITE);
+        CloseHandle(h);
+    }
+    else
+    {
+        logmsg(L"hold: cannot open pid %lu (error %lu); polling until it is gone", (unsigned long)pid, GetLastError());
+        while (find_process(image) == pid) Sleep(500);
+    }
+    logmsg(L"hold: %ls (pid %lu) exited", image, (unsigned long)pid);
+    return 0;
+}
+
 static BOOL WINAPI ctrl_handler(DWORD type)
 {
     (void)type;
@@ -586,6 +656,8 @@ int main(void)
         else if (!wcscmp(a, L"--hold-ms")) opt.hold_ms = (DWORD)wcstoul(NEXT(), NULL, 10);
         else if (!wcscmp(a, L"--keep-registry")) opt.keep_registry = 1;
         else if (!wcscmp(a, L"--no-warmup")) opt.no_warmup = 1;
+        else if (!wcscmp(a, L"--hold-until-exit")) opt.hold_image = NEXT();
+        else if (!wcscmp(a, L"--version")) { logmsg(L"%ls", launcher_marker); return 0; }
         else if (!wcscmp(a, L"--help") || !wcscmp(a, L"-h")) { usage(); return 0; }
         else if (a[0] == L'-' && a[1] == L'-') { logmsg(L"unknown option %ls", a); usage(); return EXIT_USAGE; }
         else break;
@@ -606,6 +678,11 @@ int main(void)
     {
         logmsg(L"no game executable given");
         usage();
+        return EXIT_USAGE;
+    }
+    if (opt.hold_image && !opt.no_launch)
+    {
+        logmsg(L"--hold-until-exit needs --no-launch (the front end starts the game itself)");
         return EXIT_USAGE;
     }
     if (opt.connect_lobby && !all_digits(opt.connect_lobby))
@@ -661,6 +738,16 @@ int main(void)
 
     if (opt.no_launch)
     {
+        if (opt.hold_image)
+        {
+            DWORD appear = opt.hold_ms ? opt.hold_ms : 120000;
+            int rc = 0;
+            if (opt.dry_run) logmsg(L"[dry-run] hold: would wait up to %lu ms for %ls, then until it exits", (unsigned long)appear, opt.hold_image);
+            else rc = hold_until_exit(opt.hold_image, appear);
+            cleanup_registry();
+            logmsg(L"hold: done (exit %d)", rc);
+            return rc;
+        }
         logmsg(L"--no-launch: not starting a game%ls", opt.hold_ms ? L", holding" : L"");
         if (opt.hold_ms && !opt.dry_run) Sleep(opt.hold_ms);
         cleanup_registry();
