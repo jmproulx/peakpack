@@ -96,7 +96,7 @@ sid4=$(result "$LOGS/t4.log" steamid)
 [ "$(result "$LOGS/t4.log" utils_appid)" = 3527290 ] && pass "T4 app id 3527290" || fail "T4 app id"
 [ "$(result "$LOGS/t4.log" ticket_callback_result)" = 1 ] && pass "T4 ticket via manual dispatch" || fail "T4 ticket callback"
 info "T4 cold first ticket: handle=$(result "$LOGS/t4.log" ticket_first_handle) len=$(result "$LOGS/t4.log" ticket_first_len) retry=$(result "$LOGS/t4.log" ticket_retry)"
-info "T4 persona: $(sed -n 's/^RESULT persona=//p' "$LOGS/t4.log")"
+info "T4 persona: $(tr -d '\r' < "$LOGS/t4.log" | sed -n 's/^RESULT persona=//p')"
 cp "$tests_dir/launcher.log" "$LOGS/" 2>/dev/null
 
 if [ "$t5" = 1 ]; then
@@ -107,7 +107,7 @@ if [ "$t5" = 1 ]; then
     waited=0
     while kill -0 "$wpid" 2>/dev/null && [ "$waited" -lt "$t5_seconds" ]; do sleep 5; waited=$((waited + 5)); done
     kill -0 "$wpid" 2>/dev/null && info "PEAK still running after $t5_seconds s; checking the log now (quit PEAK by hand)"
-    persona=$(sed -n 's/^RESULT persona=//p' "$LOGS/t4.log" | tail -1)
+    persona=$(tr -d '\r' < "$LOGS/t4.log" | sed -n 's/^RESULT persona=//p' | tail -1)   # T4 probe output is CRLF
     "$here/t5_check_player_log.sh" --wineprefix "$WINEPREFIX" --logs "$LOGS/t5" ${persona:+--expect-persona "$persona"} \
         && pass "T5 Player.log: Steam initialised${persona:+ with persona $persona}" || fail "T5 Player.log checks"
     cp "$tests_dir/launcher.log" "$LOGS/" 2>/dev/null

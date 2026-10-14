@@ -152,6 +152,72 @@ jobs:
             fi
           done
           grep -a -v -E '^\s+VK_' logs/create-abs.log | tail -n 40
+      - name: Steam bridge load (T3 without Steam; launcher -> forwarder -> lsteamclient.dll/.so)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set +e -uo pipefail
+          mkdir -p logs
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          P="$RUNNER_TEMP/pfx-abs"
+          [ -f "$P/system.reg" ] || PP_WINEDEBUG=-all to 180 bash "$R/share/peakpack/prefix/pp-create-prefix.sh" "$R" "$P" \
+            > logs/bridge-prefix.log 2>&1
+          tdir=$(mktemp -d); t=$(ls art/peakpack-steam-tests-*.tar.xz 2>/dev/null | head -1)
+          [ -n "$t" ] && tar -xJf "$t" -C "$tdir"
+          probe=$(find "$tdir" -name steam_client_probe.exe | head -1)
+          d="$P/drive_c/PeakPackTests"; mkdir -p "$d"
+          cp "$R/share/peakpack/steam/steamclient64.dll" "$R/share/peakpack/steam/peakpack_steam_launcher.exe" "$d/"
+          [ -n "$probe" ] && cp "$probe" "$d/"
+          ls -l "$d" "$R/lib/wine/x86_64-windows/lsteamclient.dll" "$R/lib/wine/x86_64-unix/lsteamclient.so"
+          otool -L "$R/lib/wine/x86_64-unix/lsteamclient.so" > logs/lsteamclient-otool.txt 2>&1
+          otool -l "$R/lib/wine/x86_64-unix/lsteamclient.so" | grep -A3 LC_RPATH >> logs/lsteamclient-otool.txt 2>&1
+          cat logs/lsteamclient-otool.txt
+          (
+            # shellcheck source=/dev/null
+            . "$R/share/peakpack/prefix/pp-env.sh"
+            PP_WINEDEBUG="err+all,warn+module,+loaddll" pp_env "$R" "$P" logs >/dev/null
+            to 120 "$WINELOADER" 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
+              --log 'C:\PeakPackTests\launcher.log' -- 'C:\PeakPackTests\steam_client_probe.exe' > logs/t3-nosteam.log 2>&1
+            echo "launcher exit $?"
+            "$WINESERVER" -k 2>/dev/null
+          )
+          cp "$d/launcher.log" logs/t3-launcher.log 2>/dev/null
+          grep -a -E '^RESULT|^\[peakpack-steam\]' logs/t3-nosteam.log | head -40
+          grep -a -i -E 'lsteamclient|steamclient64|err:module|failed to load|status c0' logs/t3-nosteam.log \
+            | grep -a -v -E '^\s+VK_' | head -40
+      - name: PeakPack --headless --status under Wine (rev-5 release; crypto/TLS check)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set +e -uo pipefail
+          mkdir -p logs
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          P="$RUNNER_TEMP/pfx-abs"
+          u=$(ls "$P/drive_c/users" | grep -v -x -E 'Public|public|crossover' | head -1)
+          ppd="$P/drive_c/users/$u/AppData/Local/PeakPack"; mkdir -p "$ppd" "$P/drive_c/Games/PEAK" "$P/drive_c/PeakPackTests"
+          curl -fsSL -o "$ppd/PeakPack.exe" https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack.exe
+          curl -fsSL -o pp.sha256 https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack.exe.sha256
+          echo "PeakPack.exe $(shasum -a 256 "$ppd/PeakPack.exe" | cut -d' ' -f1) (release says: $(cut -c1-64 pp.sha256))"
+          for run in plain debug; do
+            (
+              # shellcheck source=/dev/null
+              . "$R/share/peakpack/prefix/pp-env.sh"
+              dbg="err+all"; [ "$run" = debug ] && dbg="err+all,warn+bcrypt,+bcrypt,warn+secur32,warn+winhttp,warn+crypt"
+              PP_WINEDEBUG="$dbg" pp_env "$R" "$P" logs >/dev/null
+              ppexe="C:\\users\\$u\\AppData\\Local\\PeakPack\\PeakPack.exe"
+              WINEDLLOVERRIDES="winhttp=n,b" to 300 "$WINELOADER" "$ppexe" --headless --status \
+                --game-dir 'C:\Games\PEAK' --status-out "C:\\PeakPackTests\\status-$run.json" > "logs/peakpack-status-$run.log" 2>&1
+              echo "PeakPack --status ($run) exit $?"
+              "$WINESERVER" -k 2>/dev/null
+            )
+            cp "$P/drive_c/PeakPackTests/status-$run.json" logs/ 2>/dev/null && cat "logs/status-$run.json"
+          done
+          find "$ppd" -maxdepth 3 -type f \( -name '*.log' -o -name '*.txt' -o -name '*.json' \) -size -2M -exec cp {} logs/ \; 2>/dev/null
+          ls -la "$ppd"
+          grep -a -v -E '^\s+VK_' logs/peakpack-status-plain.log | tail -n 30
+          grep -a -i -E 'bcrypt|ecdsa|ecc|gnutls|schannel|secur32|err:' logs/peakpack-status-debug.log | grep -a -v -E '^\s+VK_' | head -60
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: ${{ always() }}
         with:

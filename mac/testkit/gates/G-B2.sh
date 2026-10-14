@@ -73,8 +73,8 @@ fi
 # Cold start (tests 1.1.0+): did the FIRST ticket request return a ticket? PEAK's EOS login uses its first.
 for t in t3 t4; do
   f="$GLOG/t3_t5/$t.log"; [ -f "$f" ] || continue
-  rt=$(sed -n 's/^RESULT ticket_retry=\([^ ]*\).*/\1/p' "$f" | tail -1)
-  fl=$(sed -n 's/^RESULT ticket_first_len=\([^ ]*\).*/\1/p' "$f" | tail -1)
+  rt=$(tr -d '\r' < "$f" | sed -n 's/^RESULT ticket_retry=\([^ ]*\).*/\1/p' | tail -1)   # Windows probes: CRLF
+  fl=$(tr -d '\r' < "$f" | sed -n 's/^RESULT ticket_first_len=\([^ ]*\).*/\1/p' | tail -1)
   [ -n "$rt" ] && metric "${t}_ticket_retry" "$rt" && metric "${t}_ticket_first_len" "${fl:-0}"
   case "$rt" in
     0) crit "${t}_cold_ticket" pass "$t: first (cold) ticket request returns a ticket" "len $fl" ;;

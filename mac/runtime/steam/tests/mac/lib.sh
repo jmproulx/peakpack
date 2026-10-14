@@ -17,7 +17,8 @@ pass() { printf 'PASS: %s\n' "$*"; PP_PASS=$((PP_PASS + 1)); [ -n "${LOGS:-}" ] 
 fail() { printf 'FAIL: %s\n' "$*"; PP_FAIL=$((PP_FAIL + 1)); [ -n "${LOGS:-}" ] && printf 'FAIL: %s\n' "$*" >> "$LOGS/summary.txt"; return 0; }
 info() { printf 'INFO: %s\n' "$*"; [ -n "${LOGS:-}" ] && printf 'INFO: %s\n' "$*" >> "$LOGS/summary.txt"; return 0; }
 # result FILE KEY -> value of the last "RESULT KEY=value" line (first word only)
-result() { sed -n "s/^RESULT $2=\([^ ]*\).*/\1/p" "$1" | tail -1; }
+# The Windows probes (T3/T4) write CRLF (C runtime text mode): carriage returns are dropped before matching.
+result() { tr -d '\r' < "$1" | sed -n "s/^RESULT $2=\([^ ]*\).*/\1/p" | tail -1; }
 pp_finish() {
     printf '== %s: %d passed, %d failed (logs: %s)\n' "$(basename "$0")" "$PP_PASS" "$PP_FAIL" "${LOGS:-}"
     [ "$PP_FAIL" -eq 0 ]
