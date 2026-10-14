@@ -43,15 +43,19 @@ public struct AppPaths: Equatable {
     public var macHelperWinPath: String { #"C:\PeakPackMac"# }
     public var prefixStamp: URL { prefix.appendingPathComponent("peakpack/prefix.json") }
 
-    /// Wine names the prefix user after the Mac user; read it from the prefix when it exists.
-    public func wineUser(fallback: String = NSUserName()) -> String {
+    /// The Windows user of our prefix. Our CrossOver-derived Wine always reports "crossover" (CrossOver hack 12735
+    /// in advapi32 GetUserName; INTERFACES §3.1), so that is where PeakPack, BepInEx and PEAK write, even though
+    /// wineboot may also create a folder named after the Mac user. Another name is only a fallback for other Wines.
+    public static let prefixUser = "crossover"
+
+    public func wineUser() -> String {
         let users = driveC.appendingPathComponent("users", isDirectory: true)
-        if let names = try? FileManager.default.contentsOfDirectory(atPath: users.path) {
-            for n in names.sorted() where !["Public", "public", "crossover"].contains(n) && !n.hasPrefix(".") {
-                return n
-            }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: users.appendingPathComponent(AppPaths.prefixUser).path) { return AppPaths.prefixUser }
+        if let names = try? fm.contentsOfDirectory(atPath: users.path) {
+            for n in names.sorted() where !["Public", "public"].contains(n) && !n.hasPrefix(".") { return n }
         }
-        return fallback
+        return AppPaths.prefixUser
     }
     public func peakPackDir(user: String) -> URL {
         driveC.appendingPathComponent("users/\(user)/AppData/Local/PeakPack", isDirectory: true)

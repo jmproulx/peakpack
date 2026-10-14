@@ -3,8 +3,13 @@ import Foundation
 /// "Copy diagnostics": plain text a friend can paste to Joshua. Redacts the Mac user name (also as
 /// Wine's C:\users\<name>) and SteamIDs. Never contains credentials (the app never has any).
 public enum Diagnostics {
+    /// Wine paths of both the Mac user and the prefix user ("crossover") become <you>, so reports look the same on every Mac.
     public static func redact(_ text: String, userName: String) -> String {
         var s = text
+        for name in [userName, AppPaths.prefixUser] where !name.isEmpty {
+            s = s.replacingOccurrences(of: #"C:\users\\#(name)"#, with: #"C:\users\<you>"#, options: .caseInsensitive)
+            s = s.replacingOccurrences(of: "users/\(name)/", with: "users/<you>/")
+        }
         if !userName.isEmpty {
             s = s.replacingOccurrences(of: "/Users/\(userName)", with: "/Users/<you>")
             s = s.replacingOccurrences(of: #"C:\users\\#(userName)"#, with: #"C:\users\<you>"#, options: .caseInsensitive)

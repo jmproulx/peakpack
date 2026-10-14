@@ -84,6 +84,30 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(t.logs.path, "/tmp/job/appdata/Logs", "test runs keep logs in the job dir")
     }
 
+    /// The prefix user is "crossover" even when wineboot also made a folder named after the Mac user.
+    func testWineUserIsCrossoverInOurPrefix() throws {
+        let root = tempDir("wineuser")
+        let p = AppPaths(home: URL(fileURLWithPath: "/Users/sam"), dataRoot: root)
+        let users = p.driveC.appendingPathComponent("users")
+        XCTAssertEqual(p.wineUser(), "crossover", "no prefix yet: the default is crossover")
+        for n in ["Public", "crossover", "sam"] {
+            try FileManager.default.createDirectory(at: users.appendingPathComponent(n), withIntermediateDirectories: true)
+        }
+        // Only crossover holds the live files.
+        let pp = users.appendingPathComponent("crossover/AppData/Local/PeakPack")
+        try FileManager.default.createDirectory(at: pp, withIntermediateDirectories: true)
+        try Data("exe".utf8).write(to: pp.appendingPathComponent("PeakPack.exe"))
+        let user = p.wineUser()
+        XCTAssertEqual(user, "crossover")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: p.peakPackExe(user: user).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: p.peakPackExe(user: "sam").path))
+        XCTAssertTrue(p.playerLog(user: user).path.hasSuffix("drive_c/users/crossover/AppData/LocalLow/LandCrab/PEAK/Player.log"))
+        XCTAssertEqual(p.peakPackExeWinPath(user: user), #"C:\users\crossover\AppData\Local\PeakPack\PeakPack.exe"#)
+        // Without a crossover folder (another Wine build) the first real user folder is used, never Public.
+        try FileManager.default.removeItem(at: users.appendingPathComponent("crossover"))
+        XCTAssertEqual(p.wineUser(), "sam")
+    }
+
     func testHeadlessContract() throws {
         XCTAssertEqual(HeadlessCommand.arguments(.launch(vanilla: false, onSyncFail: .stop), gameWinPath: #"C:\Games\PEAK"#, statusWinPath: #"C:\s.json"#),
                        ["--headless", "--launch", "--on-sync-fail", "stop", "--launch-method", "direct", "--game-dir", #"C:\Games\PEAK"#, "--status-out", #"C:\s.json"#])
@@ -300,6 +324,8 @@ final class FlowTests: XCTestCase {
         let rep = Diagnostics.report(title: "t", facts: [("App", "0.1.0")], error: "boom at /Users/sam/x", logTail: "", userName: "sam")
         XCTAssertTrue(rep.contains("App: 0.1.0"))
         XCTAssertTrue(rep.contains("/Users/<you>/x"))
+        let wine = Diagnostics.redact(#"drive_c/users/crossover/AppData C:\users\crossover\AppData"#, userName: "sam")
+        XCTAssertEqual(wine, #"drive_c/users/<you>/AppData C:\users\<you>\AppData"#)
     }
 
     func testFrontEndStatusFile() throws {
