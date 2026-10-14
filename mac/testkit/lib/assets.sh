@@ -238,6 +238,47 @@ ensure_peakpack() {
 }
 # Newest PEAK Player.log in the prefix (Unity: AppData/LocalLow/LandCrab/PEAK/Player.log)
 player_log_path() { printf '%s/drive_c/users/%s/AppData/LocalLow/%s/%s/Player.log' "$PFX" "$(wine_user)" "$UNITY_COMPANY" "$UNITY_PRODUCT"; }
+# ---------------------------------------------------------------- PEAK start-up progress (busy vs blocked)
+# progress_monitor_start NAME: every 15 s append to logs/<gate>/progress-NAME.tsv: seconds since start, Player.log
+# bytes/lines, DXMT shader cache files/KB (grows while DXMT translates shaders), and CPU%/CPU time/RSS of the
+# Wine processes running PEAK.exe. Read-only (ps, wc, du): no debugger attach, so no macOS prompt.
+progress_monitor_start() {
+  local name=$1 out="$GLOG/progress-$1.tsv" plog cache t0
+  plog=$(player_log_path); cache="$PFX/peakpack/dxmt-cache"; t0=$(now_s)
+  printf 's\tplayer_log_bytes\tplayer_log_lines\tdxmt_cache_files\tdxmt_cache_kb\tpeak_procs(pid:%%cpu:cputime:rss_mb)\n' > "$out"
+  local gate_shell=$$
+  (
+    # ends by itself with the gate's shell; no stdout/stderr (the gate's output is a pipe that run_gate waits on)
+    while kill -0 "$gate_shell" 2>/dev/null; do
+      pb=0; pl=0; cf=0; ck=0
+      [ -f "$plog" ] && { pb=$(file_size "$plog"); pl=$(wc -l < "$plog" | tr -d ' '); }
+      [ -d "$cache" ] && { cf=$(find "$cache" -type f 2>/dev/null | wc -l | tr -d ' '); ck=$(du -sk "$cache" 2>/dev/null | cut -f1); }
+      pp=$(ps -axo pid=,pcpu=,time=,rss=,command= 2>/dev/null | grep -i 'PEAK\.exe' | grep -v grep \
+           | awk '{ printf "%s:%s:%s:%d ", $1, $2, $3, $4 / 1024 }')
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(( $(now_s) - t0 ))" "$pb" "$pl" "$cf" "${ck:-0}" "${pp:-none}" >> "$out"
+      sleep 15
+    done
+  ) > /dev/null 2>&1 &
+  PROGRESS_PID=$!
+}
+progress_monitor_stop() { [ -n "${PROGRESS_PID:-}" ] && kill "$PROGRESS_PID" 2>/dev/null; PROGRESS_PID=""; return 0; }
+# hang_snapshot NAME: what PEAK was doing when a start-up wait ran out (logs/<gate>/hang-NAME/)
+hang_snapshot() {
+  local d="$GLOG/hang-$1" plog
+  mkdir -p "$d"; plog=$(player_log_path)
+  [ -f "$plog" ] && { tr -d '\r' < "$plog" | tail -n 80 > "$d/Player.log.tail"; wc -l < "$plog" > "$d/Player.log.lines"; }
+  ps -axo pid,ppid,pcpu,time,rss,state,command 2>/dev/null | grep -i -E 'wine|PEAK\.exe' | grep -v grep > "$d/wine-processes.txt"
+  [ -d "$PFX/peakpack/dxmt-cache" ] && du -sk "$PFX/peakpack/dxmt-cache" > "$d/dxmt-cache-kb.txt" 2>/dev/null
+  tail -n 5 "$GLOG/progress-$1.tsv" > "$d/progress-last.tsv" 2>/dev/null
+  note "start-up snapshot in logs/$GATE_ID/hang-$1: Player.log ends with '$(tail -n 1 "$d/Player.log.tail" 2>/dev/null | cut -c1-120)'"
+}
+# progress_verdict NAME -> "busy" (PEAK used CPU or the shader cache grew in the last minute), "idle", or "unknown"
+progress_verdict() {
+  local f="$GLOG/progress-$1.tsv"
+  [ -s "$f" ] || { echo unknown; return; }
+  tail -n 5 "$f" | awk -F'\t' 'NR == 1 { c0 = $5 } { c1 = $5; n = split($6, p, " "); for (i = 1; i <= n; i++) { split(p[i], q, ":"); if (q[2] + 0 > 20) busy = 1 } }
+    END { if (busy || c1 > c0) print "busy"; else print "idle" }'
+}
 # wait_for_file_text FILE FIXED_STRING TIMEOUT_S [NEWER_THAN_EPOCH] -> 0 when found
 wait_for_file_text() {
   local f=$1 s=$2 to=$3 newer=${4:-0} t0; t0=$(now_s)

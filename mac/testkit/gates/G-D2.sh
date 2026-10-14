@@ -92,9 +92,11 @@ case $rc in 0) crit launch_modded pass "PeakPack --launch (modded, direct)" "lau
   *) crit launch_modded fail "PeakPack --launch (modded, direct)" "exit $rc: $(st launch-modded message)"; gate_end ;; esac
 case "$cmdline" in *-force-d3d11*) crit mac_extra_args pass "Mac extra args from the signed manifest (-force-d3d11)" ;;
   *) crit mac_extra_args info "Mac extra args from the signed manifest (-force-d3d11)" "not in the command line: the current pack revision has no platforms.mac.extraArgs?" ;; esac
+progress_monitor_start modded
 if wait_for_file_text "$bep_log" "Chainloader startup complete" "$launch_to" "$t_mod"; then
   crit bepinex_started pass "BepInEx LogOutput.log rewritten after the launch, chainloader complete"
 else
+  hang_snapshot modded; metric modded_progress "$(progress_verdict modded)" str
   crit bepinex_started fail "BepInEx chainloader complete within ${launch_to}s" "$( [ -f "$bep_log" ] && tail -3 "$bep_log" | tr '\n' ' ' || echo 'no LogOutput.log')"
 fi
 sleep 20
@@ -142,9 +144,11 @@ peakpack launch-vanilla 300 --launch --vanilla --launch-method direct; rc=$?
 metric launch_vanilla_exit "$rc"
 case $rc in 0) crit launch_vanilla pass "PeakPack --launch --vanilla" "launched=$(st launch-vanilla launched)" ;;
   *) crit launch_vanilla fail "PeakPack --launch --vanilla" "exit $rc: $(st launch-vanilla message)" ;; esac
+progress_monitor_stop; progress_monitor_start vanilla
 if wait_for_file_text "$plog" "Steam runtime manager initialized" "$launch_to" "$t_van"; then
   crit vanilla_started pass "vanilla PEAK started (new Player.log, Steam initialised)"
 else
+  hang_snapshot vanilla; metric vanilla_progress "$(progress_verdict vanilla)" str
   crit vanilla_started fail "vanilla PEAK started within ${launch_to}s"
 fi
 sleep 15

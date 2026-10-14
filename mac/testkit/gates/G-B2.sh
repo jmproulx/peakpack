@@ -30,12 +30,16 @@ GATE_CLEANUP=wine_stop
 mkdir -p "$PP_LOG_DIR"
 
 launch_t0=$(now_s)
+# Diagnostics for T5 (PEAK): which DLLs load, exceptions, the network stack (EOS/Steam HTTP), in t5-wine.log
+export PP_WINEDEBUG="err+all,+loaddll,warn+seh,warn+winhttp,warn+wininet,warn+secur32,fixme-all"
+progress_monitor_start t5
 bash "$TESTS/mac/t3_t5_wine_bridge.sh" --runtime "$RT" --prefix "$PFX" --bridge "$BRIDGE" \
   --game 'C:\Games\PEAK' --t5 --t5-seconds "$t5s" --logs "$GLOG/t3_t5" > "$GLOG/t3_t5.out" 2>&1 &
 tpid=$!
 # While T5 runs: wait for PEAK's Player.log to show Steam initialised, then ask for the main-menu check.
 plog=$(player_log_path)
 if wait_for_file_text "$plog" "Steam runtime manager initialized" $(( t5s - 30 )) "$launch_t0"; then
+  metric t5_steam_line_s "$(( $(now_s) - launch_t0 ))"
   sleep 20
   snap peak-main-menu-script
   cu_request mainmenu 120 "PEAK should be on screen (started by the test). Wait until the main menu is fully drawn (title art, buttons). Screenshot evidence/G-B2/peak-main-menu.png. Answer ok if the menu renders correctly (no black screen, no garbled colours or missing text), fail <what is wrong> otherwise. Do not click anything in PEAK; the script quits it."
@@ -43,8 +47,11 @@ if wait_for_file_text "$plog" "Steam runtime manager initialized" $(( t5s - 30 )
 else
   cu_rc=9
   note "Player.log did not show the Steam line within $(( t5s - 30 )) s; skipping the main-menu check"
+  hang_snapshot t5; metric t5_progress "$(progress_verdict t5)" str
 fi
 wait "$tpid"; trc=$?
+progress_monitor_stop
+[ -f "$GLOG/t3_t5/t5-wine.log" ] && grep -a -E 'Loaded L|err:|seh:' "$GLOG/t3_t5/t5-wine.log" | tr -d '\r' | tail -n 60 > "$GLOG/t5-wine-last-loads.txt"
 cat "$GLOG/t3_t5.out"
 metric t3_t5_exit "$trc"
 o="$GLOG/t3_t5.out"
@@ -63,7 +70,36 @@ chk t4_init "T4 SteamAPI_InitEx OK" "T4: SteamAPI_InitEx OK with PEAK's steam_ap
 chk t4_steamid "T4 SteamID" "T4: real SteamID through steam_api64.dll" "T4 SteamID"
 chk t4_appid "T4 app id 3527290" "T4: app id 3527290" "T4 app id"
 chk t4_ticket "T4 ticket via manual dispatch" "T4: ticket via manual dispatch" "T4 ticket callback"
-chk t5_player_log "T5 Player.log" "T5: Player.log shows 'Steam runtime manager initialized: True' (+ persona)" "T5 Player.log"
+# T5 Player.log: judged on rows a (Steam initialised: True) and b (no Steam init failures) of t5_summary.txt.
+# Row c (persona) is information only: PEAK 2.6 prints the persona just in "Spawning myself (<name> [..." lines,
+# i.e. in the airport or a level, never at the main menu where T5 stops (Windows 2.6 Player.log, Joshua's PC).
+t5s_file="$GLOG/t3_t5/t5/t5_summary.txt"
+if [ -f "$t5s_file" ]; then
+  ra=$(grep -a -E '^a steam initialised +(PASS|FAIL)' "$t5s_file" | awk '{ print $4 }')
+  rb=$(grep -a -E '^b no steam init failures +(PASS|FAIL)' "$t5s_file" | awk '{ print $6 }')
+  rc=$(grep -a -E '^c persona +' "$t5s_file" | awk '{ print $3 }')
+  metric t5_persona_row "${rc:-none}" str
+  if [ "$ra" = PASS ] && [ "$rb" = PASS ]; then crit t5_player_log pass "T5: Player.log shows 'Steam runtime manager initialized: True', no Steam init failures" "persona row: ${rc:-none} (info; only printed in the airport/levels)"
+  else crit t5_player_log fail "T5: Player.log shows 'Steam runtime manager initialized: True', no Steam init failures" "a=${ra:-none} b=${rb:-none} (logs/G-B2/t5_summary.txt)"; fi
+else
+  crit t5_player_log fail "T5: Player.log checks ran" "no t5_summary.txt (T5 did not reach the Player.log check)"
+fi
+# EOS sign-in (information): Windows 2.6 shows the same "EOS auth done (7000)" + "Failed to authenticate" on
+# Joshua's PC, followed by "Can play multiplayer"; Photon/version check/crossplay are the real online signals.
+plog_t5=$(player_log_path)
+if [ -f "$plog_t5" ]; then
+  eos=$(tr -d '\r' < "$plog_t5" | grep -a -o -E 'EOS auth done \([0-9]+\)' | tail -1)
+  if tr -d '\r' < "$plog_t5" | grep -a -q 'Successfully got user token'; then eres=success
+  elif tr -d '\r' < "$plog_t5" | grep -a -q 'Failed to authenticate'; then eres=failed
+  else eres=none; fi
+  metric eos_auth "${eos:-no line} $eres" str
+  crit eos_auth info "EOS sign-in result (Windows 2.6 baseline: 'EOS auth done (7000)' then 'Failed to authenticate')" "${eos:-no line}, $eres"
+  for m in "Can play multiplayer" "Loaded Server Settings" "Allowing Crossplay: True" "Photon StartPeerCreated"; do
+    k=$(printf '%s' "$m" | tr 'A-Z :' 'a-z__' | tr -cd 'a-z_'); tr -d '\r' < "$plog_t5" | grep -a -q -F "$m" && metric "t5_$k" true || metric "t5_$k" false
+  done
+  if tr -d '\r' < "$plog_t5" | grep -a -q -F "Can play multiplayer"; then crit t5_online pass "PEAK online start-up: Photon peer, 'Can play multiplayer'" "server settings: $(tr -d '\r' < "$plog_t5" | grep -a -q -F 'Loaded Server Settings' && echo loaded || echo not-yet)"
+  else crit t5_online info "PEAK online start-up ('Can play multiplayer')" "not in Player.log yet"; fi
+fi
 # T5h (launcher 0.2.0+, runtime pp2): the Mac app's model, the launcher holds and PEAK is started separately
 if grep -q -E '^(PASS|FAIL): T5h' "$o"; then
   chk t5h_hold "T5h hold-until-exit" "T5h: launcher --hold-until-exit held while PEAK ran, exit 0 after it exited" "T5h hold"
