@@ -122,7 +122,8 @@ final class GameService {
         }
         try place(src)
         cleanupSteamSide()
-        let rec = GameRecord(version: insp.version, revision: insp.revision, manifestId: completion.manifestId, files: insp.files, bytes: insp.bytes)
+        let rec = GameRecord(version: insp.version, revision: insp.revision, manifestId: completion.manifestId, files: insp.files, bytes: insp.bytes,
+                             steamManifestAtInstall: steamBuildInfo()?.depotPublicManifest)
         env.update { $0.game = rec }
         log.info("PEAK \(insp.version ?? "?") installed (\(insp.files) files, manifest \(completion.manifestId ?? "?"))")
         return rec
@@ -142,7 +143,8 @@ final class GameService {
         try fm.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.copyItem(at: folder, to: staged)
         try place(staged)
-        let rec = GameRecord(version: insp.version, revision: insp.revision, manifestId: nil, files: insp.files, bytes: insp.bytes)
+        let rec = GameRecord(version: insp.version, revision: insp.revision, manifestId: nil, files: insp.files, bytes: insp.bytes,
+                             steamManifestAtInstall: steamBuildInfo()?.depotPublicManifest)
         env.update { $0.game = rec }
         return rec
     }

@@ -9,7 +9,7 @@ struct SetupView: View {
     var body: some View {
         HStack(spacing: 0) {
             StepSidebar()
-                .frame(width: 220)
+                .frame(width: 240)
                 .background(VisualEffect(material: .sidebar))
             Divider()
             VStack(alignment: .leading, spacing: 0) {

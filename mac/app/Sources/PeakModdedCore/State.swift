@@ -4,12 +4,17 @@ public struct GameRecord: Codable, Equatable {
     public var version: String?
     public var revision: String?
     public var manifestId: String?
+    /// What Mac Steam's appinfo cache said the public manifest was when we installed (it can lag behind
+    /// download_depot); an unchanged cache value is never reported as an update.
+    public var steamManifestAtInstall: String?
     public var files: Int
     public var bytes: Int64
     public var installedAt: Date
 
-    public init(version: String?, revision: String?, manifestId: String?, files: Int, bytes: Int64, installedAt: Date = Date()) {
+    public init(version: String?, revision: String?, manifestId: String?, files: Int, bytes: Int64, installedAt: Date = Date(),
+                steamManifestAtInstall: String? = nil) {
         self.version = version; self.revision = revision; self.manifestId = manifestId
+        self.steamManifestAtInstall = steamManifestAtInstall
         self.files = files; self.bytes = bytes; self.installedAt = installedAt
     }
 }

@@ -98,6 +98,10 @@ final class SteamTests: XCTestCase {
         if case .updateAvailable = GameUpdatePolicy.decide(installed: rec, steamPublicManifest: nil, packGameVersion: "2.6.c") {} else { XCTFail() }
         XCTAssertEqual(GameUpdatePolicy.decide(installed: rec, steamPublicManifest: nil, packGameVersion: "2.6.a"), .upToDate,
                        "an older pack is not a reason to re-download")
+        var cached = rec; cached.steamManifestAtInstall = "100"
+        XCTAssertEqual(GameUpdatePolicy.decide(installed: cached, steamPublicManifest: "100", packGameVersion: nil), .upToDate,
+                       "a stale Steam cache value seen at install is not an update")
+        if case .updateAvailable = GameUpdatePolicy.decide(installed: cached, steamPublicManifest: "300", packGameVersion: nil) {} else { XCTFail() }
         var noId = rec; noId.manifestId = nil; noId.version = nil
         XCTAssertEqual(GameUpdatePolicy.decide(installed: noId, steamPublicManifest: "1", packGameVersion: "2.6.b"), .unknown)
     }

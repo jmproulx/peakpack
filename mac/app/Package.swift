@@ -22,8 +22,7 @@ let package = Package(
         .executableTarget(
             name: "PeakModded",
             dependencies: ["PeakModdedCore"],
-            path: "Sources/PeakModded",
-            exclude: ["Resources"]
+            path: "Sources/PeakModded"
         ),
         .testTarget(
             name: "PeakModdedCoreTests",

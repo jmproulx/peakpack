@@ -63,7 +63,7 @@ final class AppModel: ObservableObject {
     private let maintenance: MaintenanceService
     private let updater: AppUpdateService
     private var currentGame: GameService?
-    private var task: Task<Void, Never>?
+    private var task: Task<Void, Never>? { didSet { isBusy = task != nil } }
     private var lastFlow: Flow = .setup
     private var choice: UserChoice?
     /// After the game ends the app quits, unless the friend opened the window for something else.
@@ -84,7 +84,8 @@ final class AppModel: ObservableObject {
     }
 
     var hostName: String { env.kit.hostName }
-    var isBusy: Bool { task != nil }
+    /// Published so buttons enable/disable when a flow ends.
+    @Published private(set) var isBusy = false
     var gameCommand: String { SteamConsoleParser(appId: env.kit.game.appId, depotId: env.kit.game.depotId).command }
 
     var statusLine: String {
@@ -118,7 +119,7 @@ final class AppModel: ObservableObject {
     }
 
     func beginSetup() {
-        choose(.proceed) // leaves the welcome wait if we are in it
+        waiting = nil
         if task == nil { run(.setup) }
     }
 

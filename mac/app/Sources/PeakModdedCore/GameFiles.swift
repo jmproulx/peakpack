@@ -66,7 +66,8 @@ public enum GameUpdatePolicy {
     public static func decide(installed: GameRecord?, steamPublicManifest: String?, packGameVersion: String?) -> GameUpdateVerdict {
         guard let installed else { return .notInstalled }
         if let steam = steamPublicManifest, !steam.isEmpty, let mine = installed.manifestId, !mine.isEmpty {
-            return steam == mine ? .upToDate : .updateAvailable(reason: "Steam has a newer PEAK build")
+            if steam == mine || steam == installed.steamManifestAtInstall { return .upToDate }
+            return .updateAvailable(reason: "Steam has a newer PEAK build")
         }
         if let pack = packGameVersion, let mine = installed.version, GameVersion.compare(pack, mine) > 0 {
             return .updateAvailable(reason: "the mod pack is made for PEAK \(pack); you have \(mine)")

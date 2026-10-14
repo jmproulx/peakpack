@@ -46,7 +46,7 @@ jobs:
           ~/.local/bin/yamllint -d "$cfg" .github/workflows/mac-app.yml
           python3 -I -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' mac/app/kit/mac-kit.json
           # No CRLF in anything that ends up in the bundle or runs on the Mac.
-          if grep -rlIP '\r' mac/app --include='*.swift' --include='*.sh' --include='*.plist' --include='*.json'; then
+          if grep -rlIP '\r' mac/app --exclude-dir=Fixtures --include='*.swift' --include='*.sh' --include='*.plist' --include='*.json'; then
             echo "::error::CRLF line endings"; exit 1
           fi
 

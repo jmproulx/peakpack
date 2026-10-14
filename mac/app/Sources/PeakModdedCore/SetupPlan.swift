@@ -10,8 +10,8 @@ public enum SetupStep: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .macOS: return "Check this Mac"
         case .rosetta: return "Install Rosetta"
-        case .runtime: return "Download the game engine"
-        case .prefix: return "Prepare PEAK's Windows folder"
+        case .runtime: return "Get the game engine"
+        case .prefix: return "Prepare the Windows folder"
         case .steam: return "Sign in to Steam"
         case .game: return "Get PEAK from Steam"
         case .mods: return "Install the mods"
