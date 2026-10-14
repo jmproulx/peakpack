@@ -431,3 +431,38 @@ def test_real_folders_dry_run_plan(tmp_path, capsys):
     assert plan["counts"]["mac_managed_overlay"] == 80
     assert plan["bytes"]["game_cloned"] > 1_000_000_000
     assert not (tmp_path / "out").exists() and not (tmp_path / "work").exists()
+
+
+def test_player_without_info_plist_and_with_another_binary_name(trees, capsys):
+    """Unity 6000.3's pkg ships UnityPlayer.app without Info.plist; the built bundle's Info.plist names the real binary."""
+    t = trees
+    player = os.path.join(t["mss"], "Variations", VAR, "UnityPlayer.app")
+    os.remove(os.path.join(player, "Contents", "Info.plist"))
+    os.rename(os.path.join(player, "Contents", "MacOS", "UnityPlayer"), os.path.join(player, "Contents", "MacOS", "PEAKPlayer"))
+    assert APP.player_exe(player) == "PEAKPlayer"
+    rc = cli.main(_build_argv(t))
+    assert rc == 0, capsys.readouterr()
+    with open(os.path.join(t["out"], "Contents", "Info.plist"), "rb") as f:
+        info = plistlib.load(f)
+    assert info["CFBundleExecutable"] == "PEAKPlayer"
+    assert info["CFBundleIdentifier"] == "com.peakpack.native"
+    assert info["NSHighResolutionCapable"] is True and info["LSMinimumSystemVersion"]
+    assert _r(os.path.join(t["out"], "Contents", "MacOS", "PEAKPlayer")) == b"MACHO-PLAYER"
+
+
+def test_find_variations_in_expanded_pkg_layout_without_info_plist(tmp_path):
+    var = tmp_path / "expanded" / "TargetSupport.pkg.tmp" / "Payload" / "Variations"
+    _w(var / VAR / "UnityPlayer.app" / "Contents" / "MacOS" / "UnityPlayer", b"\xcf\xfa\xed\xfe")
+    _w(var / VAR / "UnityPlayer.app" / "Contents" / "Frameworks" / "UnityPlayer.dylib", b"D")
+    _w(var / "mono" / "Managed" / "UnityEngine.dll", b"M")
+    assert APP.find_variations(str(tmp_path / "expanded")) == str(var)
+
+
+def test_player_exe_detection(tmp_path):
+    macos = tmp_path / "P.app" / "Contents" / "MacOS"
+    assert APP.player_exe(str(tmp_path / "P.app")) is None
+    _w(macos / "libfoo.dylib", b"\xcf\xfa\xed\xfe")
+    _w(macos / "steam_appid.txt", b"3527290")
+    assert APP.player_exe(str(tmp_path / "P.app")) is None
+    _w(macos / "Player", b"\xcf\xfa\xed\xfe....")
+    assert APP.player_exe(str(tmp_path / "P.app")) == "Player"

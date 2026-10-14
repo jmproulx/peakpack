@@ -316,6 +316,34 @@ def verify_pkg(path):
     return sha.hexdigest()
 
 
+_NOT_PLAYER_SUFFIXES = (".dylib", ".txt", ".plist", ".json", ".meta")
+
+
+def player_exe(player):
+    """Name of the player executable in PLAYER/Contents/MacOS ("UnityPlayer" preferred), or None.
+
+    Unity 6000.3's pkg ships UnityPlayer.app WITHOUT an Info.plist (the editor writes it at build time), so a
+    player is recognised by its executable: the exec bit, a Mach-O header, or the only plain file there."""
+    macos = os.path.join(player, "Contents", "MacOS")
+    if not os.path.isdir(macos):
+        return None
+    if os.path.isfile(os.path.join(macos, "UnityPlayer")):
+        return "UnityPlayer"
+    plain = []
+    for n in sorted(os.listdir(macos)):
+        p = os.path.join(macos, n)
+        if not os.path.isfile(p) or n.lower().endswith(_NOT_PLAYER_SUFFIXES):
+            continue
+        if os.access(p, os.X_OK) and not n.startswith("."):
+            return n
+        with open(p, "rb") as f:
+            magic = f.read(4)
+        if magic in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xce\xfa\xed\xfe"):
+            return n
+        plain.append(n)
+    return plain[0] if len(plain) == 1 else None
+
+
 def find_variations(root):
     """The folder that holds Variations/: root itself, root/Variations, or a Variations under MacStandaloneSupport."""
     if not os.path.isdir(root):
@@ -328,13 +356,13 @@ def find_variations(root):
     for dp, dns, _fns in os.walk(root):
         if os.path.basename(dp) == "Variations" and any(
                 d.startswith("macos_") and d.endswith("_mono")
-                and os.path.isfile(os.path.join(dp, d, "UnityPlayer.app", "Contents", "Info.plist")) for d in dns):
+                and player_exe(os.path.join(dp, d, "UnityPlayer.app")) is not None for d in dns):
             return dp
     return None
 
 
 def _player_binary_sha(player):
-    for rel in ("Contents/Frameworks/UnityPlayer.dylib", "Contents/MacOS/UnityPlayer"):
+    for rel in ("Contents/Frameworks/UnityPlayer.dylib", f"Contents/MacOS/{player_exe(player) or 'UnityPlayer'}"):
         p = os.path.join(player, *rel.split("/"))
         if os.path.isfile(p):
             return _sha256_file(p)
@@ -359,7 +387,7 @@ def _expand_pkg(pkg, expanded):
 
 def _resolve_unity(src, work, dry, variation):
     info = {"kind": None, "path": src, "pkg_sha256": None, "variations": None, "mss": None,
-            "player": None, "variation": variation, "binary_sha256": None, "expanded": None,
+            "player": None, "player_exe": None, "variation": variation, "binary_sha256": None, "expanded": None,
             "overlay_dlls": []}
     if src.lower().endswith(".pkg"):
         if not is_macos():
@@ -394,6 +422,9 @@ def _resolve_unity(src, work, dry, variation):
             avail = sorted(v for v in os.listdir(root) if os.path.isdir(os.path.join(root, v, "UnityPlayer.app")))
             raise AppError(f"variation {variation!r} not in {root}; available: {', '.join(avail) or 'none'}")
         info["player"] = player
+        info["player_exe"] = player_exe(player)
+        if info["player_exe"] is None:
+            raise AppError(f"{player}/Contents/MacOS has no player executable")
         overlay_dir = os.path.join(root, "mono", "Managed")
         if not os.path.isdir(overlay_dir):
             raise AppError(f"{overlay_dir} is missing: the Mac Mono assemblies are required")
@@ -486,6 +517,10 @@ def _assemble(asm, ctx):
     game_data = os.path.join(ctx["game"], "PEAK_Data")
     data = "Contents/Resources/Data"
     asm.tree(ctx["player"], "", "player", "hash")
+    exe = ctx.get("player_exe") or "UnityPlayer"
+    exe_path = os.path.join(asm.root, "Contents", "MacOS", exe) if not asm.dry else None
+    if exe_path and os.path.isfile(exe_path):   # an expansion can lose the exec bit; the bundle needs it
+        os.chmod(exe_path, os.stat(exe_path).st_mode | 0o755)
     asm.mkdir(f"{data}/Managed")
     asm.mkdir(f"{data}/Resources")
     if ctx["converted"] is None:
@@ -529,7 +564,7 @@ def _assemble(asm, ctx):
     if os.path.isdir(etc):
         asm.tree(etc, "Contents/MonoBleedingEdge/etc", "mono_etc", "hash")
     info = {
-        "CFBundleExecutable": "UnityPlayer",
+        "CFBundleExecutable": ctx.get("player_exe") or "UnityPlayer",
         "CFBundleIdentifier": BUNDLE_ID,
         "CFBundleName": BUNDLE_NAME,
         "CFBundlePackageType": "APPL",
@@ -725,7 +760,8 @@ def _build(a):
         _write_json(a.json, result)
         return EXIT_OK
 
-    ctx = {"game": game, "game_version": game_version, "player": unity["player"], "mss": unity["mss"],
+    ctx = {"game": game, "game_version": game_version, "player": unity["player"], "player_exe": unity["player_exe"],
+           "mss": unity["mss"],
            "variations": unity["variations"], "overlay_dlls": unity["overlay_dlls"], "converted": conv["dir"]
            if conv else None, "inputs": inputs, "steam": steam}
     if dry:
