@@ -237,20 +237,58 @@ ensure_peakpack() {
   return 0
 }
 # Newest PEAK Player.log in the prefix (Unity: AppData/LocalLow/LandCrab/PEAK/Player.log)
-player_log_path() { printf '%s/drive_c/users/%s/AppData/LocalLow/%s/%s/Player.log' "$PFX" "$(wine_user)" "$UNITY_COMPANY" "$UNITY_PRODUCT"; }
+# PEAK's Player.log: Unity writes it to C:\users\<user>\AppData\LocalLow\LandCrab\PEAK. The user folder Wine uses
+# can differ from the one the prefix was created with (USER differs between a remote shell and the GUI session's
+# LaunchAgent), so every candidate is considered and the newest one wins (as t5_check_player_log.sh does).
+# player_log_candidates -> one path per line (existing files only)
+player_log_candidates() {
+  local f
+  for f in "$PFX"/drive_c/users/*/AppData/LocalLow/"$UNITY_COMPANY"/"$UNITY_PRODUCT"/Player.log \
+           "$PFX"/drive_c/users/*/"Local Settings"/"Application Data"/"$UNITY_COMPANY"/"$UNITY_PRODUCT"/Player.log; do
+    [ -f "$f" ] && printf '%s\n' "$f"
+  done
+}
+# player_log_path [SINCE_EPOCH] -> the newest candidate (modified at/after SINCE if given); else the default path
+player_log_path() {
+  local since=${1:-0} best="" bm=-1 f m
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    m=$(mtime_of "$f"); [ "$m" -ge "$since" ] || continue
+    if [ "$m" -gt "$bm" ]; then best=$f; bm=$m; fi
+  done <<EOF
+$(player_log_candidates)
+EOF
+  [ -n "$best" ] && { printf '%s' "$best"; return 0; }
+  printf '%s/drive_c/users/%s/AppData/LocalLow/%s/%s/Player.log' "$PFX" "$(wine_user)" "$UNITY_COMPANY" "$UNITY_PRODUCT"
+}
+# wait_for_player_log FIXED_STRING TIMEOUT_S SINCE_EPOCH -> 0 when the newest Player.log written since SINCE has it;
+# PLAYER_LOG_USED = the file that was checked last (recorded by the gates)
+# shellcheck disable=SC2034  # PLAYER_LOG_USED is read by the gates
+wait_for_player_log() {
+  local s=$1 to=$2 since=$3 t0 f; t0=$(now_s); PLAYER_LOG_USED=""
+  while [ $(( $(now_s) - t0 )) -lt "$to" ]; do
+    f=$(player_log_path "$since")
+    if [ -f "$f" ] && [ "$(mtime_of "$f")" -ge "$since" ]; then
+      PLAYER_LOG_USED=$f
+      grep -a -F -q -- "$s" "$f" 2>/dev/null && return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
 # ---------------------------------------------------------------- PEAK start-up progress (busy vs blocked)
 # progress_monitor_start NAME: every 15 s append to logs/<gate>/progress-NAME.tsv: seconds since start, Player.log
 # bytes/lines, DXMT shader cache files/KB (grows while DXMT translates shaders), and CPU%/CPU time/RSS of the
 # Wine processes running PEAK.exe. Read-only (ps, wc, du): no debugger attach, so no macOS prompt.
 progress_monitor_start() {
   local name=$1 out="$GLOG/progress-$1.tsv" plog cache t0
-  plog=$(player_log_path); cache="$PFX/peakpack/dxmt-cache"; t0=$(now_s)
+  cache="$PFX/peakpack/dxmt-cache"; t0=$(now_s)
   printf 's\tplayer_log_bytes\tplayer_log_lines\tdxmt_cache_files\tdxmt_cache_kb\tpeak_procs(pid:%%cpu:cputime:rss_mb)\n' > "$out"
   local gate_shell=$$
   (
     # ends by itself with the gate's shell; no stdout/stderr (the gate's output is a pipe that run_gate waits on)
     while kill -0 "$gate_shell" 2>/dev/null; do
-      pb=0; pl=0; cf=0; ck=0
+      pb=0; pl=0; cf=0; ck=0; plog=$(player_log_path "$t0")
       [ -f "$plog" ] && { pb=$(file_size "$plog"); pl=$(wc -l < "$plog" | tr -d ' '); }
       [ -d "$cache" ] && { cf=$(find "$cache" -type f 2>/dev/null | wc -l | tr -d ' '); ck=$(du -sk "$cache" 2>/dev/null | cut -f1); }
       pp=$(ps -axo pid=,pcpu=,time=,rss=,command= 2>/dev/null | grep -i 'PEAK\.exe' | grep -v grep \

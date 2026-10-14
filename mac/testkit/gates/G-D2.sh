@@ -104,7 +104,7 @@ snap peak-modded-menu-script
 cu_request modded 180 "Modded PEAK should be on screen (started by PeakPack). Wait for the main menu. Screenshot evidence/G-D2/peak-modded-main-menu.png. If a mod shows a notice or version text (e.g. PeakPack/companion), note it. Answer ok if the main menu works, fail <what> if it is black/crashed/stuck. Do not click in PEAK; the script quits it."
 cu_m=$?
 [ -f "$bep_log" ] && cp "$bep_log" "$GLOG/LogOutput-modded.log"
-[ -f "$plog" ] && cp "$plog" "$GLOG/Player-modded.log"
+plog=$(player_log_path "$t_mod"); [ -f "$plog" ] && cp "$plog" "$GLOG/Player-modded.log"
 wine_stop
 L="$GLOG/LogOutput-modded.log"
 if [ -f "$L" ]; then
@@ -145,7 +145,8 @@ metric launch_vanilla_exit "$rc"
 case $rc in 0) crit launch_vanilla pass "PeakPack --launch --vanilla" "launched=$(st launch-vanilla launched)" ;;
   *) crit launch_vanilla fail "PeakPack --launch --vanilla" "exit $rc: $(st launch-vanilla message)" ;; esac
 progress_monitor_stop; progress_monitor_start vanilla
-if wait_for_file_text "$plog" "Steam runtime manager initialized" "$launch_to" "$t_van"; then
+if wait_for_player_log "Steam runtime manager initialized" "$launch_to" "$t_van"; then
+  metric vanilla_player_log "$(rel_to_job "$PLAYER_LOG_USED")" str
   crit vanilla_started pass "vanilla PEAK started (new Player.log, Steam initialised)"
 else
   hang_snapshot vanilla; metric vanilla_progress "$(progress_verdict vanilla)" str
@@ -153,7 +154,7 @@ else
 fi
 sleep 15
 snap peak-vanilla-menu
-[ -f "$plog" ] && cp "$plog" "$GLOG/Player-vanilla.log"
+plog=$(player_log_path "$t_van"); [ -f "$plog" ] && cp "$plog" "$GLOG/Player-vanilla.log"
 wine_stop
 if [ "$(mtime_of "$bep_log")" = "$bep_mtime" ]; then crit vanilla_no_bepinex pass "vanilla launch did not start BepInEx (LogOutput.log untouched)"
 else crit vanilla_no_bepinex fail "vanilla launch did not start BepInEx" "LogOutput.log was rewritten"; fi

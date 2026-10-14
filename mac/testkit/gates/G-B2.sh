@@ -37,17 +37,20 @@ bash "$TESTS/mac/t3_t5_wine_bridge.sh" --runtime "$RT" --prefix "$PFX" --bridge 
   --game 'C:\Games\PEAK' --t5 --t5-seconds "$t5s" --logs "$GLOG/t3_t5" > "$GLOG/t3_t5.out" 2>&1 &
 tpid=$!
 # While T5 runs: wait for PEAK's Player.log to show Steam initialised, then ask for the main-menu check.
-plog=$(player_log_path)
-if wait_for_file_text "$plog" "Steam runtime manager initialized" $(( t5s - 30 )) "$launch_t0"; then
+if wait_for_player_log "Steam runtime manager initialized" $(( t5s - 30 )) "$launch_t0"; then
   metric t5_steam_line_s "$(( $(now_s) - launch_t0 ))"
+  metric player_log "$(rel_to_job "$PLAYER_LOG_USED")" str
   sleep 20
   snap peak-main-menu-script
   cu_request mainmenu 120 "PEAK should be on screen (started by the test). Wait until the main menu is fully drawn (title art, buttons). Screenshot evidence/G-B2/peak-main-menu.png. Answer ok if the menu renders correctly (no black screen, no garbled colours or missing text), fail <what is wrong> otherwise. Do not click anything in PEAK; the script quits it."
   cu_rc=$?
 else
-  cu_rc=9
-  note "Player.log did not show the Steam line within $(( t5s - 30 )) s; skipping the main-menu check"
+  metric player_log "$(rel_to_job "${PLAYER_LOG_USED:-none}") (candidates: $(player_log_candidates | wc -l | tr -d ' '))" str
+  note "Player.log did not show the Steam line within $(( t5s - 30 )) s; asking the agent to look at the screen anyway"
   hang_snapshot t5; metric t5_progress "$(progress_verdict t5)" str
+  # The screen is the ground truth for the menu (slot 1, 0.3.5: the menu was up while the log check missed it)
+  cu_request mainmenu 120 "PEAK should be on screen (started by the test; its log check did not see it). If PEAK's main menu is shown (title art, Host/Join/Quit signs), screenshot evidence/G-B2/peak-main-menu.png and answer ok <what you see>. If it is black, garbled, crashed or still loading, answer fail <what you see>. Do not click anything in PEAK."
+  cu_rc=$?
 fi
 wait "$tpid"; trc=$?
 progress_monitor_stop
@@ -86,7 +89,7 @@ else
 fi
 # EOS sign-in (information): Windows 2.6 shows the same "EOS auth done (7000)" + "Failed to authenticate" on
 # Joshua's PC, followed by "Can play multiplayer"; Photon/version check/crossplay are the real online signals.
-plog_t5=$(player_log_path)
+plog_t5=$(player_log_path "$launch_t0")
 if [ -f "$plog_t5" ]; then
   eos=$(tr -d '\r' < "$plog_t5" | grep -a -o -E 'EOS auth done \([0-9]+\)' | tail -1)
   if tr -d '\r' < "$plog_t5" | grep -a -q 'Successfully got user token'; then eres=success

@@ -93,7 +93,7 @@ else
 fi
 # PEAK logs the Steam line after its first scene load (a cold prefix translates that scene's shaders first)
 progress_monitor_start start
-if wait_for_file_text "$plog" "Steam runtime manager initialized" 600 "$t_launch"; then progress_monitor_stop; crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
+if wait_for_player_log "Steam runtime manager initialized" 600 "$t_launch"; then progress_monitor_stop; plog=$PLAYER_LOG_USED; metric player_log "$(rel_to_job "$plog")" str; crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
 else hang_snapshot start; metric start_progress "$(progress_verdict start)" str; progress_monitor_stop; crit started fail "PEAK started within 600 s"; gate_end; fi
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 
