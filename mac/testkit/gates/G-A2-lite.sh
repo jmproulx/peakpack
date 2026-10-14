@@ -16,14 +16,16 @@
 #       [--test-drive] (with --modded): the TEST-ONLY plugin PeakPack.TestDrive (Steam tests tarball, probes/testdrive)
 #       is put into the test prefix's profile for this run only: it starts the solo run, the expedition, and walks
 #       the scout on the Shore for N minutes (the agent cannot hold keys). Removed again at the end of the gate.
+#       [--test-drive-mode solo|host] how the plugin leaves the main menu: Play Solo (offline, default) or Host.
 set -u
 . "$PP_KIT_DIR/lib/common.sh"
 . "$PP_KIT_DIR/lib/assets.sh"
 gate_begin G-A2-lite "PEAK performance, short run"
 gate_require_mac
 gate_require_gui   # Wine/Unity windows need the logged-in GUI session (blocked otherwise)
-modded=0; minutes=2; test_drive=0
-while [ $# -gt 0 ]; do case "$1" in --modded) modded=1; shift ;; --minutes) minutes=$2; shift 2 ;; --test-drive) test_drive=1; shift ;; *) shift ;; esac; done
+modded=0; minutes=2; test_drive=0; td_mode=Solo
+while [ $# -gt 0 ]; do case "$1" in --modded) modded=1; shift ;; --minutes) minutes=$2; shift 2 ;; --test-drive) test_drive=1; shift ;;
+  --test-drive-mode) case "$2" in host|Host) td_mode=Host ;; *) td_mode=Solo ;; esac; shift 2 ;; *) shift ;; esac; done
 rosetta_ok || gate_finish_as blocked "Rosetta 2 is not installed (P0)"
 steam_running || gate_finish_as needs-human "Mac Steam is not running" "Run H-STEAM, then re-run G-A2-lite."
 keep_awake
@@ -38,13 +40,21 @@ cp "$BRIDGE/peakpack_steam_launcher.exe" "$BRIDGE/steamclient64.dll" "$tests_dir
 plog=$(player_log_path)
 
 samp_pids=""
-td_dir=""; td_cfg=""; td_go=""
+td_dir=""; td_cfg=""; td_go=""; td_log=""
 td_remove() {  # the test-only plugin never stays in the profile
+  [ -n "$td_log" ] && [ -f "$td_log" ] && cp "$td_log" "$GLOG/testdrive.log" 2>/dev/null && rm -f "$td_log"
   [ -n "$td_dir" ] && rm -rf "$td_dir"
   [ -n "$td_cfg" ] && rm -f "$td_cfg"
   [ -n "$td_go" ] && rm -f "$td_go"
   return 0
 }
+# TESTDRIVE lines: the plugin's own status file (0.2.0+, flushed at once), else BepInEx's LogOutput.log (buffered)
+td_lines() {
+  if [ -n "$td_log" ] && [ -s "$td_log" ]; then grep -a 'TESTDRIVE' "$td_log"
+  else grep -a 'TESTDRIVE' "${bep:-/nonexistent}/LogOutput.log" 2>/dev/null; fi
+}
+td_seen() { td_lines | grep -a -q "TESTDRIVE $1"; }
+td_seen_any() { td_lines | grep -a -q -E "TESTDRIVE $1"; }
 stop_all() {
   for p in $samp_pids; do kill -INT "$p" 2>/dev/null; done
   sleep 2
@@ -96,12 +106,14 @@ if [ "$modded" = 1 ]; then
     td_dll=$( [ -n "${TESTS:-}" ] && find "$TESTS" -name 'PeakPack.TestDrive.dll' 2>/dev/null | head -n 1)
     if [ -n "$td_dll" ] && [ -d "$bep/plugins" ]; then
       td_dir="$bep/plugins/PeakPack.TestDrive"; td_cfg="$bep/config/com.peakpack.testdrive.cfg"; td_go="$bep/config/peakpack.testdrive.go"
+      td_log="$bep/PeakPack/testdrive.log"; rm -f "$td_log"
       # The DLL goes in AFTER PeakPack's sync: --launch always syncs first, and its strict mode deletes every plugin
       # the pack manifest does not own (0.3.12 installed it before the launch and it was gone). Config files are
       # not touched by sync, so the config is written now.
       mkdir -p "$bep/config"; rm -f "$td_go"; rm -rf "$td_dir"
-      printf '[TestDrive]\n\nWalkSeconds = %s\n\nGoWaitSeconds = 900\n\nStageTimeoutSeconds = 600\n\nAscent = 0\n' "$(( minutes * 60 ))" > "$td_cfg"
-      metric test_drive "on" str; metric test_drive_dll_sha256 "$(sha256_of "$td_dll")" str
+      printf '[TestDrive]\n\nWalkSeconds = %s\n\nGoWaitSeconds = 900\n\nStageTimeoutSeconds = 600\n\nAscent = 0\n\nStartMode = %s\n' \
+        "$(( minutes * 60 ))" "$td_mode" > "$td_cfg"
+      metric test_drive "on" str; metric test_drive_mode "$td_mode" str; metric test_drive_dll_sha256 "$(sha256_of "$td_dll")" str
     else
       test_drive=0; metric test_drive "unavailable" str
       note "--test-drive: PeakPack.TestDrive.dll not in the Steam tests (${TESTS:-none}) or no profile plugins folder; the agent drives instead"
@@ -120,7 +132,7 @@ if [ "$modded" = 1 ]; then
     t0=$(now_s); td_recopies=0
     while [ $(( $(now_s) - t0 )) -lt 60 ]; do
       if [ ! -f "$td_dir/PeakPack.TestDrive.dll" ]; then mkdir -p "$td_dir"; cp "$td_dll" "$td_dir/"; td_recopies=$((td_recopies + 1)); fi
-      grep -a -q -E 'TESTDRIVE (active|off|inert)|Chainloader startup complete' "$bep/LogOutput.log" 2>/dev/null && break
+      td_seen_any '(active|off|inert)' && break
       sleep 1
     done
     metric test_drive_recopies "$td_recopies"
@@ -138,8 +150,8 @@ else hang_snapshot start; metric start_progress "$(progress_verdict start)" str;
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 if [ "$test_drive" = 1 ]; then
   # the plugin's Awake line ("TESTDRIVE active ...") proves it loaded; without it, fall back to the agent
-  t0=$(now_s); while ! grep -a -q -E 'TESTDRIVE (active|off|inert)' "$bep/LogOutput.log" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt 60 ]; do sleep 2; done
-  tdl=$(grep -a -m1 -E 'TESTDRIVE (active|off|inert)' "$bep/LogOutput.log" 2>/dev/null | sed 's/.*TESTDRIVE //')
+  t0=$(now_s); while ! td_seen_any '(active|off|inert)' && [ $(( $(now_s) - t0 )) -lt 90 ]; do sleep 2; done
+  tdl=$(td_lines | grep -a -m1 -E 'TESTDRIVE (active|off|inert)' | sed 's/.*TESTDRIVE //')
   case "$tdl" in
     active*) crit test_drive_loaded pass "test-drive plugin loaded (its Awake line in LogOutput.log)" "$tdl" ;;
     *) crit test_drive_loaded fail "test-drive plugin loaded (its Awake line in LogOutput.log)" \
@@ -157,15 +169,13 @@ t_shore_req=$(now_s)
 # Player.log scene markers: "Update current scene: Airport" (lobby), then "...: Level_<N>" for the island. N is the
 # day's map (Level_1 on Windows 2.6.b on 13 Oct, Level_4 in Joshua's iMac session on 14 Oct), so any Level_<N> counts.
 on_shore() { grep -a -q -E "Update current scene: Level_[0-9]+" "$plog" 2>/dev/null; }
-bep_log="${bep:-}/LogOutput.log"
-td_seen() { grep -a -q "TESTDRIVE $1" "$bep_log" 2>/dev/null; }
 td_stop_or_walk() { td_seen walk_start || td_seen 'fail ' || td_seen 'inert '; }
 if [ "$test_drive" = 1 ]; then
   # the plugin drives: menu -> Play Solo -> Airport -> kiosk -> Shore; wait for its walk_start (or its failure)
   t0=$(now_s); while ! td_stop_or_walk && [ $(( $(now_s) - t0 )) -lt 900 ]; do sleep 5; done
-  grep -a 'TESTDRIVE' "$bep_log" > "$GLOG/testdrive.log" 2>/dev/null
-  if td_seen walk_start; then cu2=0; CU_ANSWER=ok; CU_NOTE="test drive: $(grep -a -m1 'TESTDRIVE island_ready' "$bep_log" | sed 's/.*TESTDRIVE //')"
-  else cu2=1; CU_ANSWER=fail; CU_NOTE="test drive did not reach the Shore within 900 s: $(grep -a 'TESTDRIVE' "$bep_log" 2>/dev/null | tail -2 | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
+  td_lines > "$GLOG/testdrive.log"
+  if td_seen walk_start; then cu2=0; CU_ANSWER=ok; CU_NOTE="test drive: $(td_lines | grep -a -m1 'TESTDRIVE island_ready' | sed 's/.*TESTDRIVE //')"
+  else cu2=1; CU_ANSWER=fail; CU_NOTE="test drive did not reach the Shore within 900 s: $(td_lines | tail -4 | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
 else
 cu_request shore 600 "Start a SOLO game and get to the Shore: in the main menu choose Play (pick the solo/offline option if PEAK offers one; otherwise host a private lobby, do not invite anyone). In the airport lobby walk (W, mouse to steer) to the boarding desk/kiosk and press E to start the expedition; confirm if asked. Wait until the island has loaded and you control your scout on the beach (Shore). Take screenshots a2-02-lobby.png and a2-03-shore.png. Answer ok when standing on the Shore, fail <where it got stuck> otherwise. Exact menu wording may differ; follow what PEAK shows. Never open the Steam overlay or invite friends." on_shore
 cu2=$?
@@ -185,11 +195,11 @@ else
   cu3=$?
   if [ "$test_drive" = 1 ]; then
     t0=$(now_s); while ! td_seen walk_end && ! td_seen 'fail ' && [ $(( $(now_s) - t0 )) -lt $(( minutes * 60 + 120 )) ]; do sleep 5; done
-    grep -a 'TESTDRIVE' "$bep_log" > "$GLOG/testdrive.log" 2>/dev/null
-    we=$(grep -a -m1 'TESTDRIVE walk_end' "$bep_log" | sed 's/.*TESTDRIVE //')
+    td_lines > "$GLOG/testdrive.log"
+    we=$(td_lines | grep -a -m1 'TESTDRIVE walk_end' | sed 's/.*TESTDRIVE //')
     metric test_drive_walk "${we:-none}" str
     if [ -n "$we" ]; then crit test_drive_walk pass "test drive walked on the Shore for the whole window" "$we"
-    else crit test_drive_walk fail "test drive walked on the Shore for the whole window" "$(tail -2 "$GLOG/testdrive.log" 2>/dev/null | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
+    else crit test_drive_walk fail "test drive walked on the Shore for the whole window" "$(tail -4 "$GLOG/testdrive.log" 2>/dev/null | sed 's/.*TESTDRIVE //' | tr '\n' ' ')"; fi
   fi
   metric shore_seconds "$(( $(now_s) - t_shore ))"
   readings=$(cu_kv fps | tr -c '0-9.,\n' ' ' | tr -d ' ')
