@@ -151,7 +151,7 @@ if [ -f "$gd/PEAK.exe" ]; then
   else crit size fail "file count and size plausible (>= 200 files, 1.5-3 GB, as G-B5)" "$nfiles files, $nbytes bytes"; fi
   ref=$(app_ref_manifest "$ver")
   if [ -n "$ref" ]; then
-    tr -d '\r' < "$ref" > "$GTMP/ref.manifest"
+    ref_manifest_clean < "$ref" > "$GTMP/ref.manifest"
     if diff "$GTMP/ref.manifest" "$GLOG/peak-app.manifest" > "$GLOG/manifest.diff" 2>&1; then
       crit exact_match pass "every installed file matches the Windows reference ($(basename "$ref"))" "$nfiles files"
     else

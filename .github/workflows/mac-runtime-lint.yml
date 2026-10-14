@@ -43,6 +43,14 @@ jobs:
             # shellcheck disable=SC2086
             (cd "$d" && shellcheck -x -S warning $files)
           done
+      - name: no mod-loader artifacts in the depot reference lists (testkit/expect)
+        run: |
+          set -euo pipefail
+          re='^[0-9a-f]{64}  [0-9]+  (BepInEx/|doorstop_libs/|MelonLoader/|changelog\.txt$|\.doorstop_version$'
+          re="$re"'|doorstop_config\.ini$|winhttp\.dll$|libdoorstop\.|run_bepinex\.sh$)'
+          if grep -n -E "$re" mac/testkit/expect/*.manifest; then
+            echo "::error::mod-loader file in a reference manifest (regenerate with runtime/steam/tests/depot_manifest.sh)"; exit 1
+          fi
       - name: test kit's copy of verify_runtime.sh is identical
         run: cmp mac/runtime/build/verify_runtime.sh mac/testkit/lib/verify_runtime.sh
       - name: yamllint

@@ -195,13 +195,8 @@ app_end_peak() {
 }
 
 # ---------------------------------------------------------------- depot checks (same pipeline as G-B5)
-# app_hash_depot DIR OUT: "sha256  size  relative-path" per file, same exclusions and order as G-B5.
-app_hash_depot() {
-  ( cd "$1" && LC_ALL=C find . -type f \
-      ! -path './BepInEx/*' ! -name 'doorstop_config.ini' ! -name 'winhttp.dll' ! -name '.doorstop_version' \
-      ! -name 'output_log.txt' ! -name 'Player*.log' ! -path './PEAK_Data/*Cache*' | LC_ALL=C sort |
-    while IFS= read -r f; do printf '%s  %s  %s\n' "$(shasum -a 256 < "$f" | cut -d' ' -f1)" "$(wc -c < "$f" | tr -d ' ')" "${f#./}"; done ) > "$2"
-}
+# app_hash_depot DIR OUT: same as G-B5 (lib/common.sh depot_manifest: no BepInEx/Doorstop/changelog.txt, no caches)
+app_hash_depot() { depot_manifest "$1" "$2"; }
 # app_ref_manifest VERSION -> expect/peak-win-<VERSION>-*.manifest, empty when none
 app_ref_manifest() {
   local ref="" e

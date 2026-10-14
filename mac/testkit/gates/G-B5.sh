@@ -93,20 +93,17 @@ ver=$(head -1 "$depot/version.txt" 2>/dev/null | tr -d '\r '); rev=$(sed -n 2p "
 if [ -n "$ver" ]; then crit version_txt pass "version.txt" "$ver ${rev:+($rev)}"; version_set peak_version "$ver"; [ -n "$rev" ] && version_set peak_revision "$rev"
 else crit version_txt fail "version.txt readable"; fi
 log "hashing the depot (about 2 GB)"
-( cd "$depot" && LC_ALL=C find . -type f \
-    ! -path './BepInEx/*' ! -name 'doorstop_config.ini' ! -name 'winhttp.dll' ! -name '.doorstop_version' \
-    ! -name 'output_log.txt' ! -name 'Player*.log' ! -path './PEAK_Data/*Cache*' | LC_ALL=C sort |
-  while IFS= read -r f; do printf '%s  %s  %s\n' "$(shasum -a 256 < "$f" | cut -d' ' -f1)" "$(wc -c < "$f" | tr -d ' ')" "${f#./}"; done ) > "$GLOG/peak-mac.manifest"
+depot_manifest "$depot" "$GLOG/peak-mac.manifest"   # lib/common.sh: skips mod-loader artifacts and caches
 nfiles=$(wc -l < "$GLOG/peak-mac.manifest" | tr -d ' ')
 nbytes=$(awk '{ s += $2 } END { printf "%.0f", s }' "$GLOG/peak-mac.manifest")
 metric files "$nfiles"; metric bytes "$nbytes"
-# Reference build 2.6.b: 271 files, 1,930,336,210 bytes. A newer build may differ a little.
+# Reference build 2.6.b: 270 files, 1,930,335,969 bytes. A newer build may differ a little.
 if [ "$nfiles" -ge 200 ] && [ "$nbytes" -ge 1500000000 ] && [ "$nbytes" -le 3000000000 ]; then crit size pass "file count and size plausible" "$nfiles files, $nbytes bytes"
 else crit size fail "file count and size plausible (>= 200 files, 1.5-3 GB)" "$nfiles files, $nbytes bytes"; fi
 ref=""
 for e in "$PP_KIT_DIR"/expect/peak-win-"$ver"-*.manifest; do [ -f "$e" ] && ref=$e; done
 if [ -n "$ref" ]; then
-  tr -d '\r' < "$ref" > "$GTMP/ref.manifest"
+  ref_manifest_clean < "$ref" > "$GTMP/ref.manifest"
   if diff "$GTMP/ref.manifest" "$GLOG/peak-mac.manifest" > "$GLOG/manifest.diff" 2>&1; then
     crit exact_match pass "every file matches the Windows reference install ($(basename "$ref"))" "$nfiles files"
   else

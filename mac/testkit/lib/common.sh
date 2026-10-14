@@ -133,6 +133,22 @@ steam_client_version() {
 }
 free_gb() { df -k "$HOME" | awk 'NR==2 { printf "%d", $4 / 1048576 }'; }
 
+# ---------------------------------------------------------------- reference manifests (expect/peak-win-*.manifest)
+# Mod-loader artifacts never belong in a reference list of the Windows depot (a reference is generated from a
+# modded install): BepInEx/, BepInEx's root changelog.txt, Doorstop (Windows and macOS), MelonLoader.
+# Same pattern in runtime/steam/tests/depot_manifest.sh and in the mac-runtime-lint check of expect/.
+MODLOADER_PATHS='BepInEx/|doorstop_libs/|MelonLoader/|changelog\.txt$|\.doorstop_version$|doorstop_config\.ini$|winhttp\.dll$|libdoorstop\.|run_bepinex\.sh$'
+# ref_manifest_clean < REF > CLEAN: drops CR and any mod-loader line (defence in depth when comparing)
+ref_manifest_clean() { tr -d '\r' | { grep -v -E "^[0-9a-f]+  [0-9]+  ($MODLOADER_PATHS)" || true; }; }
+# depot_manifest DIR OUT: "sha256  size  relative-path" per file, sorted, without mod-loader artifacts or Unity's
+# per-machine caches/logs. One implementation for G-B5 (download_depot) and G-APP2 (the app's game folder, which
+# also holds PeakPack's BepInEx install); matches runtime/steam/tests/depot_manifest.sh.
+depot_manifest() {
+  ( cd "$1" && LC_ALL=C find . -type f ! -name 'output_log.txt' ! -name 'Player*.log' ! -path './PEAK_Data/*Cache*' |
+      LC_ALL=C sort | { grep -v -E "^\./($MODLOADER_PATHS)" || true; } |
+    while IFS= read -r f; do printf '%s  %s  %s\n' "$(shasum -a 256 < "$f" | cut -d' ' -f1)" "$(wc -c < "$f" | tr -d ' ')" "${f#./}"; done ) > "$2"
+}
+
 # ---------------------------------------------------------------- pre-existing state snapshot (for cleanup)
 # Paths outside the job dir that a gate might create. Recorded once per job (first gate wins), so
 # cleanup.sh removes only what did not exist before the job started.

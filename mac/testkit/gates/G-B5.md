@@ -17,7 +17,7 @@ Gets PEAK's Windows depot (app 3527290, depot 3527291) only from Valve's own Ste
 - H-STEAM has passed: Mac Steam is running and signed in under the fleet user. If Steam is not running, the gate exits needs-human.
 - Mac Steam's console can be opened. The script runs `open steam://open/console` when Steam is running, unless `PP_OPEN_CONSOLE=0`.
 - Computer use is available for the console step. With `PP_CU=none` the step is skipped and the gate is blocked.
-- About 1.93 GB free for the download (the reference build 2.6.b is 1,930,336,210 bytes).
+- About 1.93 GB free for the download (the reference build 2.6.b is 1,930,335,969 bytes).
 - Optional, early start: the slot runner can pre-announce the download at slot start (`early_cu` key `G-B5.download`, timeout 5400 s). The download then runs in Steam while other gates run.
 - Optional, exact match: `expect/peak-win-<version>-*.manifest` for the game's version. The only reference listed in the script comments is 2.6.b.
 
