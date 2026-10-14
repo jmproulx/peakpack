@@ -65,7 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private var lastScreen: AppModel.Screen = .loading
+
     private func screenChanged(_ s: AppModel.Screen) {
+        defer { lastScreen = s }
+        // PEAK ended but the app stays (opened for options): bring the window back.
+        if lastScreen == .playing && s != .playing && s != .launching { showWindow() }
         hideTask?.cancel()
         if s == .playing {
             hideTask = Task { @MainActor [weak self] in
