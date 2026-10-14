@@ -17,30 +17,35 @@ struct ConsoleGuideView: View {
                      : "Steam downloads PEAK's Windows files with your own account. You only have to paste one line into Steam.")
                     .fixedSize(horizontal: false, vertical: true)
                 ConsolePicture(highlight: true, command: model.gameCommand)
-                HStack(spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
                     Button { model.openSteamConsole() } label: {
                         Label("Open Steam Console", systemImage: "terminal")
                     }
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.large)
-                    Text("The line is copied for you.").font(.callout).foregroundColor(.secondary)
-                    Spacer()
-                    Menu("More") {
+                    .fixedSize()
+                    Spacer(minLength: 8)
+                    Menu("Other Options") {
                         Button("Use a PEAK Folder I Already Have…") { chooseFolder() }
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
-                Text("Make sure Steam is signed in with the account that owns PEAK.").font(.callout).foregroundColor(.secondary)
+                Text("The button copies the line for you. Make sure Steam is signed in with the account that owns PEAK.")
+                    .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             case .waiting:
                 stepsList
-                ConsolePicture(highlight: true, command: model.gameCommand)
+                ConsolePicture(highlight: true, command: model.gameCommand, compact: true)
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Waiting for Steam to start the download…").font(.callout).foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                }
+                HStack(spacing: 10) {
+                    Button("Copy the Line Again") { model.copyCommandAgain(); flash() }.fixedSize()
+                    Button("Show Steam Console") { model.showConsoleAgain() }.fixedSize()
                     Spacer()
-                    Button("Copy the Line Again") { model.copyCommandAgain(); flash() }
-                    Button("Show Steam Console") { model.showConsoleAgain() }
                 }
                 if model.game.showHint { hint }
             case .downloading:
@@ -114,6 +119,7 @@ struct ConsoleGuideView: View {
 struct ConsolePicture: View {
     var highlight: Bool
     var command: String
+    var compact = false
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
@@ -128,7 +134,7 @@ struct ConsolePicture: View {
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(Color(white: 0.16))
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(0..<4) { i in
+                ForEach(0..<(compact ? 2 : 4), id: \.self) { i in
                     RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.13))
                         .frame(width: [220, 300, 170, 260][i], height: 6)
                 }
@@ -146,7 +152,7 @@ struct ConsolePicture: View {
                 }
             }
             .padding(12)
-            .frame(height: 110)
+            .frame(height: compact ? 78 : 110)
             .background(Color(white: 0.12))
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))

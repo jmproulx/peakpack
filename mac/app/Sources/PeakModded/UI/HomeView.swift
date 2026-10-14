@@ -52,17 +52,23 @@ struct HomeView: View {
             .toggleStyle(.checkbox)
             Spacer()
             Divider()
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 Button { model.openLogs() } label: { Label("Logs", systemImage: "doc.text.magnifyingglass") }
                 Button { model.copyDiagnostics() } label: { Label("Copy Diagnostics", systemImage: "doc.on.clipboard") }
-                Button { model.checkForAppUpdate(userInitiated: true) } label: { Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath") }
-                Button { model.updateGame() } label: { Label("Re-download PEAK", systemImage: "arrow.down.circle") }
-                    .help("Use this if PEAK updated and the app didn't notice")
-                Spacer()
+                Menu {
+                    Button("Check for Updates") { model.checkForAppUpdate(userInitiated: true) }
+                    Button("Re-download PEAK") { model.updateGame() }
+                        .help("Use this if PEAK updated and the app didn't notice")
+                } label: { Label("More", systemImage: "ellipsis.circle") }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                Spacer(minLength: 12)
                 Button { (NSApp.delegate as? AppDelegate)?.repair() } label: { Label("Repair…", systemImage: "wrench.and.screwdriver") }
                 Button(role: .destructive) { (NSApp.delegate as? AppDelegate)?.uninstall() } label: { Label("Uninstall…", systemImage: "trash") }
             }
             .buttonStyle(.borderless)
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
             .disabled(model.isBusy)
         }
         .padding(28)
@@ -128,10 +134,11 @@ struct LaunchView: View {
                     Text("PEAK has an update").font(.title2.weight(.semibold))
                     Text("It looks like \(reason). Without the update you may not be able to join \(model.hostName).")
                         .foregroundColor(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
-                    HStack {
-                        Button("Play Without Updating") { model.choose(.alternative) }
-                        Button("Update PEAK") { model.choose(.proceed) }.keyboardShortcut(.defaultAction)
+                    HStack(spacing: 12) {
+                        Button("Play Without Updating") { model.choose(.alternative) }.controlSize(.large)
+                        Button("Update PEAK") { model.choose(.proceed) }.keyboardShortcut(.defaultAction).controlSize(.large)
                     }
+                    .padding(.top, 4)
                 }
             } else if model.screen == .playing {
                 Text("PEAK is running").font(.title2.weight(.semibold))

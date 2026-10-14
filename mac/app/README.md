@@ -53,7 +53,7 @@ removed from it.
 | First open | Welcome → **Set Up PEAK** → steps in a sidebar: Check this Mac, Install Rosetta, Get the game engine, Prepare the Windows folder, Sign in to Steam, Get PEAK from Steam, Install the mods → All set |
 | Every click | Signed manifest (cached when offline) → ready check (it runs any missing step, e.g. a new engine) → Steam open? → game update check → launcher hold → `PeakPack.exe --headless --launch --launch-method direct --on-sync-fail stop` (status JSON polled every 250 ms) → PEAK runs → the window tucks itself away → the app quits when PEAK exits |
 | Sync fails | "Play with the Mods I Have" (`--on-sync-fail installed`) / "Play Normal PEAK" / Close |
-| Option-click or Dock click | Options window: Play with Mods, Play Normal PEAK, Show FPS (Metal HUD via `PP_HUD=1`), Logs, Copy Diagnostics, Check for Updates, Re-download PEAK, Repair…, Uninstall… (the same items are in the Dock menu and the PEAK menu) |
+| Option-click or Dock click | Options window: Play with Mods, Play Normal PEAK, Show FPS (Metal HUD via `PP_HUD=1`), Logs, Copy Diagnostics, More (Check for Updates, Re-download PEAK), Repair…, Uninstall… (the same items are in the Dock menu and the PEAK menu) |
 
 **Data** (`~/Library/Application Support/PeakPack`, DESIGN §3.1, INTERFACES §3):
 

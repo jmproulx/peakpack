@@ -50,8 +50,10 @@ struct SetupView: View {
 
     @ViewBuilder var bottomBar: some View {
         HStack {
-            Button("Copy Diagnostics") { model.copyDiagnostics() }
-                .help("Copies a short technical report you can send to \(model.hostName)")
+            if model.problem == nil {
+                Button("Copy Diagnostics") { model.copyDiagnostics() }
+                    .help("Copies a short technical report you can send to \(model.hostName)")
+            }
             Spacer()
             if model.waiting == .welcome {
                 Button("Set Up PEAK") { model.beginSetup() }
@@ -219,11 +221,28 @@ struct StepBody: View {
                 if let a = model.activity {
                     Text(a.title).font(.headline)
                     ActivityBlock(activity: a)
+                    if let tip = caption(for: step) {
+                        Label(tip, systemImage: "info.circle")
+                            .font(.callout).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 6)
+                    }
                 }
                 if model.waiting == .adoptConfirm {
                     AdoptConfirm()
                 }
             }
+        }
+    }
+}
+
+extension StepBody {
+    func caption(for step: SetupStep) -> String? {
+        switch step {
+        case .runtime: return "You can keep using your Mac. If the connection drops, the download continues where it stopped."
+        case .prefix: return "This runs once. Nothing is written outside PEAK (Modded)'s own folder."
+        case .mods: return "These are the same mods \(model.hostName) uses, checked against his signed mod list."
+        default: return nil
         }
     }
 }
@@ -236,7 +255,7 @@ struct SteamStepBody: View {
                 Text("PEAK (Modded) uses the normal Steam app for Mac, signed in with your own account. Steam isn't installed yet.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Get Steam for Mac") { model.perform(.getSteam) }.keyboardShortcut(.defaultAction)
+                    Button("Get Steam for Mac") { model.perform(.getSteam) }.keyboardShortcut(.defaultAction).controlSize(.large)
                     Spacer()
                 }
                 Text("Install it, open it once, and sign in. This window continues by itself.").font(.callout).foregroundColor(.secondary)
@@ -244,7 +263,7 @@ struct SteamStepBody: View {
                 Text("Open Steam and sign in with the account that owns PEAK. Your password only ever goes into Steam itself.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Open Steam") { model.perform(.openSteam) }.keyboardShortcut(.defaultAction)
+                    Button("Open Steam") { model.perform(.openSteam) }.keyboardShortcut(.defaultAction).controlSize(.large)
                     Spacer()
                 }
                 HStack(spacing: 8) {
