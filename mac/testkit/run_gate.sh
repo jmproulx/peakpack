@@ -99,25 +99,49 @@ snapshot_preexisting
 [ -n "$timeout_min" ] || timeout_min=$(gate_timeout_default "$gate")
 mkdir -p "$job_dir/logs/$gate"
 console="$job_dir/logs/$gate/console.log"
-rm -f "$job_dir/results/$gate.json" "$job_dir/tmp/gate-$gate/pid"
+# One runner per gate and job dir. A second runner (e.g. the hub restarting a slot while the old one is
+# being stopped) waits up to 60 s for the previous one to exit, then refuses (exit 4). Nothing below ever
+# reads another runner's state: the gate shell's PID goes to a file named after THIS runner ($$).
+gdir="$job_dir/tmp/gate-$gate"; mkdir -p "$gdir"
+lock="$gdir/runner.lock"; waited=0
+while :; do
+  if ( set -o noclobber; printf '%s\n' "$$" > "$lock" ) 2>/dev/null; then break; fi
+  other=$(cat "$lock" 2>/dev/null)
+  if [ -n "$other" ] && [ "$other" != "$$" ] && kill -0 "$other" 2>/dev/null; then
+    if [ "$waited" -ge 60 ]; then echo "run_gate: another run_gate for $gate is still running in $job_dir (pid $other); refusing" >&2; exit 4; fi
+    [ "$waited" = 0 ] && echo "run_gate: waiting for the previous run_gate for $gate (pid $other) to finish" >&2
+    sleep 2; waited=$((waited + 2))
+  else
+    rm -f "$lock"   # stale lock of a runner that is gone
+  fi
+done
+gate_pidfile="$gdir/pid.$$"
+export PP_GATE_PIDFILE="$gate_pidfile"
+cleanup_runner() { rm -f "$gate_pidfile"; [ "$(cat "$lock" 2>/dev/null)" = "$$" ] && rm -f "$lock"; return 0; }
+rm -f "$job_dir/results/$gate.json" "$gate_pidfile"
 printf '\n==== %s run_gate %s (kit %s, release %s, timeout %s min)\n' "$(now_utc)" "$gate" "$PP_KIT_VERSION" "$PP_RELEASE" "$timeout_min" >> "$console"
 set -m
 ( bash "$script" ${pass_args[@]+"${pass_args[@]}"} < /dev/null 2>&1 | tee -a "$console"; exit "${PIPESTATUS[0]}" ) &
 pid=$!
 set +m
 # Stop the gate: signal the gate's own shell first (its trap stops Wine and writes the result; bash runs
-# the trap once its foreground child ends), then that child, then the whole process group.
+# the trap once its foreground child ends), then that child, then the whole process group. Only THIS
+# runner's gate: its private pid file and its own process group ($pid leads it, set -m above).
+gate_shell_pid=""
 stop_gate() {
-  local gpid; gpid=$(cat "$job_dir/tmp/gate-$gate/pid" 2>/dev/null)
+  local gpid
+  [ -n "$gate_shell_pid" ] || gate_shell_pid=$(cat "$gate_pidfile" 2>/dev/null)
+  gpid=$gate_shell_pid
   if [ -n "$gpid" ]; then kill -"$1" "$gpid" 2>/dev/null; pkill -"$1" -P "$gpid" 2>/dev/null; fi
   [ "$1" = KILL ] || sleep 5
   kill -"$1" -- "-$pid" 2>/dev/null || kill -"$1" "$pid" 2>/dev/null
 }
 # If run_gate itself is stopped, pass it on (the gate cleans up Wine itself).
-trap 'stop_gate TERM; sleep 10; stop_gate KILL; exit 4' TERM INT HUP
+trap 'stop_gate TERM; sleep 10; stop_gate KILL; cleanup_runner; exit 4' TERM INT HUP
 deadline=$(( $(now_s) + timeout_min * 60 ))
 timed_out=0
 while kill -0 "$pid" 2>/dev/null; do
+  [ -n "$gate_shell_pid" ] || gate_shell_pid=$(cat "$gate_pidfile" 2>/dev/null)   # captured once, never re-read
   if [ "$(now_s)" -ge "$deadline" ]; then
     timed_out=1
     echo "run_gate: $gate exceeded ${timeout_min} min; stopping it" | tee -a "$console"
@@ -129,6 +153,7 @@ while kill -0 "$pid" 2>/dev/null; do
   sleep 3
 done
 wait "$pid" 2>/dev/null; rc=$?
+cleanup_runner
 
 # ---- make sure there is a result file with a valid status
 json="$job_dir/results/$gate.json"

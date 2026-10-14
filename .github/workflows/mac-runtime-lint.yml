@@ -51,6 +51,8 @@ jobs:
           if grep -n -E "$re" mac/testkit/expect/*.manifest; then
             echo "::error::mod-loader file in a reference manifest (regenerate with runtime/steam/tests/depot_manifest.sh)"; exit 1
           fi
+      - name: run_gate stop/restart in one job dir (runner_restart_test.sh)
+        run: bash mac/testkit/tests/runner_restart_test.sh
       - name: test kit's copy of verify_runtime.sh is identical
         run: cmp mac/runtime/build/verify_runtime.sh mac/testkit/lib/verify_runtime.sh
       - name: yamllint

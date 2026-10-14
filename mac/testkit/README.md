@@ -27,6 +27,7 @@ Joshua ideally does **one** thing: sign in to Mac Steam under `fleet` once (gate
 | `probes/d3d11_clear.c` | D3D11 clear/present/read-back probe for G-A1 (CI builds it; see `NOTES-for-lead.md`) |
 | `expect/peak-win-2.6.b-build25739797.manifest` | Per-file SHA-256 reference of PEAK 2.6.b (Windows depot), for G-B5 |
 | `NOTES-for-lead.md` | Requests to the runtime/Steam/CI/PeakPack owners, and open questions |
+| `gates/X-SLEEP.sh`, `tests/runner_restart_test.sh` | Kit self-test, in no slot: CI checks that stopping a `run_gate` and starting a new one in the same job dir never touches the new run. `run_gate` takes a per-gate runner lock (a second runner waits up to 60 s, then exits 4) and gives each gate a private PID file |
 | `slot-app.job.json`, `lib/app.sh`, `gates/G-APP*.sh`, `gates/APP-README.md` | The PEAK (Modded).app slot (written by the Mac app lead): app release `mac-build-app-*`, its own data in `$JOB/appdata` |
 
 ## Gates
@@ -55,8 +56,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.2.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.2/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.3.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.3/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &
@@ -129,7 +130,7 @@ Privacy: SteamIDs and persona names stay in `logs/`. The JSON only records that 
 
 **No macOS prompts by default:** the kit never runs `screencapture` unless `PP_SCREENSHOTS=1`, because it would raise the Screen Recording prompt. It opens `steam://open/console` only when computer-use steps run (not with `--no-cu`). Evidence screenshots are the hub's job. See NOTES-for-lead.md, "macOS prompts".
 
-**Steam test kit:** the probes and Steam test scripts come from the tests-only prerelease that the slot file pins under `steam_tests.tag` (currently `mac-build-steam-tests-1.2.0`, built by CI `mac-steam-tests.yml`). They are verified against that release's SHA256SUMS, and `PP_STEAM_TESTS_TAG` overrides the pin. Without a pin, the kit uses the runtime release's tests package with the kit's newer sources laid over it.
+**Steam test kit:** the probes and Steam test scripts come from the tests-only prerelease that the slot file pins under `steam_tests.tag` (currently `mac-build-steam-tests-1.2.1`, built by CI `mac-steam-tests.yml`). They are verified against that release's SHA256SUMS, and `PP_STEAM_TESTS_TAG` overrides the pin. Without a pin, the kit uses the runtime release's tests package with the kit's newer sources laid over it.
 
 **GUI session:** run the kit inside the logged-in desktop (Aqua) session: Terminal on the desktop, `open -a Terminal $JOB/run.command`, or `launchctl asuser`. From a remote shell, Wine cannot open windows, so G-A1, G-B2, G-D2, G-A2-lite, G-C0 and G-X1 end blocked (exit 2).
 

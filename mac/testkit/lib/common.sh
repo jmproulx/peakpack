@@ -203,7 +203,7 @@ gate_begin() {
   GLOG="$JOB/logs/$GATE_ID"; GEVID="$JOB/evidence/$GATE_ID"; GTMP="$JOB/tmp/gate-$GATE_ID"
   mkdir -p "$GLOG" "$GEVID" "$GTMP" "$RESULTS" "$STATE" "$CU_DIR"
   : > "$GTMP/criteria.jsonl"; : > "$GTMP/metrics.tsv"; : > "$GTMP/notes.txt"; : > "$GTMP/cu.jsonl"; : > "$GTMP/evidence.txt"
-  echo $$ > "$GTMP/pid"   # run_gate.sh's watchdog signals this shell directly on timeout
+  echo $$ > "${PP_GATE_PIDFILE:-$GTMP/pid}"   # run_gate.sh's own watchdog signals this shell (per-runner file)
   GATE_STATUS=""; GATE_REASON=""; GATE_HUMAN=""; GATE_CLEANUP=""
   # Answers consumed by an earlier run of this gate are archived, so a re-run asks again.
   # Answers written ahead of time (no closed request yet, e.g. the early G-B5 download) stay.
