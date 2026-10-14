@@ -35,7 +35,7 @@ so it stays open after PEAK. G-APP5 and G-APP6 quit it at the end.
 
 In the options window (app 0.1.2 and later), **Check for Updates** and **Re-download PEAK** are entries in the **More ▾** menu, not visible buttons. No CU step clicks them.
 
-Run one gate by hand with `bash testkit/run_gate.sh G-APP3 --job-dir "$JOB" -- --app-release mac-build-app-0.1.4`.
+Run one gate by hand with `bash testkit/run_gate.sh G-APP3 --job-dir "$JOB" -- --app-release mac-build-app-0.1.5`.
 
 ## What a friend does differently
 

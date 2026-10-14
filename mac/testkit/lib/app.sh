@@ -252,24 +252,36 @@ app_job_stop_leftovers() {
   if app_peak_running; then log "a PEAK.exe is still running after stopping this job's prefix: not ours, left alone"; return 1; fi
   return 0
 }
-# app_require_setup HINT -> returns when the app is set up in this job. A phase left by an interrupted earlier
-# gate (launching|playing|error|message; e.g. PEAK sat on its mic chooser and the quit step timed out) is
-# recovered when frontend/state.json has setupComplete=true and the recorded app pid is gone or is this job's
-# app: this job's leftovers are stopped and status.json is set aside (the app rewrites it on its next start).
+# app_require_setup HINT -> returns when the app is set up in this job.
+# Gate rule (app 0.1.5+ writes phase "exited" with stepState "done", exitReason and endedAt, and NO pid, when it
+# quits, ends after the game, or gets SIGTERM/SIGINT): "exited", or a missing/dead pid, means the app is NOT running;
+# launching|playing|error|message are trusted only with a live pid of THIS job's app (SIGKILL and crashes leave
+# the old phase behind). A phase left by an interrupted earlier gate is recovered when frontend/state.json has
+# setupComplete=true or the status says stepState done: this job's leftovers are stopped and status.json is set
+# aside (the app rewrites it on its next start).
 app_require_setup() {
-  local hint=$1 ph sc mods sst keep
-  ph=$(app_status_get phase)
-  case "$ph" in done|ready) return 0 ;; launching|playing|error|message) ;;
-    *) gate_finish_as blocked "the app is not set up in this job (phase '${ph:-none}'): $hint" ;; esac
-  sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced); sst=$(app_status_get stepState)
-  # set up = state.json setupComplete, or the stale status itself says the setup step finished (stepState done)
+  local hint=$1 ph sc mods sst pid keep live=0
+  ph=$(app_status_get phase); pid=$(app_status_get pid); sst=$(app_status_get stepState)
+  sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced)
+  app_pid_is_ours "$pid" && live=1
+  metric app_phase_before "${ph:-none}" str
+  case "$ph" in
+    done|ready) return 0 ;;
+    exited)
+      metric app_exit_reason "$(app_status_get exitReason)" str
+      if [ "$sc" = true ] || [ "$sst" = "done" ]; then return 0; fi
+      gate_finish_as blocked "the app exited before its setup was complete (stepState '${sst:-missing}', state.json setupComplete '${sc:-missing}'): $hint" ;;
+    launching|playing|error|message) ;;
+    *) gate_finish_as blocked "the app is not set up in this job (phase '${ph:-none}'): $hint" ;;
+  esac
   [ "$sc" = true ] || [ "$sst" = "done" ] ||
     gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}', stepState '${sst:-missing}'): $hint"
-  log "stale app phase '$ph' from an earlier run (setupComplete=${sc:-unset}, stepState=${sst:-unset}): recovering"
+  if [ "$live" = 1 ]; then log "the app from an earlier run is still running (pid $pid, phase '$ph'): stopping this job's app first"
+  else log "stale app phase '$ph' (pid '${pid:-none}' not running; setupComplete=${sc:-unset}, stepState=${sst:-unset}): recovering"; fi
   app_job_stop_leftovers || gate_finish_as error "PEAK is still running outside this job's prefix; stop it first"
   keep="$APP_STATUS.stale-$ph-$(now_s)"; mv "$APP_STATUS" "$keep" 2>/dev/null
   metric stale_phase_recovered "$ph" str
-  crit stale_phase info "stale app phase from an earlier run recovered" "phase '$ph', setupComplete=${sc:-unset}, stepState=${sst:-unset}, modsSynced=${mods:-unset}; status.json kept as $(rel_to_job "$keep")"
+  crit stale_phase info "app phase from an earlier run recovered" "phase '$ph', app pid ${pid:-none} $( [ "$live" = 1 ] && echo 'was running (stopped)' || echo 'not running'), setupComplete=${sc:-unset}, stepState=${sst:-unset}, modsSynced=${mods:-unset}; status.json kept as $(rel_to_job "$keep")"
   return 0
 }
 app_peak_running() { pgrep -f '(^|[/\\])PEAK\.exe' >/dev/null 2>&1; }

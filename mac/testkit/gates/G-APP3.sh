@@ -106,7 +106,7 @@ if app_running; then
   crit app_exit fail "the app quits by itself within 60 s after PEAK is gone" "still running"
   app_quit
 else
-  crit app_exit pass "the app quits by itself within 60 s after PEAK is gone" "after $(( $(now_s) - t_gone )) s"
+  crit app_exit pass "the app quits by itself within 60 s after PEAK is gone" "after $(( $(now_s) - t_gone )) s; final phase $(app_status_get phase), exitReason $(app_status_get exitReason)"
 fi
 
 # ---- 6. the status after the daily launch
