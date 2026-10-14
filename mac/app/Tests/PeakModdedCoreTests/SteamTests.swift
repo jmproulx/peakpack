@@ -33,10 +33,45 @@ final class SteamTests: XCTestCase {
         XCTAssertEqual(ev, [.completed(DepotCompletion(path: "/a/app_3527290/depot_3527291", manifestId: nil))])
     }
 
+    func failure(_ text: String) -> DepotFailure? {
+        for e in parser.events(in: text) { if case .failed(let f) = e { return f } }
+        return nil
+    }
+
     func testFailureLines() {
         let ev = parser.events(in: "[2026-10-13 12:00:02] download_depot: failed, no license for app 3527290\n")
-        XCTAssertEqual(ev, [.failed("download_depot: failed, no license for app 3527290")])
+        XCTAssertEqual(ev, [.failed(DepotFailure(kind: .notOwned, line: "download_depot: failed, no license for app 3527290", standalone: false))])
         XCTAssertTrue(parser.events(in: "Some other line about error in shader cache\n").isEmpty, "unrelated errors are ignored")
+        XCTAssertTrue(parser.events(in: "[2026-10-14 03:00:00] CHTTPClientThreadPool: request timed out for /cdn/x\n").isEmpty,
+                      "a long unrelated log line with a connection word is not a reply to our command")
+    }
+
+    /// The exact replies Mac Steam's console gives to download_depot. "No connection" was seen on the iMac
+    /// (14 Oct 2026, G-APP2); the others are Steam's usual wording, matched by kind, not byte for byte.
+    func testSteamConsoleFailureStrings() {
+        let cases: [(String, DepotFailureKind, Bool)] = [
+            ("No connection", .noConnection, true),                                   // iMac, 14 Oct 2026
+            ("[2026-10-14 02:41:07] No connection", .noConnection, true),
+            ("Not connected to Steam", .noConnection, true),
+            ("Depot download failed : No connection", .noConnection, true),
+            ("download_depot 3527290 3527291 failed: timed out", .noConnection, false),
+            ("Depot download failed : No subscription", .notOwned, true),
+            ("Depot download failed : Access Denied", .notOwned, true),
+            ("download_depot: no license for app 3527290", .notOwned, false),
+            ("Invalid depot 3527291", .invalidDepot, false),
+            ("Depot download failed : Invalid manifest", .invalidDepot, true),
+            ("Depot download failed : Service Unavailable", .other, false),
+        ]
+        for (line, kind, _) in cases {
+            let f = failure(line + "\n")
+            XCTAssertEqual(f?.kind, kind, line)
+        }
+        XCTAssertEqual(failure("No connection\n")?.standalone, true, "a bare reply needs the command first (GameService)")
+        XCTAssertNil(failure("Steam client update available, restart Steam\n"))
+        // The command echo then the reply, in one read: both events, in order.
+        let ev = parser.events(in: "] download_depot 3527290 3527291\nNo connection\n")
+        XCTAssertEqual(ev.first, .commandSeen)
+        if case .failed(let f)? = ev.last { XCTAssertEqual(f.kind, .noConnection) } else { XCTFail("\(ev)") }
     }
 
     func testLogTailOnlyNewCompleteLines() throws {

@@ -5,12 +5,31 @@ public struct DepotCompletion: Equatable {
     public var manifestId: String?
 }
 
+/// Why Steam refused or stopped `download_depot` (drives the friend-facing error card).
+public enum DepotFailureKind: String, Equatable {
+    /// Steam has no connection to its servers (seen on the iMac, 14 Oct 2026: the console answered "No connection").
+    case noConnection
+    /// The signed-in account has no licence for PEAK.
+    case notOwned
+    /// Steam does not know the depot/app (or not right now, e.g. while it updates its app info).
+    case invalidDepot
+    case other
+}
+
+public struct DepotFailure: Equatable {
+    public var kind: DepotFailureKind
+    public var line: String
+    /// The line does not name our command or depot (e.g. a bare "No connection"); it only counts once the
+    /// command has been seen in the console, so unrelated console noise never fails the step.
+    public var standalone: Bool
+}
+
 public enum ConsoleEvent: Equatable {
     /// Steam echoed our command (the friend pasted it and pressed Return).
     case commandSeen
     case completed(DepotCompletion)
-    /// A line that looks like a refusal/failure of our download (shown to the friend verbatim).
-    case failed(String)
+    /// A refusal or failure of our download.
+    case failed(DepotFailure)
 }
 
 /// Reads Mac Steam's `logs/console_log.txt` (a log file, never a login/config file; read-only).
@@ -28,14 +47,20 @@ public struct SteamConsoleParser {
         for raw in text.split(whereSeparator: { $0.isNewline }) {
             let line = String(raw)
             if let c = completion(in: line) { out.append(.completed(c)); continue }
-            let lower = line.lowercased()
+            let cleaned = Self.clean(line)
+            let lower = cleaned.lowercased()
             let mentionsOurs = lower.contains("download_depot") || lower.contains("depot \(depotId)")
-                || lower.contains("depot_\(depotId)") || lower.contains("app \(appId)")
-            if lower.contains(command) && !Self.failureWords.contains(where: lower.contains) {
+                || lower.contains("depot_\(depotId)") || lower.contains("app \(appId)") || lower.contains("depot download")
+            let kind = Self.kind(of: lower)
+            if lower.contains(command) && kind == nil {
                 out.append(.commandSeen); continue
             }
-            if mentionsOurs || lower.contains("depot download") {
-                if Self.failureWords.contains(where: lower.contains) { out.append(.failed(Self.clean(line))) }
+            if let kind {
+                if mentionsOurs {
+                    out.append(.failed(DepotFailure(kind: kind, line: cleaned, standalone: false)))
+                } else if kind != .other && Self.isStandaloneReply(lower) {
+                    out.append(.failed(DepotFailure(kind: kind, line: cleaned, standalone: true)))
+                }
             }
         }
         return out
@@ -43,6 +68,30 @@ public struct SteamConsoleParser {
 
     static let failureWords = ["failed", "error", "invalid", "denied", "not available", "no license",
                                "no subscription", "not owned", "unknown command", "access denied", "timed out", "timeout"]
+    static let connectionWords = ["no connection", "not connected", "offline", "connection lost", "lost connection",
+                                  "no network", "timed out", "timeout", "noconnection"]
+    static let ownershipWords = ["no license", "no licence", "no subscription", "not subscribed", "not owned",
+                                 "access denied", "accessdenied", "doesn't own", "does not own", "no access"]
+    static let invalidWords = ["invalid depot", "invalid app", "unknown depot", "unknown app", "depot not found",
+                               "invalid manifest", "manifest not available", "not available"]
+
+    /// The failure class of a console line, or nil when it is not a failure line.
+    static func kind(of lower: String) -> DepotFailureKind? {
+        if connectionWords.contains(where: lower.contains) { return .noConnection }
+        if ownershipWords.contains(where: lower.contains) { return .notOwned }
+        if invalidWords.contains(where: lower.contains) { return .invalidDepot }
+        if failureWords.contains(where: lower.contains) { return .other }
+        return nil
+    }
+
+    /// A short reply line of its own ("No connection", "Not connected to Steam"), not a long log line that
+    /// merely contains a word like "offline".
+    static func isStandaloneReply(_ lower: String) -> Bool {
+        let t = lower.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        return t.count <= 60 && (t.hasPrefix("no connection") || t.hasPrefix("not connected") || t.hasPrefix("no license")
+            || t.hasPrefix("no subscription") || t.hasPrefix("access denied") || t.hasPrefix("invalid depot")
+            || t.hasPrefix("depot download failed") || t.hasPrefix("connection lost") || t.hasPrefix("offline"))
+    }
 
     func completion(in line: String) -> DepotCompletion? {
         guard let r = line.range(of: "Depot download complete") else { return nil }

@@ -7,7 +7,7 @@ enum DemoScreens {
     static let all = [
         "welcome", "step-rosetta", "step-runtime", "step-prefix", "step-steam-install", "step-steam-start",
         "welcome-resume", "error-verifier", "game-instructions", "game-waiting", "game-waiting-hint", "game-downloading", "game-update",
-        "step-mods", "step-adopt", "done", "error-network", "error-depot", "error-macos", "error-integrity",
+        "step-mods", "step-adopt", "done", "error-network", "error-depot", "error-steam-offline", "error-not-owned", "error-macos", "error-integrity",
         "home", "home-update", "launching", "launch-sync-failed", "game-update-offer", "playing",
         "repair-confirm", "uninstall-confirm", "uninstalled",
     ]
@@ -78,6 +78,11 @@ extension AppModel {
             problem = FriendError(code: "depot-failed", heading: "Steam couldn't download PEAK",
                                   advice: "Make sure Steam is signed in with the account that owns PEAK, then click Try Again.",
                                   details: "Steam console: download_depot: failed, no license for app 3527290", actions: [.retry, .openSteam])
+        case "error-steam-offline", "error-not-owned":
+            steps(doneUpTo: .steam, failed: .game); activeStep = .game
+            problem = AppModel.depotError(DepotFailure(kind: name == "error-steam-offline" ? .noConnection : .notOwned,
+                                                       line: name == "error-steam-offline" ? "No connection" : "Depot download failed : No subscription",
+                                                       standalone: true), host: host)
         case "error-macos":
             stepStates = [.macOS: .blocked]; activeStep = .macOS
             problem = FriendError(code: "macos-too-old", heading: "This Mac needs a newer macOS",

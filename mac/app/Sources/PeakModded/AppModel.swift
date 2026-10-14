@@ -186,6 +186,7 @@ final class AppModel: ObservableObject {
     }
 
     func retry() {
+        if let code = problem?.code, Self.consoleRetryCodes.contains(code) { reopenConsoleOnRetry = true }
         problem = nil
         run(lastFlow)
     }
@@ -345,7 +346,15 @@ final class AppModel: ObservableObject {
         game = GameDownloadUI(phase: .instructions, isUpdate: update, bytes: 0, expected: g.expectedBytes, showHint: false)
         activity = nil
         do {
-            let c = try await wait(for: .gameCommand)
+            let c: UserChoice
+            if reopenConsoleOnRetry {
+                reopenConsoleOnRetry = false
+                g.beginWatching()
+                g.openConsoleWithCommand()
+                c = .proceed
+            } else {
+                c = try await wait(for: .gameCommand)
+            }
             if c == .alternative, let rec = currentImportResult { currentImportResult = nil; finishGame(rec); return }
             game.phase = .waiting
             while true {
@@ -367,10 +376,8 @@ final class AppModel: ObservableObject {
                     let rec = try g.install(done)
                     finishGame(rec)
                     return
-                case .failed(let line):
-                    throw FriendError(code: "depot-failed", heading: "Steam couldn't download PEAK",
-                                      advice: "Make sure Steam is signed in with the account that owns PEAK, then click Try Again.",
-                                      details: "Steam console: \(line)", actions: [.retry, .openSteam])
+                case .failed(let f):
+                    throw Self.depotError(f, host: hostName)
                 }
                 writeStatus()
                 try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -380,6 +387,31 @@ final class AppModel: ObservableObject {
             throw error
         }
     }
+
+    /// Friendly card per Steam failure class; Try Again on these re-copies the line and reopens the console.
+    static func depotError(_ f: DepotFailure, host: String) -> FriendError {
+        let details = "Steam console: \(f.line)"
+        switch f.kind {
+        case .noConnection:
+            return FriendError(code: "steam-offline", heading: "Steam isn't connected right now",
+                               advice: "Make sure Steam is online (not in Offline Mode), then click Try Again.",
+                               details: details, actions: [.retry, .openSteam])
+        case .notOwned:
+            return FriendError(code: "steam-not-owned", heading: "This Steam account doesn't own PEAK",
+                               advice: "Sign in to Steam with the account that bought PEAK, then click Try Again. Everyone plays with their own copy.",
+                               details: details, actions: [.openSteam, .retry])
+        case .invalidDepot:
+            return FriendError(code: "depot-invalid", heading: "Steam couldn't find PEAK's Windows files",
+                               advice: "Steam may be updating. Wait a minute, then click Try Again. If it keeps happening, click Copy Diagnostics and send it to \(host).",
+                               details: details, actions: [.retry, .openSteam])
+        case .other:
+            return FriendError(code: "depot-failed", heading: "Steam couldn't download PEAK",
+                               advice: "Make sure Steam is online and signed in with the account that owns PEAK, then click Try Again.",
+                               details: details, actions: [.retry, .openSteam])
+        }
+    }
+
+    static let consoleRetryCodes: Set<String> = ["steam-offline", "steam-not-owned", "depot-invalid", "depot-failed"]
 
     private func finishGame(_ rec: GameRecord) {
         game.phase = .done
@@ -398,6 +430,8 @@ final class AppModel: ObservableObject {
     func copyCommandAgain() { currentGame?.copyCommandAgain() }
 
     private var currentImportResult: GameRecord?
+    /// Set by Try Again on a Steam console failure: the game step re-copies the line and reopens the console at once.
+    private var reopenConsoleOnRetry = false
 
     /// Advanced: "Use a PEAK folder I already have…"
     func importGameFolder(_ url: URL) {

@@ -11,7 +11,7 @@ final class GameService {
         case waiting
         case downloading(bytes: Int64)
         case completed(DepotCompletion)
-        case failed(String)
+        case failed(DepotFailure)
     }
 
     let env: AppEnvironment
@@ -97,7 +97,9 @@ final class GameService {
         for ev in parser.events(in: tail.readNew()) {
             switch ev {
             case .completed(let c): return .completed(c)
-            case .failed(let line): return .failed(line)
+            case .failed(let f):
+                // A bare reply ("No connection") only counts after our command appeared in the console.
+                if !f.standalone || commandSeen { return .failed(f) }
             case .commandSeen: commandSeen = true
             }
         }
