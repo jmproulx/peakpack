@@ -418,12 +418,14 @@ final class AppModel: ObservableObject {
         if let manifest { m = manifest } else { m = try await mods.signedManifest() }
         try await mods.installPeakPack(manifest: m, progress: progressSink())
         try await prefix.ensureGUISession()
+        env.update { $0.modsSynced = false } // set back to true only by a sync that finishes OK
         var outcome = try await mods.headless(.sync(adopt: false), name: "sync", timeout: 1800, onStatus: headlessSink())
         if outcome.exit == PeakPackExit.foreignLoader.rawValue {
             _ = try await wait(for: .adoptConfirm)
             outcome = try await mods.headless(.sync(adopt: true), name: "sync-adopt", timeout: 1800, onStatus: headlessSink())
         }
         guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "sync", appVerifiedManifest: true) }
+        env.update { $0.modsSynced = true }
     }
 
     private func headlessSink() -> (HeadlessStatus) -> Void {
@@ -554,8 +556,10 @@ final class AppModel: ObservableObject {
         try await setupFlow()
         screen = .launching
         setActivity("Repairing", "Re-checking \(hostName)'s mods…")
+        env.update { $0.modsSynced = false }
         let outcome = try await mods.headless(.sync(adopt: false), name: "repair-sync", timeout: 1800, onStatus: headlessSink())
         guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "repair sync", appVerifiedManifest: mods.cachedManifest() != nil) }
+        env.update { $0.modsSynced = true }
         activity = nil
         notice = "Repair finished. Everything checks out."
         screen = .home

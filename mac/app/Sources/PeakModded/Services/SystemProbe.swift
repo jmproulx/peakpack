@@ -87,6 +87,7 @@ enum SystemProbe {
             gameComplete: game.isComplete,
             peakPackInstalled: fm.fileExists(atPath: p.peakPackExe(user: user).path),
             modsInstalled: fm.fileExists(atPath: p.peakPackDir(user: user).appendingPathComponent("profile/BepInEx/core/BepInEx.Preloader.dll").path)
+                && env.state.modsSynced != false
         )
     }
 }

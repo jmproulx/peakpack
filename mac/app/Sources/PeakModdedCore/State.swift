@@ -27,6 +27,9 @@ public struct FrontEndState: Codable, Equatable {
     public var game: GameRecord?
     public var peakPackSha256: String?
     public var packRevision: Int?
+    /// The last setup/repair sync finished OK. A failed or interrupted sync can leave BepInEx half-installed,
+    /// so "mods installed" needs this as well as the files.
+    public var modsSynced: Bool?
     public var setupComplete: Bool = false
     public var showFPS: Bool = false
     public var lastAppUpdateCheck: Date?
