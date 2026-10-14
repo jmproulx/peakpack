@@ -49,7 +49,7 @@ public sealed class Installer(AppPaths paths, Downloader downloader)
         if (!string.IsNullOrWhiteSpace(publicKey))
         {
             var sigBytes = await downloader.GetSmallAsync(location + ".sig", ct, 4096);
-            if (!ManifestSigner.Verify(bytes, Encoding.ASCII.GetString(sigBytes), publicKey))
+            if (!ManifestSigner.Verify(bytes, Encoding.ASCII.GetString(sigBytes), publicKey, paths.Log))
                 throw new SecurityException("The mod list's signature is invalid, so it was NOT installed. Tell the host - the download may have been tampered with.");
             signed = true;
         }

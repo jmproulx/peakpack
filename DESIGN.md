@@ -225,6 +225,7 @@ As v0.2 (signed manifest, SHA-256 pinning, HTTPS host allowlist with per-hop red
 
 - **Real signing key** created outside the repo (`C:\Users\joshu\PeakPack-keys\peakpack-signing.pem`, gitignored pattern `*.pem`); public key baked into `pack.config.json`. Back it up (USB stick). Losing it means a new app build for everyone.
 - The pipeline **refuses a real release that isn't signed**.
+- **Verification (0.4.3):** on Windows, .NET's ECDsa (CNG). Under Wine, a managed P-256 verifier with the same strictness, because Wine's ncrypt.dll can't be relied on (§18.10).
 - The companion accepts network values only for whitelisted, typed, range-clamped settings from the signed pack, and never writes them to disk.
 - `pack-info.json` and the companion only read local files and Photon properties. No downloads, no code loading.
 
@@ -651,3 +652,45 @@ From the Mac app lead's proposal (`mac/app/proposals/friendinstaller-platforms-m
 - live-update planning;
 - an offline end-to-end `PublishAsync` with a local loader and a throwaway key: the keys absent give the old manifest and no GitHub calls; the keys present give fields covered by the signature; refusals write no manifest or signature;
 - publish.json load/save: an existing publish.json gains no new keys when the Host window saves it.
+
+### 18.10 Manifest signatures under Wine: managed P-256 verifier (app 0.4.3)
+
+**Bug (first real Mac test, M1 iMac, Wine 11 + DXMT runtime pp1):**
+
+- PeakPack 0.4.2, byte-identical to rev-5, failed `--headless --status` at step `check` with "The mod list's signature is invalid". The same exe and manifest verify on Windows.
+- curl.log was empty, so the download was fine. `PeakPack.exe --headless --sync` hit the same `SecurityException` in `Installer.LoadManifestAsync`.
+
+**Exact path:**
+
+- `ManifestSigner.Verify` called `ECDsa.Create()` (`ECDsaWrapper` over CNG `ECDsaCng`), then `ImportSubjectPublicKeyInfo`, then `VerifyData(SHA-256, IEEE P1363)`.
+- The native calls, seen in a stack trace on Windows: `ECDsaCng.ImportParameters`, then `ECCng.ImportKeyBlob`, then `CngKey.Import`, which is **`NCryptImportKey`** (ncrypt.dll, Microsoft Software KSP). Then `VerifyData` hashes with BCrypt and calls **`NCryptVerifySignature`**.
+- `tools/SignatureTests` shows that ncrypt.dll is loaded only by the platform verifier. Wine's ncrypt is partial.
+- 0.4.2 caught `CryptographicException` and `FormatException` and returned false, so an NCrypt *failure* and a real `false` looked the same: "signature invalid".
+- A key CNG can't import surfaces as `PlatformNotSupportedException` wrapping a `CryptographicException` (0x80090027 "The parameter is incorrect"). 0.4.2 didn't catch that.
+
+**Fix:**
+
+- `P256Verifier.cs`: a managed P-256 ECDSA **verifier only** (no signing, ~120 lines, `System.Numerics.BigInteger`, affine arithmetic, Shamir's trick, about 40-60 ms per check). Its only native dependency is `SHA256.HashData`, which every file download already relies on.
+- `ManifestSigner.Verify` uses it when `Platform.IsWine` (real or simulated). **Windows keeps the platform verifier.** Its only change there: the key must be exactly the SubjectPublicKeyInfo (no trailing bytes), and `PlatformNotSupportedException` also counts as "not verified".
+- Both are equally strict:
+  - the key is SPKI id-ecPublicKey/prime256v1 with an uncompressed point on the curve;
+  - the signature is exactly 64 bytes `r||s` (DER refused);
+  - 1 ≤ r, s < n;
+  - R is not infinity and R.x mod n = r.
+  - No skip flag exists.
+- BouncyCastle was not used: it would add about 6 MB to a single-file exe for one verify. Its MIT licence would have been fine.
+- **Diagnostics** (log.txt):
+  - Windows failure: the exception type, HRESULT and message (and the inner exception).
+  - Under Wine, every check logs one line: `signature check: managed P-256 valid|INVALID; platform verifier says: …`. The platform result is for diagnosis only; it never decides. A managed failure logs its reason (`signature doesn't match`, `r or s out of range`, wrong length, bad key).
+
+**Tests** (`tools/SignatureTests`, 48 checks, random count via `-- --random N`):
+
+- The managed curve constants equal CNG's explicit nistP256 parameters. Curve sanity: n·G = ∞, (n−1)·G = −G, and so on.
+- RFC 6979 A.2.5 (P-256, SHA-256): the managed scalar multiply turns the RFC private key into the RFC public point. "sample" and "test" are valid on both verifiers; swapped messages are invalid.
+- Edge cases: r/s = 0, n, n+1 and 2^256−1; swapped r/s; 63/65/0-byte and DER signatures; an off-curve, compressed, (0,0) or trailing-byte key are all invalid on both. The high-S twin is valid on both (plain ECDSA).
+- Random: 1000 keys and messages signed by .NET, plus bit-flipped signature, bit-flipped message, appended byte and wrong key. That is 4997 vectors with 0 disagreements.
+- The real rev-5 `manifest.json` + `.sig` (`tools/SignatureTests/fixtures/rev-5`, byte-identical to the release assets, `-text`) with the real public key from `pack.config.json`: valid on both. Tampered copies (one bit, a newline, CRLF, revision 6, bit flips in r/s, another key, an unrelated signature) are invalid on both.
+- `ManifestSigner.Verify` on the Windows path, and on the Wine path in a child process with `PEAKPACK_FAKE_PLATFORM=wine-mac`. The managed path verifies rev-5 without loading ncrypt.dll.
+- Not included: NIST CAVP `SigVer.rsp`. It wasn't downloaded in this session; add it to `fixtures/` when wanted.
+
+**Release:** app **0.4.3**, staged (not published) at `sandbox\staged-0.4.3\PeakPack.exe` (+ `.sha256`). With its embedded key, it reports "Not installed yet" for the live rev-5 manifest on Windows and on simulated Mac. Mac friends only get it with the next pack revision Joshua approves (the manifest's `app` entry). Until then the Mac front end installs 0.4.2.

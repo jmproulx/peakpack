@@ -24,16 +24,60 @@ public static class ManifestSigner
         return Convert.ToBase64String(ec.SignData(manifestBytes, HashAlgorithmName.SHA256));
     }
 
-    public static bool Verify(byte[] manifestBytes, string signatureBase64, string publicKeyBase64)
+    /// <summary>Which verifier <see cref="Verify"/> uses: the platform's (CNG) on Windows, the managed P-256 verifier
+    /// under Wine (real or simulated), whose ncrypt.dll can't be relied on. Both are equally strict (tools/SignatureTests).</summary>
+    public static bool UsesManagedVerifier => Platform.IsWine;
+
+    /// <summary>True only if the signature is valid. <paramref name="diag"/> gets one debug line on failure (why, and
+    /// for a crypto exception its type and message), so a failure under Wine is never ambiguous in log.txt.</summary>
+    public static bool Verify(byte[] manifestBytes, string signatureBase64, string publicKeyBase64, Action<string>? diag = null)
     {
+        byte[] sig, key;
         try
         {
-            using var ec = ECDsa.Create();
-            ec.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyBase64), out _);
-            return ec.VerifyData(manifestBytes, Convert.FromBase64String(signatureBase64.Trim()), HashAlgorithmName.SHA256);
+            sig = Convert.FromBase64String(signatureBase64.Trim());
+            key = Convert.FromBase64String(publicKeyBase64);
         }
-        catch (FormatException) { return false; }
-        catch (CryptographicException) { return false; }
+        catch (FormatException ex) { diag?.Invoke("signature check: not base64: " + ex.Message); return false; }
+
+        if (UsesManagedVerifier)
+        {
+            bool ok = P256Verifier.VerifyData(manifestBytes, sig, key, out var why);
+            if (!ok) diag?.Invoke($"signature check (managed P-256, {Platform.Describe}): invalid: {why}");
+            // Diagnostics only (never decides): what the platform verifier says here, to keep track of Wine's CNG.
+            diag?.Invoke("signature check: managed P-256 " + (ok ? "valid" : "INVALID") + "; platform verifier says: " + PlatformVerdict(manifestBytes, sig, key));
+            return ok;
+        }
+        try { return VerifyPlatform(manifestBytes, sig, key); }
+        // CNG reports a key it can't import as PlatformNotSupportedException (wrapping a CryptographicException):
+        // that is "not verified" too, never a pass.
+        catch (Exception ex) when (ex is CryptographicException or PlatformNotSupportedException)
+        {
+            diag?.Invoke($"signature check (platform): {ex.GetType().FullName} 0x{ex.HResult:X8}: {ex.Message}" +
+                         (ex.InnerException is { } inner ? $" <- {inner.GetType().FullName} 0x{inner.HResult:X8}: {inner.Message}" : ""));
+            return false;
+        }
+    }
+
+    /// <summary>.NET's ECDsa (CNG on Windows): ImportSubjectPublicKeyInfo + VerifyData(SHA-256, IEEE P1363).
+    /// Native path on Windows (seen in a stack trace): ECDsaCng.ImportParameters -> CngKey.Import -> NCryptImportKey,
+    /// then VerifyData -> SHA-256 via BCrypt + NCryptVerifySignature (ncrypt.dll).</summary>
+    public static bool VerifyPlatform(byte[] data, byte[] signature, byte[] spki)
+    {
+        using var ec = ECDsa.Create();
+        ec.ImportSubjectPublicKeyInfo(spki, out int read);
+        if (read != spki.Length) return false; // the whole key must be the SPKI, as in the managed verifier
+        return ec.VerifyData(data, signature, HashAlgorithmName.SHA256);
+    }
+
+    static string PlatformVerdict(byte[] data, byte[] signature, byte[] spki)
+    {
+        try { return VerifyPlatform(data, signature, spki) ? "valid" : "invalid (VerifyData returned false)"; }
+        catch (Exception ex)
+        {
+            return $"threw {ex.GetType().FullName} 0x{ex.HResult:X8}: {ex.Message}" +
+                   (ex.InnerException is { } inner ? $" <- {inner.GetType().FullName} 0x{inner.HResult:X8}: {inner.Message}" : "");
+        }
     }
 }
 

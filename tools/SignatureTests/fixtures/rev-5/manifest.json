@@ -1,0 +1,247 @@
+{
+  "schema": 1,
+  "packName": "Joshua's PEAK mods",
+  "revision": 5,
+  "published": "2026-10-12T21:17:40.5029789+00:00",
+  "gameAppId": 3527290,
+  "gameVersion": "2.6.b",
+  "notes": "Heli Pilot 0.3.3: scrolling to zoom no longer switches hotbar slots. Mac friends get the Mac preset.",
+  "app": {
+    "version": "0.4.2",
+    "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack-0.4.2.exe",
+    "sha256": "79bd92e01cc480776a7d54990fcf01a97490e1d29eeea85dbb0ecb3d1f5a1b62",
+    "size": 51844665
+  },
+  "loader": {
+    "id": "BepInEx-BepInExPack_PEAK-5.4.75301",
+    "url": "https://thunderstore.io/package/download/BepInEx/BepInExPack_PEAK/5.4.75301/",
+    "sha256": "a71432613ab0b2f560046bc341d949c9d853b4f5d5223ab5e7f2ef1f113522e7",
+    "size": 670172,
+    "reason": "loader",
+    "title": "BepInEx Pack PEAK",
+    "description": "BepInEx pack for PEAK. Preconfigured and ready to use."
+  },
+  "packages": [
+    {
+      "id": "Hamunii-AutoReload-1.0.2",
+      "url": "https://thunderstore.io/package/download/Hamunii/AutoReload/1.0.2/",
+      "sha256": "9a94ca0608f8c4ea2666df6de50e44bbc464f42bb6c50c675908c2b43b5b8a93",
+      "size": 28884,
+      "reason": "requested",
+      "tags": [
+        "Client Side"
+      ],
+      "title": "Auto Reload",
+      "description": "Automatically reloads plugins by watching BepInEx/plugins/ for file changes. For developers."
+    },
+    {
+      "id": "Sapphire009-InfiniteJetpack-1.0.1",
+      "url": "https://thunderstore.io/package/download/Sapphire009/InfiniteJetpack/1.0.1/",
+      "sha256": "20e5b5397414a15520d36d598518a5b9738929e42e2eab5b9fccc6b016af8e13",
+      "size": 139016,
+      "reason": "requested",
+      "tags": [
+        "Client Side"
+      ],
+      "title": "Infinite Jetpack",
+      "description": "The jetpack never runs out of fuel."
+    }
+  ],
+  "files": [
+    {
+      "id": "Joshua-JetpackBoost",
+      "version": "0.1.0",
+      "path": "plugins/Joshua-JetpackBoost/JetpackBoost.dll",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-JetpackBoost-90c792a7-JetpackBoost.dll",
+      "sha256": "90c792a7744d99d566293e59d787ad4d2aebdaee6a0c6bd0c70cd967f29a9751",
+      "size": 15872,
+      "overwrite": "always",
+      "title": "Jetpack Boost",
+      "description": "Joshua's mod: stronger jetpack thrust plus a push in the direction you're moving.",
+      "hotReload": true
+    },
+    {
+      "id": "Joshua-HeliPilot",
+      "version": "0.3.3",
+      "path": "plugins/Joshua-HeliPilot/HeliPilot.dll",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-HeliPilot-8f7a963f-HeliPilot.dll",
+      "sha256": "8f7a963f475967031551940327571ada435b6f8d0925b510cb009165c6a93416",
+      "size": 209408,
+      "overwrite": "always",
+      "title": "Heli Pilot",
+      "description": "Fly a helicopter (with a cockpit view), use the Heli Flare item, and ride along with friends.",
+      "hotReload": true
+    },
+    {
+      "id": "Joshua-ElytraGlider",
+      "version": "0.1.0",
+      "path": "plugins/Joshua-ElytraGlider/ElytraGlider.dll",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-ElytraGlider-61e56bc8-ElytraGlider.dll",
+      "sha256": "61e56bc8914ad85de0132af707cbd372441539fe01b84976dfe4e6479f2bf031",
+      "size": 41984,
+      "overwrite": "always",
+      "title": "Elytra Glider",
+      "description": "Minecraft-style glider flight.",
+      "hotReload": true
+    },
+    {
+      "id": "Joshua-ItemTuner",
+      "version": "0.2.1",
+      "path": "plugins/Joshua-ItemTuner/ItemTuner.dll",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-ItemTuner-6b766002-ItemTuner.dll",
+      "sha256": "6b766002b3d9821e50521f65b4d10e8315ecfa634c3c3b0edd8735e7b54c0a40",
+      "size": 94720,
+      "overwrite": "always",
+      "title": "Item Tuner",
+      "description": "In-game settings menu for Joshua's mods.",
+      "hotReload": true
+    },
+    {
+      "id": "Joshua-ItemTuner",
+      "version": "0.2.1",
+      "path": "config/com.joshua.itemtuner.cfg",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-ItemTuner-5f9c6e7e-com.joshua.itemtuner.cfg",
+      "sha256": "5f9c6e7ea4abcf33844979d431acf704ffb16eb686360523a3ce83dcdafc8c8b",
+      "size": 352,
+      "overwrite": "ifMissing",
+      "hotReload": false
+    },
+    {
+      "id": "Joshua-HeliPilot",
+      "version": "0.3.3",
+      "path": "plugins/Joshua-HeliPilot/HeliPilot_cockpit.bundle",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/Joshua-HeliPilot-0bb047d7-HeliPilot_cockpit.bundle",
+      "sha256": "0bb047d75042e85141821aafa124f40398b48e89eb764e483eb8cb816e4a5fe2",
+      "size": 594511,
+      "overwrite": "always",
+      "hotReload": false
+    },
+    {
+      "id": "PeakPack-Companion",
+      "version": "0.4.1",
+      "path": "plugins/PeakPack-Companion/PeakPack.Companion.dll",
+      "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/PeakPack-Companion-fb520826-PeakPack.Companion.dll",
+      "sha256": "fb520826d1f235602cec557b0b3c1f4c2a939d07c1c3705c2551af92b78cd84b",
+      "size": 59904,
+      "overwrite": "always",
+      "title": "Lobby check",
+      "description": "Tells you in-game when your mods don't match Joshua's lobby.",
+      "hotReload": false
+    }
+  ],
+  "modsRequiredToJoin": true,
+  "hostOnly": [
+    "glarmer-PEAK_Unlimited"
+  ],
+  "hostName": "Joshua",
+  "packId": "joshuas-peak-mods",
+  "changelog": [
+    {
+      "revision": 5,
+      "date": "2026-10-12T21:17:40.5029789+00:00",
+      "notes": "Heli Pilot 0.3.3: scrolling to zoom no longer switches hotbar slots. Mac friends get the Mac preset."
+    },
+    {
+      "revision": 4,
+      "date": "2026-10-12T19:46:22.7037556+00:00",
+      "notes": "Heli Pilot 0.3.2 with the cockpit model; Mac keyboard defaults for Mac friends."
+    },
+    {
+      "revision": 3,
+      "date": "2026-10-12T02:01:19.57653+00:00",
+      "notes": "Heli Pilot 0.2.9 (cockpit view, dashboard instruments, rope ladder, engine off when empty) and Item Tuner 0.2.1 (menu fixes, item E-menus)."
+    },
+    {
+      "revision": 2,
+      "date": "2026-10-12T01:23:10.2476233+00:00",
+      "notes": "Joshua's own mods join the pack: Heli Pilot, Elytra Glider and Item Tuner. Test lobby is on."
+    },
+    {
+      "revision": 1,
+      "date": "2026-10-12T01:04:19.5259303+00:00",
+      "notes": "First pack: Infinite Jetpack and Joshua's Jetpack Boost."
+    }
+  ],
+  "lobby": {
+    "mismatchPolicy": "warn",
+    "liveSettings": [
+      {
+        "plugin": "com.joshua.jetpackboost",
+        "section": "Boost",
+        "key": "ThrustMultiplier"
+      },
+      {
+        "plugin": "com.joshua.jetpackboost",
+        "section": "Boost",
+        "key": "ForwardPush"
+      }
+    ],
+    "testLobby": true,
+    "diagnostics": true,
+    "hostIds": [
+      "76561198355663553"
+    ]
+  },
+  "platforms": {
+    "mac": {
+      "extraArgs": [
+        "-force-d3d11"
+      ],
+      "files": [
+        {
+          "id": "Joshua-JetpackBoost",
+          "version": "mac-1",
+          "path": "config/com.joshua.jetpackboost.cfg",
+          "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/mac-Joshua-JetpackBoost-88cc705a-com.joshua.jetpackboost.cfg",
+          "sha256": "88cc705a62b91abbb3ae6bc3cffc0e6bf236d0a90db3a1c1d77b5b46257dab16",
+          "size": 416,
+          "overwrite": "ifMissing",
+          "hotReload": false
+        },
+        {
+          "id": "Joshua-ElytraGlider",
+          "version": "mac-1",
+          "path": "config/com.joshua.elytraglider.cfg",
+          "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/mac-Joshua-ElytraGlider-168914d6-com.joshua.elytraglider.cfg",
+          "sha256": "168914d6b6bd8c658219b9fe484d75b32c0f5f1a5fd2cafa1b87d61adddea348",
+          "size": 515,
+          "overwrite": "ifMissing",
+          "hotReload": false
+        },
+        {
+          "id": "Joshua-HeliPilot",
+          "version": "mac-1",
+          "path": "config/com.joshua.helipilot.cfg",
+          "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/mac-Joshua-HeliPilot-7df7b997-com.joshua.helipilot.cfg",
+          "sha256": "7df7b9978521a8df91d624beb8a3ce4d2e938324540bc47cadec009e3ef501ef",
+          "size": 588,
+          "overwrite": "ifMissing",
+          "hotReload": false
+        },
+        {
+          "id": "Joshua-ItemTuner",
+          "version": "mac-1",
+          "path": "config/com.joshua.itemtuner.cfg",
+          "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/mac-Joshua-ItemTuner-b419431d-com.joshua.itemtuner.cfg",
+          "sha256": "b419431defee734efe106438698cd7089b8bf2a42aad81b417dc67660dea0c74",
+          "size": 285,
+          "overwrite": "ifMissing",
+          "hotReload": false
+        },
+        {
+          "id": "PeakPack-MacPreset",
+          "version": "0.1.0",
+          "path": "plugins/PeakPack-MacPreset/PeakPack.MacPreset.dll",
+          "url": "https://github.com/jmproulx/peakpack/releases/download/rev-5/mac-PeakPack-MacPreset-e38f8ffa-PeakPack.MacPreset.dll",
+          "sha256": "e38f8ffa9358224554b8b547474f2c4f7f32a01fc09e6c24deb3dcbd2e12aca0",
+          "size": 45056,
+          "overwrite": "always",
+          "title": "Mac preset",
+          "description": "Mac only: M1-friendly graphics settings, applied once; your own changes stay.",
+          "hotReload": false
+        }
+      ],
+      "minFrontEnd": "0.1.0"
+    }
+  }
+}
