@@ -252,7 +252,8 @@ jobs:
           mkdir -p logs
           to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
           P="$RUNNER_TEMP/pfx-abs"
-          u=$(ls "$P/drive_c/users" | grep -v -x -E 'Public|public|crossover' | head -1)
+          # the prefix user is "crossover" (CrossOver-derived Wine; see INTERFACES.md)
+          u=crossover; [ -d "$P/drive_c/users/$u" ] || u=$(ls "$P/drive_c/users" | grep -v -x -E 'Public|public' | head -1)
           ppd="$P/drive_c/users/$u/AppData/Local/PeakPack"; mkdir -p "$ppd" "$P/drive_c/Games/PEAK" "$P/drive_c/PeakPackTests"
           curl -fsSL -o "$ppd/PeakPack.exe" "https://github.com/jmproulx/peakpack/releases/download/$PPTAG/PeakPack.exe"
           curl -fsSL -o pp.sha256 "https://github.com/jmproulx/peakpack/releases/download/$PPTAG/PeakPack.exe.sha256"
