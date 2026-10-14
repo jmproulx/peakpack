@@ -31,10 +31,13 @@ struct MaintenanceService {
             (env.paths.playerLog(user: user), "PEAK Player.log"),
             (env.paths.macHelperDir.appendingPathComponent("launcher.log"), "Steam launcher.log"),
         ]
+        // Copies a friend may send on: always redacted (user names, SteamIDs, EOS/Steam tokens and tickets).
         for (src, name) in picks where fm.fileExists(atPath: src.path) {
             let d = dest.appendingPathComponent(name)
             try? fm.removeItem(at: d)
-            try? fm.copyItem(at: src, to: d)
+            guard let data = try? Data(contentsOf: src) else { continue }
+            let text = Diagnostics.redact(String(decoding: data, as: UTF8.self), userName: NSUserName())
+            try? Data(text.utf8).write(to: d)
         }
         NSWorkspace.shared.activateFileViewerSelecting([AppLog.shared.fileURL ?? env.paths.logs])
     }

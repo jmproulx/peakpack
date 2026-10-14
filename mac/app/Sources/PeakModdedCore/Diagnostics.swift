@@ -15,9 +15,32 @@ public enum Diagnostics {
             s = s.replacingOccurrences(of: #"C:\users\\#(userName)"#, with: #"C:\users\<you>"#, options: .caseInsensitive)
             s = s.replacingOccurrences(of: "users/\(userName)/", with: "users/<you>/")
         }
+        s = redactSecrets(s)
         // 64-bit SteamIDs of individual accounts start with 7656119 and have 17 digits.
         if let re = try? NSRegularExpression(pattern: #"\b7656119\d{6}(\d{4})\b"#) {
             s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "[SteamID …$1]")
+        }
+        return s
+    }
+
+    /// Auth material that PEAK, EOS, Steam or the bridge may log: "...using token <t> and provider steam",
+    /// "ticket: <hex>", "access_token=<jwt>". The value after such a keyword goes, and so does any very long
+    /// hex or base64 run on its own. SHA-256 hashes (64 hex) and build/manifest ids stay readable.
+    public static func redactSecrets(_ text: String) -> String {
+        var s = text
+        let rules: [(String, String)] = [
+            // keyword + value: token, ticket, auth/session ticket, access/refresh/id token, bearer, password-like
+            (#"(?i)\b((?:access|refresh|id|auth|session|steam|eos|app)?_?(?:token|ticket)s?|bearer|authorization)(\s*[:=]\s*|\s+)("[^"]{8,}"|[A-Za-z0-9+/=_\-\.]{16,})"#, "$1$2[redacted]"),
+            // JWTs anywhere (three base64url parts)
+            (#"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b"#, "[redacted]"),
+            // very long hex runs (tickets are hundreds of hex chars; a SHA-256 is 64)
+            (#"\b[0-9A-Fa-f]{100,}\b"#, "[redacted hex]"),
+            // very long base64 runs
+            (#"[A-Za-z0-9+/]{120,}={0,2}"#, "[redacted]"),
+        ]
+        for (pattern, template) in rules {
+            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
+            s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
         }
         return s
     }

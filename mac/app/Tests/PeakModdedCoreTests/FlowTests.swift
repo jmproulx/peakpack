@@ -328,6 +328,23 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(wine, #"drive_c/users/<you>/AppData C:\users\<you>\AppData"#)
     }
 
+    func testSecretsAreRedacted() {
+        let jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMDAyYWJjZGVmIiwicGZzaWQiOiJ4eXoifQ.c2lnbmF0dXJlLXBhcnQtb2YtdGhlLXRva2Vu"
+        let ticket = String(repeating: "14000000a1b2c3d4", count: 16) // 256 hex chars, like a Steam session ticket
+        let sha = String(repeating: "ab", count: 32)                  // 64 hex: a SHA-256 stays
+        let player = "[EOS] Authenticating with EOS using token \(jwt) and provider steam"
+        let r = Diagnostics.redact(player, userName: "sam")
+        XCTAssertEqual(r, "[EOS] Authenticating with EOS using token [redacted] and provider steam")
+        XCTAssertFalse(Diagnostics.redact("GetAuthSessionTicket ticket: \(ticket)", userName: "sam").contains(ticket.prefix(40)))
+        XCTAssertFalse(Diagnostics.redact("warm-up: got \(ticket)", userName: "sam").contains(ticket.prefix(40)),
+                       "a bare long hex run goes too")
+        XCTAssertFalse(Diagnostics.redact("access_token=\(jwt)&x=1", userName: "sam").contains("eyJ"))
+        XCTAssertFalse(Diagnostics.redact("Authorization: Bearer \(jwt)", userName: "sam").contains("eyJ"))
+        let keep = "PeakPack.exe sha256 \(sha) manifest 8123456789012345678 build 25739797"
+        XCTAssertEqual(Diagnostics.redact(keep, userName: "sam"), keep, "hashes and ids stay readable")
+        XCTAssertEqual(Diagnostics.redact("Successfully got user token", userName: "sam"), "Successfully got user token")
+    }
+
     func testFrontEndStatusFile() throws {
         let f = tempDir().appendingPathComponent("frontend/status.json")
         var s = FrontEndStatus(appVersion: "0.1.0", phase: "setup")
