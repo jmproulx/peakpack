@@ -1,0 +1,8 @@
+# Everything in the app is built and run on macOS: LF only.
+*.swift   text eol=lf
+*.plist   text eol=lf
+*.txt     text eol=lf
+VERSION   text eol=lf
+# Signed release files are compared byte for byte (the signature covers the exact bytes, CRLF included).
+Tests/PeakModdedCoreTests/Fixtures/rev5-manifest.json      -text
+Tests/PeakModdedCoreTests/Fixtures/rev5-manifest.json.sig  -text
