@@ -55,8 +55,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.0.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.0/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.1.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.1/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &

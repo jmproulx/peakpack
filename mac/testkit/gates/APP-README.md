@@ -33,7 +33,9 @@ requirement did not pass. G-APP1 requires H-STEAM. G-APP1 leaves the app running
 the end. G-APP3 starts it like a Dock click; the app quits when PEAK does. G-APP4 and G-APP5 open it with `--options`,
 so it stays open after PEAK. G-APP5 and G-APP6 quit it at the end.
 
-Run one gate by hand with `bash testkit/run_gate.sh G-APP3 --job-dir "$JOB" -- --app-release mac-build-app-0.1.1`.
+In the options window (app 0.1.2 and later), **Check for Updates** and **Re-download PEAK** are entries in the **More ▾** menu, not visible buttons. No CU step clicks them.
+
+Run one gate by hand with `bash testkit/run_gate.sh G-APP3 --job-dir "$JOB" -- --app-release mac-build-app-0.1.2`.
 
 ## What a friend does differently
 
