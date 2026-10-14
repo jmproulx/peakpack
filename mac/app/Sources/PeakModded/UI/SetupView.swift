@@ -56,7 +56,7 @@ struct SetupView: View {
             }
             Spacer()
             if model.waiting == .welcome {
-                Button("Set Up PEAK") { model.beginSetup() }
+                Button(model.resumable ? "Continue Setup" : "Set Up PEAK") { model.beginSetup() }
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.large)
             } else if model.setupFinished && model.activeStep == nil && model.problem == nil && !model.isBusy {
@@ -153,8 +153,9 @@ struct WelcomeContent: View {
             HStack(spacing: 16) {
                 AppIconView(size: 72)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Set up PEAK for Mac").font(.largeTitle.weight(.semibold))
-                    Text("Play PEAK with \(model.hostName)'s mods on this Mac.").foregroundColor(.secondary)
+                    Text(model.resumable ? "Finish setting up PEAK" : "Set up PEAK for Mac").font(.largeTitle.weight(.semibold))
+                    Text(model.resumable ? "Setup stopped part-way last time. It continues where it left off."
+                                         : "Play PEAK with \(model.hostName)'s mods on this Mac.").foregroundColor(.secondary)
                 }
             }
             VStack(alignment: .leading, spacing: 10) {

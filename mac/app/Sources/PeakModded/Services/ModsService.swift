@@ -104,7 +104,8 @@ struct ModsService {
     }
 
     /// Friendly error for a failed headless call (never parse PeakPack's log; use exit code + problem).
-    func error(for o: HeadlessOutcome, during: String) -> FriendError {
+    /// `appVerifiedManifest`: the app's own CryptoKit check of the same signed manifest passed in this run.
+    func error(for o: HeadlessOutcome, during: String, appVerifiedManifest: Bool = false) -> FriendError {
         if o.timedOut {
             return FriendError(code: "peakpack-timeout", heading: "Installing the mods is taking too long",
                                advice: "Check your internet connection, then click Try Again.", details: during, actions: [.retry, .openLogs])
@@ -121,7 +122,16 @@ struct ModsService {
             return FriendError(code: "peakpack-not-installed", heading: "The mods aren't installed yet",
                                advice: "Click Repair to install them.", actions: [.repair])
         default:
-            return FriendError(code: "peakpack-failed", heading: p?.heading ?? "Couldn't update the mods",
+            let kind = PeakPackProblemKind.classify(o.status)
+            if kind == .signatureCheck && appVerifiedManifest {
+                // The mod list IS genuine (the app checked it); PeakPack's own check could not run here.
+                return FriendError(code: "peakpack-verifier", heading: "PEAK for Mac couldn't check the mod list",
+                                   advice: "Your mods weren't changed. Click Repair. If it happens again, click Copy Diagnostics and send it to \(env.kit.hostName).",
+                                   details: "\(during): exit \(o.exit). PeakPack: \(p?.heading ?? "") \(p?.details ?? o.status?.message ?? ""). The app's own signature check of the same manifest passed.",
+                                   actions: [.repair, .retry, .openLogs])
+            }
+            return FriendError(code: kind == .signatureCheck ? "peakpack-signature" : (kind == .downloadIntegrity ? "peakpack-integrity" : "peakpack-failed"),
+                               heading: p?.heading ?? "Couldn't update the mods",
                                advice: p?.advice ?? "Check your internet connection and click Try Again.",
                                details: "\(during): exit \(o.exit). \(p?.details ?? o.status?.message ?? "")", actions: [.retry, .openLogs])
         }

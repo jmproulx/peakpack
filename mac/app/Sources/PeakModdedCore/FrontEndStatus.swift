@@ -30,6 +30,9 @@ public struct FrontEndStatus: Codable, Equatable {
     public var game: Game?
     public var packRevision: Int?
     public var lastLaunch: String?
+    /// The app process that wrote this file, and when that process started (stale-file detection for gates).
+    public var pid: Int32?
+    public var sessionStarted: Date?
     public var updatedAt: Date
 
     public init(appVersion: String, phase: String) {

@@ -71,6 +71,9 @@ final class AppModel: ObservableObject {
     private var lastStatusPhase = ""
     /// CI screenshot mode (DemoScreens): sample data only.
     var demoMode = false
+    /// Some setup steps are already done (an earlier run stopped part-way): the welcome page says "Continue".
+    @Published var resumable = false
+    private let sessionStarted = Date()
 
     init(env: AppEnvironment) {
         self.env = env
@@ -250,6 +253,7 @@ final class AppModel: ObservableObject {
             for s in SetupStep.allCases where stepStates[s] == nil || stepStates[s] == .pending {
                 stepStates[s] = SetupPlan.state(of: s, snap) == .done ? .done : .pending
             }
+            resumable = [SetupStep.runtime, .prefix, .game, .mods].contains { SetupPlan.state(of: $0, snap) == .done }
         }
     }
 
@@ -419,7 +423,7 @@ final class AppModel: ObservableObject {
             _ = try await wait(for: .adoptConfirm)
             outcome = try await mods.headless(.sync(adopt: true), name: "sync-adopt", timeout: 1800, onStatus: headlessSink())
         }
-        guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "sync") }
+        guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "sync", appVerifiedManifest: true) }
     }
 
     private func headlessSink() -> (HeadlessStatus) -> Void {
@@ -487,12 +491,12 @@ final class AppModel: ObservableObject {
         guard outcome.exit == 0 else {
             await launch.cleanupAfterGame()
             if outcome.exit == PeakPackExit.failed.rawValue, !vanilla, onSyncFail == .stop {
-                var f = mods.error(for: outcome, during: "launch")
+                var f = mods.error(for: outcome, during: "launch", appVerifiedManifest: manifest != nil)
                 f.advice += " You can still play with the mods you already have, or play normal PEAK."
                 f.actions = [.playWithInstalledMods, .playNormal, .cancel]
                 throw f
             }
-            throw mods.error(for: outcome, during: "launch")
+            throw mods.error(for: outcome, during: "launch", appVerifiedManifest: manifest != nil)
         }
         env.update { $0.packRevision = outcome.status?.installedRevision ?? $0.packRevision }
         lastLaunch = vanilla ? "vanilla" : (onSyncFail == .installed ? "modded-installed" : "modded")
@@ -551,7 +555,7 @@ final class AppModel: ObservableObject {
         screen = .launching
         setActivity("Repairing", "Re-checking \(hostName)'s mods…")
         let outcome = try await mods.headless(.sync(adopt: false), name: "repair-sync", timeout: 1800, onStatus: headlessSink())
-        guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "repair sync") }
+        guard outcome.exit == 0 else { throw mods.error(for: outcome, during: "repair sync", appVerifiedManifest: mods.cachedManifest() != nil) }
         activity = nil
         notice = "Repair finished. Everything checks out."
         screen = .home
@@ -685,6 +689,8 @@ final class AppModel: ObservableObject {
         if let g = env.state.game { s.game = .init(version: g.version, manifestId: g.manifestId, files: g.files) }
         s.packRevision = env.state.packRevision
         s.lastLaunch = lastLaunch
+        s.pid = ProcessInfo.processInfo.processIdentifier
+        s.sessionStarted = sessionStarted
         s.write(to: env.paths.statusFile)
     }
 

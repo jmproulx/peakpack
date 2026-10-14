@@ -30,6 +30,25 @@ public struct HeadlessStatus: Decodable, Equatable {
     }
 }
 
+/// What a failed PeakPack run was about, judged only from its status file (never its log).
+public enum PeakPackProblemKind: Equatable {
+    /// PeakPack could not confirm the mod list's signature. Under Wine this has been the platform verifier
+    /// (CNG/NCrypt) failing, not tampering, when the app's own CryptoKit check of the same manifest passed.
+    case signatureCheck
+    /// A downloaded file did not match its pinned SHA-256.
+    case downloadIntegrity
+    case other
+
+    public static func classify(_ s: HeadlessStatus?) -> PeakPackProblemKind {
+        let text = [s?.problem?.heading, s?.problem?.advice, s?.problem?.details, s?.message]
+            .compactMap { $0 }.joined(separator: " ").lowercased()
+        if text.contains("signature") || text.contains("tampered") || text.contains("ecdsa")
+            || text.contains("cryptographic") || text.contains("ncrypt") || text.contains("verifier") { return .signatureCheck }
+        if text.contains("safety check") || text.contains("sha-256") || text.contains("sha256") || text.contains("hash") { return .downloadIntegrity }
+        return .other
+    }
+}
+
 /// `PeakPack.exe --headless` exit codes (FriendInstaller DESIGN §18.1).
 public enum PeakPackExit: Int32, Equatable {
     case ok = 0, failed = 1, noPeak = 2, foreignLoader = 3, peakRunning = 4, notInstalled = 5

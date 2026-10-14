@@ -107,6 +107,18 @@ final class FlowTests: XCTestCase {
         XCTAssertNil(PeakPackExit.from(9))
     }
 
+    func testPeakPackProblemClassification() throws {
+        func status(_ heading: String, _ details: String) throws -> HeadlessStatus {
+            let j = #"{"state":"failed","problem":{"heading":"\#(heading)","advice":"a","details":"\#(details)"},"exitCode":1}"#
+            return try JSONDecoder().decode(HeadlessStatus.self, from: Data(j.utf8))
+        }
+        XCTAssertEqual(PeakPackProblemKind.classify(try status("A download didn't pass the safety check",
+            "The mod list's signature is invalid, so it was NOT installed. Tell the host - the download may have been tampered with.")), .signatureCheck)
+        XCTAssertEqual(PeakPackProblemKind.classify(try status("A download didn't pass the safety check", "SHA-256 mismatch for HeliPilot.dll")), .downloadIntegrity)
+        XCTAssertEqual(PeakPackProblemKind.classify(try status("Can't reach Thunderstore", "timeout")), .other)
+        XCTAssertEqual(PeakPackProblemKind.classify(nil), .other)
+    }
+
     func testWineCommandFollowsTheRuntimeContract() {
         let w = WineCommand(runtime: URL(fileURLWithPath: "/rt/pp1-cx26.3.0"), prefix: URL(fileURLWithPath: "/data/prefix"),
                             logDir: URL(fileURLWithPath: "/logs/wine"))
@@ -270,10 +282,12 @@ final class FlowTests: XCTestCase {
         var s = FrontEndStatus(appVersion: "0.1.0", phase: "setup")
         s.step = "game"
         s.problem = .init(code: "depot-failed", heading: "h", advice: "a")
+        s.pid = 4242
         s.write(to: f)
         let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: f)) as? [String: Any]
         XCTAssertEqual(obj?["phase"] as? String, "setup")
         XCTAssertEqual((obj?["problem"] as? [String: Any])?["code"] as? String, "depot-failed")
+        XCTAssertEqual(obj?["pid"] as? Int, 4242)
     }
 
     func testDownloaderRefusesHostsOffTheList() async {

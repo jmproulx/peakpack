@@ -6,7 +6,7 @@ import PeakModdedCore
 enum DemoScreens {
     static let all = [
         "welcome", "step-rosetta", "step-runtime", "step-prefix", "step-steam-install", "step-steam-start",
-        "game-instructions", "game-waiting", "game-waiting-hint", "game-downloading", "game-update",
+        "welcome-resume", "error-verifier", "game-instructions", "game-waiting", "game-waiting-hint", "game-downloading", "game-update",
         "step-mods", "step-adopt", "done", "error-network", "error-depot", "error-macos", "error-integrity",
         "home", "home-update", "launching", "launch-sync-failed", "game-update-offer", "playing",
         "repair-confirm", "uninstall-confirm", "uninstalled",
@@ -32,6 +32,14 @@ extension AppModel {
         case "welcome":
             stepStates = [.macOS: .done, .rosetta: .done]
             waiting = .welcome
+        case "welcome-resume":
+            steps(doneUpTo: .game); waiting = .welcome; resumable = true
+        case "error-verifier":
+            steps(doneUpTo: .game, failed: .mods); activeStep = .mods
+            problem = FriendError(code: "peakpack-verifier", heading: "PEAK for Mac couldn't check the mod list",
+                                  advice: "Your mods weren't changed. Click Repair. If it happens again, click Copy Diagnostics and send it to \(host).",
+                                  details: "sync: exit 1. PeakPack: A download didn't pass the safety check. The app's own signature check of the same manifest passed.",
+                                  actions: [.repair, .retry, .openLogs])
         case "step-rosetta":
             steps(doneUpTo: nil, active: .rosetta); stepStates[.macOS] = .done
             activeStep = .rosetta

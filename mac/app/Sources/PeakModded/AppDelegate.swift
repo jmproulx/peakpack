@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }
             return
         }
+        model.writeStatus(phaseOverride: "loading") // a previous run's status file is never left standing
         makeWindow(model: model)
         let note = model.markStarted()
         model.start(showOptions: optionHeld || options.showOptions, autoplay: !options.noAutoplay, afterUpdateNote: note)
