@@ -257,17 +257,18 @@ app_job_stop_leftovers() {
 # recovered when frontend/state.json has setupComplete=true and the recorded app pid is gone or is this job's
 # app: this job's leftovers are stopped and status.json is set aside (the app rewrites it on its next start).
 app_require_setup() {
-  local hint=$1 ph sc mods keep
+  local hint=$1 ph sc mods sst keep
   ph=$(app_status_get phase)
   case "$ph" in done|ready) return 0 ;; launching|playing|error|message) ;;
     *) gate_finish_as blocked "the app is not set up in this job (phase '${ph:-none}'): $hint" ;; esac
-  sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced)
-  [ "$sc" = true ] || gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}'): $hint"
-  log "stale app phase '$ph' from an earlier run (setupComplete=true, modsSynced=${mods:-unset}): recovering"
+  sc=$(json_get "$APP_STATEFILE" setupComplete); mods=$(json_get "$APP_STATEFILE" modsSynced); sst=$(app_status_get stepState)
+  # set up = state.json setupComplete, or the stale status itself says the setup step finished (stepState done)
+  [ "$sc" = true ] || [ "$sst" = done ]     || gate_finish_as blocked "the app is not set up in this job (phase '$ph', state.json setupComplete '${sc:-missing}', stepState '${sst:-missing}'): $hint"
+  log "stale app phase '$ph' from an earlier run (setupComplete=${sc:-unset}, stepState=${sst:-unset}): recovering"
   app_job_stop_leftovers || gate_finish_as error "PEAK is still running outside this job's prefix; stop it first"
   keep="$APP_STATUS.stale-$ph-$(now_s)"; mv "$APP_STATUS" "$keep" 2>/dev/null
   metric stale_phase_recovered "$ph" str
-  crit stale_phase info "stale app phase from an earlier run recovered" "phase '$ph', setupComplete=true, modsSynced=${mods:-unset}; status.json kept as $(rel_to_job "$keep")"
+  crit stale_phase info "stale app phase from an earlier run recovered" "phase '$ph', setupComplete=${sc:-unset}, stepState=${sst:-unset}, modsSynced=${mods:-unset}; status.json kept as $(rel_to_job "$keep")"
   return 0
 }
 app_peak_running() { pgrep -f '(^|[/\\])PEAK\.exe' >/dev/null 2>&1; }

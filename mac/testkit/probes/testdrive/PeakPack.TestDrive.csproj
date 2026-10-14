@@ -1,5 +1,5 @@
 <Project>
-  <!-- TEST ONLY. Never part of the pack, never sent to friends: the Mac test kit (G-A2-lite --test-drive) copies it
+  <!-- TEST ONLY. Never part of the pack, never sent to friends: the Mac test kit (G-A2-lite with its test-drive option) copies it
        into the TEST prefix's PeakPack profile for one run and removes it afterwards.
        Build intermediates and output live outside this folder (see tools/nativework/testdrive). -->
   <PropertyGroup>
