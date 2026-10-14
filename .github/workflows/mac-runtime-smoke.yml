@@ -218,6 +218,31 @@ jobs:
           )
           tr -d '\r' < logs/d3d11-probe.log | grep -a -E '^RESULT' | head -40
           tr -d '\r' < logs/d3d11-probe.log | grep -a -i -E 'Loaded.*(d3d11|dxgi|winemetal)' | head -10
+      - name: CNG ECDSA probe (bcrypt + ncrypt incl. the .NET generic-blob path; pp2 ncrypt patch check)
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          set +e -uo pipefail
+          mkdir -p logs
+          to() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          P="$RUNNER_TEMP/pfx-abs"
+          tdir=$(mktemp -d); t=$(ls art/peakpack-steam-tests-*.tar.xz 2>/dev/null | head -1)
+          [ -n "$t" ] && tar -xJf "$t" -C "$tdir"
+          probe=$(find "$tdir" -name cng_ecdsa_probe.exe | head -1)
+          [ -n "$probe" ] || { echo "no cng_ecdsa_probe.exe in the artifact's Steam test kit (built before tests 1.3.0)"; exit 0; }
+          grep -a wine_patches art/BUILD-STATUS.txt 2>/dev/null || echo "wine_patches not recorded (pre-pp2 artifact)"
+          d="$P/drive_c/PeakPackTests"; mkdir -p "$d"; cp "$probe" "$d/"
+          (
+            # shellcheck source=/dev/null
+            . "$R/share/peakpack/prefix/pp-env.sh"
+            PP_WINEDEBUG="err+all,fixme+ncrypt,warn+ncrypt,warn+bcrypt" pp_env "$R" "$P" logs >/dev/null
+            to 120 "$WINELOADER" 'C:\PeakPackTests\cng_ecdsa_probe.exe' > logs/cng-ecdsa.log 2>&1
+            echo "cng_ecdsa_probe exit $? (0 = bcrypt, ncrypt_specific and ncrypt_dotnet all ok)"
+            "$WINESERVER" -k 2>/dev/null
+          )
+          tr -d '\r' < logs/cng-ecdsa.log | grep -a -E '^RESULT' | head -30
+          tr -d '\r' < logs/cng-ecdsa.log | grep -a -E 'ncrypt|bcrypt' | grep -a -v '^RESULT' | head -20
       - name: PeakPack --headless --status under Wine (inputs.peakpack_tag; crypto/TLS check)
         if: ${{ always() }}
         continue-on-error: true

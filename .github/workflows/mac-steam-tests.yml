@@ -67,6 +67,7 @@ jobs:
           "$mg" -O1 -Wall -Werror -o "$pe/steam_api_probe.exe" "$src/steam_api_probe.c"
           "$mg" -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
             -ld3d11 -ldxgi -ldxguid -luser32
+          "$mg" -O1 -Wall -Werror -o "$pe/cng_ecdsa_probe.exe" mac/testkit/probes/cng_ecdsa_probe.c -lbcrypt -lncrypt
           /usr/bin/clang -arch x86_64 -O1 -Wall -Werror -o "$pe/steam_client_probe-macos-x86_64" "$src/steam_client_probe.c"
           [ "$(lipo -archs "$pe/steam_client_probe-macos-x86_64")" = x86_64 ]
           # HarmonyX probe plugin for the native-macOS mod test (G-C0 mods matrix); our MIT code, BepInEx 5 API

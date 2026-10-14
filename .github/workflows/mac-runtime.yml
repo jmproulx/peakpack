@@ -252,6 +252,8 @@ jobs:
           # Steam client probe so G-B1 needs no Xcode CLT on the test Mac.
           x86_64-w64-mingw32-clang -O2 -Wall -Wextra -o "$pe/d3d11_clear.exe" mac/testkit/probes/d3d11_clear.c \
             -ld3d11 -ldxgi -ldxguid -luser32
+          # CNG ECDSA probe (bcrypt + ncrypt, the .NET ECDsa import path; pp2 ncrypt patch check)
+          x86_64-w64-mingw32-clang -O1 -Wall -o "$pe/cng_ecdsa_probe.exe" mac/testkit/probes/cng_ecdsa_probe.c -lbcrypt -lncrypt
           /usr/bin/clang -arch x86_64 -O1 -Wall -o "$pe/steam_client_probe-macos-x86_64" mac/runtime/steam/tests/probe/steam_client_probe.c
           lipo -archs "$pe/steam_client_probe-macos-x86_64"
           python3 -m venv "$W/venv-steam"
@@ -303,6 +305,8 @@ jobs:
             echo "dxmt_runtime=built"
             echo "dxvk_fallback=$dxvk"
             echo "steam_bridge=$bridge"
+            wp=$(awk '$1 == "patch" {print $2}' _work/src/APPLIED.txt 2>/dev/null | paste -sd, -)
+            echo "wine_patches=${wp:-none}"
             # front ends key on these (manifest.json "launcher"; missing = launcher 0.1.0 without options)
             python3 -I -c 'import json, sys
           m = json.load(open(sys.argv[1])); li = m.get("launcher") or {}

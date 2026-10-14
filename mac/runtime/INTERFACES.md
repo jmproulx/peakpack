@@ -241,7 +241,7 @@ wine 'C:\…\peakpack_steam_launcher.exe' [--appid 3527290] [--steam-dir 'C:\Pro
 | Runtime ID | Release (prerelease, never latest) | Contents / status |
 |---|---|---|
 | `pp1-cx26.3.0` | `mac-build-runtime-pp1-cx26.3.0` (commit 168a11e, CI run 38366553896) | Wine 11 (CrossOver 26.3 sources) + DXMT 0.80 + DXVK fallback + Steam bridge; launcher 0.1.0. On the M1 iMac: G-A1 (D3D11 via DXMT, 57 fps probe) and G-B1 pass |
-| `pp2-…` | not built yet | Batched: launcher 0.2.0 (auth-ticket warm-up, `--hold-until-exit`, `--version`, manifest `launcher` block), plus the first computer-use slot's findings (DESIGN §1). `PP_REVISION` is bumped in `build/pins.env` |
+| `pp2-…` | not built yet | Batched: launcher 0.2.0 (auth-ticket warm-up, `--hold-until-exit`, `--version`, manifest `launcher` block), the Wine ncrypt ECDSA import patch (.NET ECDsa signature checks work; BUILD-STATUS `wine_patches=`), plus the first computer-use slot's findings (DESIGN §1). `PP_REVISION` is bumped in `build/pins.env` |
 
 The test-kit-side packages are separate prereleases: Steam tests `mac-build-steam-tests-<ver>` and kit tags `mac-testkit-<ver>` (git tags only).
 
