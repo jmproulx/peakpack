@@ -35,12 +35,31 @@ public struct FrontEndStatus: Codable, Equatable {
     /// Test-only overrides in effect for this run (e.g. "peakpack"); absent in normal use.
     public var testOverrides: [String]?
     public var sessionStarted: Date?
+    /// Set only in the final status an ending app writes (phase "exited"): why it ended and when.
+    public var exitReason: String?
+    public var endedAt: Date?
     public var updatedAt: Date
 
     public init(appVersion: String, phase: String) {
         self.appVersion = appVersion
         self.phase = phase
         self.updatedAt = Date()
+    }
+
+    /// The status an app writes as it ends (normal quit, after PEAK exits, SIGTERM): phase "exited", no live pid,
+    /// so the next run's gates never mistake it for a running "playing"/"launching" app. The last problem,
+    /// game and launch facts are kept for the record.
+    public func finalized(reason: String, at date: Date = Date()) -> FrontEndStatus {
+        var s = self
+        s.phase = "exited"
+        s.stepState = "done"
+        s.message = nil
+        s.progress = nil
+        s.pid = nil
+        s.exitReason = reason
+        s.endedAt = date
+        s.updatedAt = date
+        return s
     }
 
     public func write(to url: URL) {

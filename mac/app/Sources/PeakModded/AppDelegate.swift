@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
         model.writeStatus(phaseOverride: "loading") // a previous run's status file is never left standing
+        installSignalHandlers()
         makeWindow(model: model)
         let note = model.markStarted()
         model.start(showOptions: optionHeld || options.showOptions, autoplay: !options.noAutoplay, afterUpdateNote: note)
@@ -129,6 +130,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         guard let m = model else { return true }
         return !(m.screen == .playing || m.isBusy)
+    }
+
+    /// Every normal end (Quit, after PEAK, self-update, uninstall) leaves a final status: phase "exited", no pid.
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.writeFinalStatus(reason: "quit")
+    }
+
+    /// SIGTERM/SIGINT (e.g. a test gate's pkill, logout): write the final status, then end normally.
+    private var signalSources: [DispatchSourceSignal] = []
+    func installSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            src.setEventHandler { [weak self] in
+                Task { @MainActor in
+                    self?.model?.writeFinalStatus(reason: sig == SIGTERM ? "sigterm" : "sigint")
+                    exit(0)
+                }
+            }
+            src.resume()
+            signalSources.append(src)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

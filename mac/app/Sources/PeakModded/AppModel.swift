@@ -551,7 +551,10 @@ final class AppModel: ObservableObject {
         }
         log.info("PEAK exited")
         activity = nil
-        if quitWhenGameEnds { NSApp.terminate(nil) } else { screen = .home }
+        if quitWhenGameEnds {
+            writeFinalStatus(reason: "game-ended")
+            NSApp.terminate(nil)
+        } else { screen = .home }
     }
 
     private var lastLaunch: String?
@@ -719,7 +722,21 @@ final class AppModel: ObservableObject {
     // MARK: status file (for test gates; no personal data)
 
     func writeStatus(phaseOverride: String? = nil) {
-        guard !env.frozen else { return }
+        guard !env.frozen, !ended else { return }
+        makeStatus(phaseOverride: phaseOverride).write(to: env.paths.statusFile)
+    }
+
+    /// The last status of this process (phase "exited", pid cleared). Written once; later writes are ignored.
+    func writeFinalStatus(reason: String) {
+        guard !env.frozen, !ended, !demoMode else { return }
+        ended = true
+        makeStatus(phaseOverride: nil).finalized(reason: reason).write(to: env.paths.statusFile)
+        log.info("final status written (\(reason))")
+    }
+
+    private var ended = false
+
+    private func makeStatus(phaseOverride: String?) -> FrontEndStatus {
         var s = FrontEndStatus(appVersion: AppInfo.version, phase: phaseOverride ?? phaseName)
         s.step = activeStep?.rawValue ?? (screen == .setup && waiting == .welcome ? "welcome" : nil)
         if problem != nil { s.stepState = "failed" } else if waiting != nil { s.stepState = "waiting-for-user" }
@@ -734,7 +751,7 @@ final class AppModel: ObservableObject {
         s.pid = ProcessInfo.processInfo.processIdentifier
         if env.testPeakPack != nil { s.testOverrides = ["peakpack"] }
         s.sessionStarted = sessionStarted
-        s.write(to: env.paths.statusFile)
+        return s
     }
 
     private var phaseName: String {

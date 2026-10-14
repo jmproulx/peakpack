@@ -341,6 +341,30 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(obj?["pid"] as? Int, 4242)
     }
 
+    /// After PEAK exits (or SIGTERM) the last status says "exited" with no pid, never a stale "playing".
+    func testFinalStatusIsExitedWithoutPid() throws {
+        let f = tempDir().appendingPathComponent("frontend/status.json")
+        var s = FrontEndStatus(appVersion: "0.1.5", phase: "playing")
+        s.stepState = "working"
+        s.message = "PEAK is starting: "
+        s.progress = 0.5
+        s.pid = 4242
+        s.lastLaunch = "modded"
+        s.sessionStarted = Date(timeIntervalSince1970: 1_760_000_000)
+        s.write(to: f)
+        let end = Date(timeIntervalSince1970: 1_760_000_600)
+        s.finalized(reason: "game-ended", at: end).write(to: f)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: f)) as? [String: Any])
+        XCTAssertEqual(obj["phase"] as? String, "exited")
+        XCTAssertEqual(obj["stepState"] as? String, "done")
+        XCTAssertNil(obj["pid"], "no live pid in a final status")
+        XCTAssertNil(obj["progress"])
+        XCTAssertEqual(obj["exitReason"] as? String, "game-ended")
+        XCTAssertNotNil(obj["endedAt"])
+        XCTAssertEqual(obj["lastLaunch"] as? String, "modded", "the launch record is kept")
+        XCTAssertNotNil(obj["sessionStarted"])
+    }
+
     func testDownloaderRefusesHostsOffTheList() async {
         let kit = Fixture.kit
         let dl = FileDownloader(isAllowed: kit.isAllowed)
