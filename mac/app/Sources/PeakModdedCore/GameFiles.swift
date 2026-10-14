@@ -63,8 +63,17 @@ public enum GameUpdateVerdict: Equatable {
 /// Inputs, best first: Steam's public manifest id for depot 3527291 (from Mac Steam's appinfo cache),
 /// then the signed pack's `gameVersion` (what Joshua's pack was built against).
 public enum GameUpdatePolicy {
-    public static func decide(installed: GameRecord?, steamPublicManifest: String?, packGameVersion: String?) -> GameUpdateVerdict {
+    public static var hostNameForUpdates = "Joshua"
+
+    public static func decide(installed: GameRecord?, steamPublicManifest: String?, packGameVersion: String?,
+                              packDepotManifest: String? = nil) -> GameUpdateVerdict {
         guard let installed else { return .notInstalled }
+        // Exact signal (proposed manifest field): Joshua's build differs from ours, and Steam's cache does not
+        // already show that ours is the current public one.
+        if let pack = packDepotManifest, !pack.isEmpty, let mine = installed.manifestId, !mine.isEmpty, pack != mine,
+           steamPublicManifest != mine {
+            return .updateAvailable(reason: "\(hostNameForUpdates) is on a newer PEAK build")
+        }
         if let steam = steamPublicManifest, !steam.isEmpty, let mine = installed.manifestId, !mine.isEmpty {
             if steam == mine || steam == installed.steamManifestAtInstall { return .upToDate }
             return .updateAvailable(reason: "Steam has a newer PEAK build")

@@ -8,7 +8,12 @@ struct AppUpdateService {
     let env: AppEnvironment
     let log = AppLog.shared
 
-    func check() async throws -> AppUpdateCandidate? {
+    func check(signed: PackManifest?) async throws -> AppUpdateCandidate? {
+        if let cur = DottedVersion(AppInfo.version),
+           let c = AppUpdateFinder.fromSigned(signed?.platforms?.mac?.frontEnd, repo: env.kit.repo, current: cur) {
+            env.update { $0.lastAppUpdateCheck = Date() }
+            return c
+        }
         let dl = FileDownloader(isAllowed: env.kit.isAllowed)
         let data = try await dl.fetchData(env.kit.releasesAPIURL, accept: "application/vnd.github+json")
         let releases = try GitHubRelease.decodeList(data)
@@ -28,7 +33,7 @@ struct AppUpdateService {
         let fm = FileManager.default
         let dl = FileDownloader(isAllowed: env.kit.isAllowed)
         let sums = ChecksumList(text: String(decoding: try await dl.fetchData(c.sumsURL), as: UTF8.self))
-        let expected = try Integrity.expectedHash(asset: c.zipName, pinned: nil, sums: sums)
+        let expected = try Integrity.expectedHash(asset: c.zipName, pinned: c.pinnedSha256, sums: sums)
         let zip = env.paths.downloads.appendingPathComponent(c.zipName)
         try await dl.download(c.zipURL, to: zip, expectedSize: c.size) { p in
             progress(String(format: "Downloading version %@… %.0f MB", c.version.description, Double(p.received) / 1e6), p.fraction)

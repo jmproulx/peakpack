@@ -211,6 +211,24 @@ final class FlowTests: XCTestCase {
         XCTAssertFalse(AppUpdateFinder.isRequired(current: DottedVersion("0.1.0")!, minFrontEnd: nil))
     }
 
+    func testSignedFrontEndPinAndGameDepot() throws {
+        let json = """
+        {"schema":1,"revision":7,"platforms":{"mac":{"frontEnd":{"version":"0.2.0","tag":"mac-build-app-0.2.0",
+         "zip":"PEAK-Modded-Mac-0.2.0.zip","sha256":"\(String(repeating: "A", count: 64))"},
+         "gameDepot":{"appId":3527290,"depotId":3527291,"manifestId":"999","buildId":"26000000"}}}}
+        """
+        let m = try PackManifest.decode(Data(json.utf8))
+        let c = try XCTUnwrap(AppUpdateFinder.fromSigned(m.platforms?.mac?.frontEnd, repo: "jmproulx/peakpack", current: DottedVersion("0.1.0")!))
+        XCTAssertEqual(c.zipURL.absoluteString, "https://github.com/jmproulx/peakpack/releases/download/mac-build-app-0.2.0/PEAK-Modded-Mac-0.2.0.zip")
+        XCTAssertEqual(c.pinnedSha256, String(repeating: "a", count: 64))
+        XCTAssertNil(AppUpdateFinder.fromSigned(m.platforms?.mac?.frontEnd, repo: "jmproulx/peakpack", current: DottedVersion("0.2.0")!))
+        XCTAssertEqual(m.packDepotManifestId, "999")
+        let rec = GameRecord(version: "2.6.b", revision: nil, manifestId: "111", files: 1, bytes: 1)
+        if case .updateAvailable = GameUpdatePolicy.decide(installed: rec, steamPublicManifest: nil, packGameVersion: nil, packDepotManifest: "999") {} else { XCTFail() }
+        XCTAssertEqual(GameUpdatePolicy.decide(installed: rec, steamPublicManifest: "111", packGameVersion: nil, packDepotManifest: "999"), .upToDate,
+                       "Steam says ours is the current public build: Joshua is behind, nothing to download")
+    }
+
     func testReleaseListDecodes() throws {
         let json = #"[{"tag_name":"rev-5","prerelease":false,"draft":false,"assets":[{"name":"PeakPack.exe","browser_download_url":"https://github.com/a","size":5,"extra":1}],"body":"x"}]"#
         XCTAssertEqual(try GitHubRelease.decodeList(Data(json.utf8)).first?.tag_name, "rev-5")

@@ -23,10 +23,31 @@ public struct PackManifest: Decodable, Equatable {
                 && !asset.contains("/") && Hashing.isSHA256Hex(sha256)
         }
     }
+    /// Proposed (mac/app/proposals): the signed app release to update to.
+    public struct FrontEndPin: Decodable, Equatable {
+        public var version: String
+        public var tag: String
+        public var zip: String
+        public var sha256: String
+
+        public var isWellFormed: Bool {
+            DottedVersion(version) != nil && tag == "mac-build-app-\(version)" && zip.hasSuffix(".zip") && !zip.contains("/")
+                && Hashing.isSHA256Hex(sha256)
+        }
+    }
+    /// Proposed: the PEAK depot build the pack was made against (from Joshua's own install).
+    public struct GameDepot: Decodable, Equatable {
+        public var appId: Int?
+        public var depotId: Int?
+        public var manifestId: String?
+        public var buildId: String?
+    }
     public struct Mac: Decodable, Equatable {
         public var extraArgs: [String]?
         public var minFrontEnd: String?
         public var runtime: RuntimePin?
+        public var frontEnd: FrontEndPin?
+        public var gameDepot: GameDepot?
     }
     public struct Platforms: Decodable, Equatable {
         public var mac: Mac?
@@ -40,6 +61,10 @@ public struct PackManifest: Decodable, Equatable {
     public var notes: String?
     public var app: AppEntry?
     public var platforms: Platforms?
+    public var gameDepot: GameDepot?
+
+    /// The pack's depot manifest id, wherever the publisher put it.
+    public var packDepotManifestId: String? { platforms?.mac?.gameDepot?.manifestId ?? gameDepot?.manifestId }
 
     public static func decode(_ data: Data) throws -> PackManifest {
         try JSONDecoder().decode(PackManifest.self, from: data)

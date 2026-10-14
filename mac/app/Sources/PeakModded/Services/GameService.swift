@@ -191,9 +191,10 @@ final class GameService {
         AppInfoVDF.buildInfo(fileAt: env.paths.steamAppInfo, appId: env.kit.game.appId, depotId: env.kit.game.depotId)
     }
 
-    func updateVerdict(packGameVersion: String?) -> GameUpdateVerdict {
+    func updateVerdict(packGameVersion: String?, packDepotManifest: String? = nil) -> GameUpdateVerdict {
         let steam = steamBuildInfo()
-        let v = GameUpdatePolicy.decide(installed: env.state.game, steamPublicManifest: steam?.depotPublicManifest, packGameVersion: packGameVersion)
+        let v = GameUpdatePolicy.decide(installed: env.state.game, steamPublicManifest: steam?.depotPublicManifest,
+                                        packGameVersion: packGameVersion, packDepotManifest: packDepotManifest)
         log.info("game update check: \(v) (steam manifest \(steam?.depotPublicManifest ?? "unknown"), build \(steam?.publicBuildId ?? "?"), pack \(packGameVersion ?? "?"), installed \(env.state.game?.manifestId ?? "?")/\(env.state.game?.version ?? "?"))")
         return v
     }

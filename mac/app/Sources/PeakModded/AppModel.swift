@@ -81,6 +81,7 @@ final class AppModel: ObservableObject {
         showFPS = env.state.showFPS
         setupFinished = env.state.setupComplete
         FriendError.hostNameForCopy = env.kit.hostName
+        GameUpdatePolicy.hostNameForUpdates = env.kit.hostName
     }
 
     var hostName: String { env.kit.hostName }
@@ -461,7 +462,7 @@ final class AppModel: ObservableObject {
 
         // Game update?
         let g = GameService(env: env)
-        if case .updateAvailable(let reason) = g.updateVerdict(packGameVersion: manifest?.gameVersion) {
+        if case .updateAvailable(let reason) = g.updateVerdict(packGameVersion: manifest?.gameVersion, packDepotManifest: manifest?.packDepotManifestId) {
             let c = try await wait(for: .gameUpdateOffer(reason))
             if c == .proceed {
                 try await gameUpdateFlow()
@@ -560,7 +561,7 @@ final class AppModel: ObservableObject {
         if !userInitiated, let last = env.state.lastAppUpdateCheck, Date().timeIntervalSince(last) < 6 * 3600 { return }
         Task {
             do {
-                let c = try await updater.check()
+                let c = try await updater.check(signed: mods.cachedManifest())
                 updateCandidate = c
                 if userInitiated && c == nil { notice = "You have the newest version (\(AppInfo.version))." }
             } catch {
@@ -584,7 +585,7 @@ final class AppModel: ObservableObject {
                               actions: [.moveToApplications, .cancel])
         }
         var c = updateCandidate
-        if c == nil { c = try await updater.check() }
+        if c == nil { c = try await updater.check(signed: mods.cachedManifest()) }
         guard let candidate = c else {
             if required {
                 throw FriendError(code: "update-unavailable", heading: "A newer PEAK (Modded) is needed",

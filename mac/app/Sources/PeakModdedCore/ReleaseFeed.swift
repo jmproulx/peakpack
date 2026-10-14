@@ -24,9 +24,20 @@ public struct AppUpdateCandidate: Equatable {
     public var zipURL: URL
     public var sumsURL: URL
     public var size: Int64?
+    /// From the signed manifest's `platforms.mac.frontEnd` (proposed); then the zip must match it too.
+    public var pinnedSha256: String?
 }
 
 public enum AppUpdateFinder {
+    /// A signed front-end pin newer than `current` wins over the release list.
+    public static func fromSigned(_ pin: PackManifest.FrontEndPin?, repo: String, current: DottedVersion) -> AppUpdateCandidate? {
+        guard let pin, pin.isWellFormed, let v = DottedVersion(pin.version), v > current,
+              let zu = URL(string: "https://github.com/\(repo)/releases/download/\(pin.tag)/\(pin.zip)"),
+              let su = URL(string: "https://github.com/\(repo)/releases/download/\(pin.tag)/SHA256SUMS") else { return nil }
+        return AppUpdateCandidate(version: v, tag: pin.tag, zipName: pin.zip, zipURL: zu, sumsURL: su, size: nil,
+                                  pinnedSha256: pin.sha256.lowercased())
+    }
+
     /// Newest `mac-build-app-<version>` release (prerelease, not draft) newer than `current`,
     /// that carries both the zip and SHA256SUMS. Tags must belong to our own repo's release list.
     public static func newest(in releases: [GitHubRelease], tagPrefix: String, zipPrefix: String,
@@ -41,7 +52,7 @@ public enum AppUpdateFinder {
                   let zu = URL(string: zip.browser_download_url), let su = URL(string: sums.browser_download_url)
             else { continue }
             if best == nil || v > best!.version {
-                best = AppUpdateCandidate(version: v, tag: r.tag_name, zipName: zipName, zipURL: zu, sumsURL: su, size: zip.size)
+                best = AppUpdateCandidate(version: v, tag: r.tag_name, zipName: zipName, zipURL: zu, sumsURL: su, size: zip.size, pinnedSha256: nil)
             }
         }
         return best
