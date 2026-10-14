@@ -41,7 +41,7 @@ UNITY_VER=6000.3.15f1
 UNITY_URL="https://download.unity3d.com/download_unity/c1aa84e375f6/MacEditorTargetInstaller/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"
 UNITY_PKG_BYTES=724929213
 UNITY_PKG_MD5_B64=gI5nOkoLtZhU0O48yRsAQQ==   # Unity release API integrity "md5-..." for module mac-mono (DESIGN 6.1a)
-pkg="$DL/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"; download=0; variation=macos_arm64_player_development_mono
+pkg="$DL/UnitySetup-Mac-Mono-Support-for-Editor-$UNITY_VER.pkg"; download=0; variation=""
 run_s=150; bep_zip=""; hplug=""; phase=abm; converted=""; bundle_variant=0; jobs=""; join_test=0; mods_s=90; mods_baseline=0
 while [ $# -gt 0 ]; do
   case "$1" in --download) download=1; shift ;; --pkg) pkg=$2; shift 2 ;; --variation) variation=$2; shift 2 ;;
@@ -58,20 +58,66 @@ if [ ! -f "$pkg" ]; then
   fetch_url "$UNITY_URL" "$pkg" || gate_finish_as blocked "download from download.unity3d.com failed"
 fi
 psz=$(file_size "$pkg"); metric unity_pkg_bytes "$psz"; metric unity_pkg_sha256 "$(sha256_of "$pkg")" str
-version_set unity_player "$UNITY_VER $variation"
 [ "$psz" = "$UNITY_PKG_BYTES" ] && crit unity_pkg pass "Unity pkg size matches DESIGN §6.1" "$psz bytes" || crit unity_pkg warn "Unity pkg size matches DESIGN §6.1 ($UNITY_PKG_BYTES)" "$psz bytes"
 pm5=$(openssl dgst -md5 -binary "$pkg" 2>/dev/null | base64); metric unity_pkg_md5_b64 "$pm5" str
 [ "$pm5" = "$UNITY_PKG_MD5_B64" ] && crit unity_pkg_md5 pass "pkg MD5 matches Unity's published integrity" "$pm5" || crit unity_pkg_md5 fail "pkg MD5 matches Unity's published integrity ($UNITY_PKG_MD5_B64)" "$pm5"
 pkgutil --check-signature "$pkg" > "$GLOG/pkg-signature.txt" 2>&1 && crit unity_pkg_sig pass "pkg signature valid" "$(grep -m1 -i 'unity' "$GLOG/pkg-signature.txt" | tr -s ' ')" || crit unity_pkg_sig fail "pkg signature valid" "$(head -3 "$GLOG/pkg-signature.txt" | tr '\n' ' ')"
 
 # ---- expand (no install)
+# Layout of the 6000.3.15f1 pkg after --expand-full (slot 4): <X>/TargetSupport.pkg.tmp/Payload/Variations/
+# {macos_arm64,macos_x64,macos_x64arm64}_player_{development,nondevelopment}_mono + mono/. So Variations is
+# searched anywhere under X. An expansion is only reused when it carries our completeness marker (written
+# after pkgutil exits 0 and the checks pass); a partial one (e.g. interrupted) is deleted and redone.
 X="$JOB/unity/expanded"
-if [ ! -d "$X" ]; then mkdir -p "$JOB/unity"; pkgutil --expand-full "$pkg" "$X" > "$GLOG/pkgutil.log" 2>&1 || gate_finish_as error "pkgutil --expand-full failed (logs/G-C0/pkgutil.log)"; fi
-VAR=$(find "$X" -type d -name Variations -path '*MacStandaloneSupport*' 2>/dev/null | head -1)
-[ -n "$VAR" ] && [ -d "$VAR/$variation/UnityPlayer.app" ] || gate_finish_as error "no Variations/$variation/UnityPlayer.app in the expanded pkg"
+# find_variations -> the Variations dir that holds at least one macOS Mono player
+find_variations() {
+  local d
+  while IFS= read -r d; do
+    for v in "$d"/macos_*_player_*_mono; do [ -f "$v/UnityPlayer.app/Contents/Info.plist" ] && { printf '%s' "$d"; return 0; }; done
+  done <<EOF
+$(find "$X" -type d -name Variations 2>/dev/null)
+EOF
+  return 1
+}
+expansion_ok() {  # complete = our marker + a player app with its binary + Mono's Managed assemblies
+  local var
+  [ -f "$X/.peakpack-expanded-ok" ] || return 1
+  var=$(find_variations) || return 1
+  [ "$(find "$var/mono/Managed" -maxdepth 1 -name '*.dll' 2>/dev/null | wc -l | tr -d ' ')" -ge 60 ] || return 1
+  return 0
+}
+if ! expansion_ok; then
+  [ -d "$X" ] && { note "removing an incomplete or unmarked pkg expansion ($(find "$X" -maxdepth 1 | tr '\n' ' ' | cut -c1-200))"; rm -rf "$X"; }
+  rm -rf "$X.partial"; mkdir -p "$JOB/unity"
+  pkgutil --expand-full "$pkg" "$X.partial" > "$GLOG/pkgutil.log" 2>&1; prc=$?
+  metric pkgutil_exit "$prc"
+  [ "$prc" = 0 ] || { rm -rf "$X.partial"; gate_finish_as error "pkgutil --expand-full failed (exit $prc, logs/G-C0/pkgutil.log)"; }
+  mv "$X.partial" "$X"
+  find "$X" -maxdepth 1 > "$GLOG/expanded-top.txt"
+  find "$X" -type d -name Variations > "$GLOG/expanded-variations-dirs.txt" 2>/dev/null
+  if find_variations > /dev/null; then date -u +%Y-%m-%dT%H:%M:%SZ > "$X/.peakpack-expanded-ok"; fi
+  expansion_ok || gate_finish_as error "pkg expanded (pkgutil exit 0) but no complete Mac Mono player was found (logs/G-C0/expanded-*.txt)"
+fi
+VAR=$(find_variations)
 MSS=$(dirname "$VAR")
-crit expanded pass "pkg expanded into the job dir (not installed)" "$(rel_to_job "$VAR")"
 ls "$VAR" > "$GLOG/variations.txt"
+# Player variation: --variation if given and present, else arm64 Mono -> universal x64arm64 Mono, development first.
+pick_variation() {
+  local v
+  for v in "$@"; do [ -n "$v" ] && [ -f "$VAR/$v/UnityPlayer.app/Contents/Info.plist" ] && { printf '%s' "$v"; return 0; }; done
+  return 1
+}
+want=$variation
+variation=$(pick_variation "$want" macos_arm64_player_development_mono macos_arm64_player_nondevelopment_mono \
+            macos_x64arm64_player_development_mono macos_x64arm64_player_nondevelopment_mono) \
+  || gate_finish_as error "no usable Mac Mono player variation in $(rel_to_job "$VAR") (logs/G-C0/variations.txt)"
+[ -n "$want" ] && [ "$want" != "$variation" ] && note "requested variation $want not in the pkg; using $variation"
+metric unity_variation "$variation" str
+version_set unity_player "$UNITY_VER $variation"
+# MonoBleedingEdge/etc: next to Variations in the editor layout; elsewhere in the pkg layout
+MBE_ETC="$MSS/MonoBleedingEdge/etc"; [ -d "$MBE_ETC" ] || MBE_ETC=$(find "$X" -type d -path '*/MonoBleedingEdge/etc' 2>/dev/null | head -1)
+metric mono_etc "${MBE_ETC:+$(rel_to_job "$MBE_ETC")}" str
+crit expanded pass "pkg expanded into the job dir (not installed), complete" "$(rel_to_job "$VAR"); player $variation"
 pv=$(head -1 "$GAME_DIR/version.txt" 2>/dev/null | tr -d '\r ')
 mkdir -p "$JOB/native"
 clone() { cp -c -R "$1" "$2" 2>/dev/null || cp -R "$1" "$2"; }
@@ -125,7 +171,7 @@ assemble() {
   cp "$GAME_DIR"/PEAK_Data/Managed/* "$d/Managed/"
   for m in "$VAR"/mono/Managed/*.dll; do [ -f "$m" ] && { cp "$m" "$d/Managed/"; n_mac=$(( n_mac + 1 )); }; done
   ASM_N_MAC=$n_mac
-  if [ -d "$MSS/MonoBleedingEdge/etc" ]; then mkdir -p "$app/Contents/MonoBleedingEdge"; cp -R "$MSS/MonoBleedingEdge/etc" "$app/Contents/MonoBleedingEdge/"; fi
+  if [ -n "$MBE_ETC" ] && [ -d "$MBE_ETC" ]; then mkdir -p "$app/Contents/MonoBleedingEdge"; cp -R "$MBE_ETC" "$app/Contents/MonoBleedingEdge/"; fi
   cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -407,9 +453,11 @@ BEPS_SHA256=01c2ae782eb016dfd6c345a18dbd2dcafffb3d9d318449d6486689f426b4a323   #
 JB_URL="https://github.com/$PP_REPO/releases/download/rev-5/Joshua-JetpackBoost-90c792a7-JetpackBoost.dll"
 JB_SHA256=90c792a7744d99d566293e59d787ad4d2aebdaee6a0c6bd0c70cd967f29a9751
 if case "$phase" in *m*) true ;; *) false ;; esac; then
-  mvar=macos_x64arm64_player_development_mono   # universal: the same bundle runs native arm64 and under Rosetta
-  if [ ! -d "$VAR/$mvar/UnityPlayer.app" ]; then
-    crit m_player skip "phase m: universal player variation" "no $mvar in the pkg"
+  # universal: the same bundle runs native arm64 and under Rosetta (development first)
+  mvar=$(pick_variation macos_x64arm64_player_development_mono macos_x64arm64_player_nondevelopment_mono) || mvar=""
+  metric m_variation "${mvar:-none}" str
+  if [ -z "$mvar" ]; then
+    crit m_player skip "phase m: universal player variation" "no macos_x64arm64 Mono player in the pkg"
   else
     # get FILE URL SHA -> $DL/<FILE>, verified; 0 ok
     mget() { local f="$DL/$1"; { [ -f "$f" ] && [ "$(sha256_of "$f")" = "$3" ]; } && return 0

@@ -67,7 +67,11 @@ Environment variables read by the script:
 5. If the package is missing: fetches it with `--download`, or blocks. A failed download also blocks.
 6. Records the package size and SHA-256 (metrics `unity_pkg_bytes`, `unity_pkg_sha256`). Sets the version `unity_player` to "6000.3.15f1 <variation>".
 7. Criterion `unity_pkg`: size check (warn if different). Criterion `unity_pkg_sig`: `pkgutil --check-signature`, output in `logs/G-C0/pkg-signature.txt`.
-8. Expands the package with `pkgutil --expand-full` into `$JOB/unity/expanded`, if that folder does not exist yet. Errors if the expansion fails. Finds `Variations/<variation>/UnityPlayer.app` and errors if it is missing. Criterion `expanded`. Lists the variations in `logs/G-C0/variations.txt`.
+8. Expands the package with `pkgutil --expand-full`.
+   - **Reuse:** an existing `$JOB/unity/expanded` is reused only if it is complete: it has the kit's marker `.peakpack-expanded-ok`, a Mac Mono player and at least 60 Mono assemblies. Otherwise it is deleted and expanded again, into `expanded.partial` and then renamed. Records `pkgutil_exit`.
+   - **Where Variations is:** it is searched for anywhere in the expansion. In the 6000.3.15f1 pkg it is `TargetSupport.pkg.tmp/Payload/Variations`.
+   - **Player variation:** `--variation` if given and present; otherwise the first present of arm64 Mono development, arm64 Mono non-development, universal x64arm64 development, universal non-development. Recorded as metric `unity_variation` (phase m: `m_variation`).
+   - **Logs:** `logs/G-C0/variations.txt` and `expanded-*.txt`. Criterion `expanded`.
 9. Reads the first line of `version.txt` for the bundle's version string.
 10. Defines the bundle assembly. For each bundle, it:
     - Copies the Variations `UnityPlayer.app`.

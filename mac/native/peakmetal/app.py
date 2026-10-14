@@ -323,8 +323,12 @@ def find_variations(root):
     direct = os.path.join(root, "Variations")
     if os.path.isdir(direct):
         return direct
+    # Any Variations folder that holds a macOS Mono player: the editor layout has it under MacStandaloneSupport,
+    # the expanded 6000.3 pkg under TargetSupport.pkg.tmp/Payload/Variations (seen on the iMac, slot 4).
     for dp, dns, _fns in os.walk(root):
-        if os.path.basename(dp) == "Variations" and "MacStandaloneSupport" in dp.replace("\\", "/"):
+        if os.path.basename(dp) == "Variations" and any(
+                d.startswith("macos_") and d.endswith("_mono")
+                and os.path.isfile(os.path.join(dp, d, "UnityPlayer.app", "Contents", "Info.plist")) for d in dns):
             return dp
     return None
 
@@ -348,6 +352,8 @@ def _expand_pkg(pkg, expanded):
         _rmtree_if(partial)
         raise AppError(f"pkgutil --expand-full failed: {(r.stderr or r.stdout).strip()[-300:]}", EXIT_ERROR)
     os.rename(partial, expanded)
+    with open(os.path.join(expanded, ".peakpack-expanded-ok"), "w", encoding="utf-8") as f:
+        f.write(_utc_now() + "\n")
     return expanded
 
 
@@ -365,11 +371,13 @@ def _resolve_unity(src, work, dry, variation):
         info["pkg_sha256"] = verify_pkg(src)
         expanded = os.path.join(work, f"unity-{UNITY_VERSION}", "expanded")
         info["expanded"] = expanded
-        root = find_variations(expanded) if os.path.isdir(expanded) else None
+        # reuse an expansion only when it is marked complete (written after pkgutil exited 0)
+        marked = os.path.isfile(os.path.join(expanded, ".peakpack-expanded-ok"))
+        root = find_variations(expanded) if os.path.isdir(expanded) and marked else None
         if root is None and not dry:
             root = find_variations(_expand_pkg(src, expanded))
             if root is None:
-                raise AppError("the expanded Unity pkg has no MacStandaloneSupport/Variations folder", EXIT_ERROR)
+                raise AppError("the expanded Unity pkg has no Variations folder with a macOS Mono player", EXIT_ERROR)
     elif os.path.isdir(src):
         info["kind"] = "dir"
         root = find_variations(src)
