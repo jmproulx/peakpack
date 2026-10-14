@@ -66,6 +66,7 @@ t_launch=$(now_s)
 if [ "$modded" = 1 ]; then
   ensure_peakpack || gate_finish_as blocked "PeakPack.exe not available"
   wu=$(wine_user)
+  metric prefix_users "$(users_seen "$PFX")" str
   # R12: if the pack carries PeakPack.MacPreset, switch on its frame-time log (1 s) for exact fps / 1 % low.
   bep="$PFX/drive_c/users/$wu/AppData/Local/PeakPack/profile/BepInEx"
   if [ -n "$(find "$bep/plugins" -iname 'PeakPack.MacPreset.dll' 2>/dev/null | head -n 1)" ]; then
@@ -94,7 +95,7 @@ fi
 # PEAK logs the Steam line after its first scene load (a cold prefix translates that scene's shaders first)
 progress_monitor_start start
 if wait_for_player_log "Steam runtime manager initialized" 600 "$t_launch"; then progress_monitor_stop; plog=$PLAYER_LOG_USED; metric player_log "$(rel_to_job "$plog")" str; crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
-else hang_snapshot start; metric start_progress "$(progress_verdict start)" str; progress_monitor_stop; crit started fail "PEAK started within 600 s"; gate_end; fi
+else hang_snapshot start; metric start_progress "$(progress_verdict start)" str; progress_monitor_stop; crit started fail "PEAK started within 600 s" "$(player_log_detail "$t_launch")"; gate_end; fi
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
 
 # ---- the agent drives the game

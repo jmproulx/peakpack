@@ -39,6 +39,7 @@ GATE_CLEANUP=wine_stop
 tests_dir="$PFX/drive_c/PeakPackTests"; mkdir -p "$tests_dir"
 cp "$BRIDGE/peakpack_steam_launcher.exe" "$BRIDGE/steamclient64.dll" "$tests_dir/"
 wu=$(wine_user)
+metric prefix_users "$(users_seen "$PFX")" str   # crossover is the user; others are stale folders of kits before 0.3.9
 PPEXE="C:\\users\\$wu\\AppData\\Local\\PeakPack\\PeakPack.exe"
 ppdir=$(peakpack_win_dir)
 bep_log="$ppdir/profile/BepInEx/LogOutput.log"
@@ -78,7 +79,8 @@ metric sync_exit "$rc"; metric installed_revision "$(st sync installedRevision)"
 version_set pack_revision "$(st sync installedRevision)"
 case $rc in 0) crit pp_sync pass "PeakPack --headless --sync" "revision $(st sync installedRevision): $(st sync message)" ;;
   *) crit pp_sync fail "PeakPack --headless --sync" "exit $rc: $(st sync message) / $(st sync problem.heading)"; gate_end ;; esac
-[ -f "$ppdir/profile/BepInEx/core/BepInEx.Preloader.dll" ] && crit profile pass "profile has BepInEx core" || crit profile fail "profile has BepInEx core"
+if [ -f "$ppdir/profile/BepInEx/core/BepInEx.Preloader.dll" ]; then crit profile pass "profile has BepInEx core" "$(rel_to_job "$ppdir")/profile"
+else crit profile fail "profile has BepInEx core" "$(path_detail "$ppdir/profile/BepInEx/core/BepInEx.Preloader.dll")"; fi
 find "$ppdir/profile/BepInEx/plugins" -name '*.dll' 2>/dev/null | sed "s#^$ppdir/##" | sort > "$GLOG/profile-plugin-dlls.txt"
 metric plugin_dlls "$(wc -l < "$GLOG/profile-plugin-dlls.txt" | tr -d ' ')"
 
@@ -97,7 +99,7 @@ if wait_for_file_text "$bep_log" "Chainloader startup complete" "$launch_to" "$t
   crit bepinex_started pass "BepInEx LogOutput.log rewritten after the launch, chainloader complete"
 else
   hang_snapshot modded; metric modded_progress "$(progress_verdict modded)" str
-  crit bepinex_started fail "BepInEx chainloader complete within ${launch_to}s" "$( [ -f "$bep_log" ] && tail -3 "$bep_log" | tr '\n' ' ' || echo 'no LogOutput.log')"
+  crit bepinex_started fail "BepInEx chainloader complete within ${launch_to}s" "$( [ -f "$bep_log" ] && { printf '%s (modified %s s after the launch): ' "$(rel_to_job "$bep_log")" "$(( $(mtime_of "$bep_log") - t_mod ))"; tail -3 "$bep_log" | tr '\n' ' '; } || path_detail "$bep_log")"
 fi
 sleep 20
 snap peak-modded-menu-script
@@ -150,7 +152,7 @@ if wait_for_player_log "Steam runtime manager initialized" "$launch_to" "$t_van"
   crit vanilla_started pass "vanilla PEAK started (new Player.log, Steam initialised)"
 else
   hang_snapshot vanilla; metric vanilla_progress "$(progress_verdict vanilla)" str
-  crit vanilla_started fail "vanilla PEAK started within ${launch_to}s"
+  crit vanilla_started fail "vanilla PEAK started within ${launch_to}s" "$(player_log_detail "$t_van")"
 fi
 sleep 15
 snap peak-vanilla-menu
@@ -160,6 +162,8 @@ if [ "$(mtime_of "$bep_log")" = "$bep_mtime" ]; then crit vanilla_no_bepinex pas
 else crit vanilla_no_bepinex fail "vanilla launch did not start BepInEx" "LogOutput.log was rewritten"; fi
 if [ -f "$GLOG/Player-vanilla.log" ] && ! grep -a -i -q -E 'BepInEx|Doorstop|Chainloader' "$GLOG/Player-vanilla.log"; then
   crit vanilla_player_log pass "no BepInEx/Doorstop lines in the vanilla Player.log"
-else crit vanilla_player_log fail "no BepInEx/Doorstop lines in the vanilla Player.log"; fi
+elif [ -f "$GLOG/Player-vanilla.log" ]; then crit vanilla_player_log fail "no BepInEx/Doorstop lines in the vanilla Player.log" \
+  "$(rel_to_job "$plog"): $(grep -a -i -m2 -E 'BepInEx|Doorstop|Chainloader' "$GLOG/Player-vanilla.log" | tr '\n' ' ' | cut -c1-240)"
+else crit vanilla_player_log fail "no BepInEx/Doorstop lines in the vanilla Player.log" "no vanilla Player.log to check: $(player_log_detail "$t_van")"; fi
 cp "$ppdir/log.txt" "$GLOG/peakpack-log.txt" 2>/dev/null
 gate_end

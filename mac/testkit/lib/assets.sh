@@ -168,16 +168,10 @@ wine_stop() {  # kills every Wine process of OUR prefix only
 }
 wine_user() {  # the prefix's Windows user folder name
   # Our CrossOver-derived Wine names the Windows user "crossover" (CrossOver Hack 12735 in advapi32 GetUserName;
-  # CX_REPORT_REAL_USERNAME is not set), so drive_c/users/crossover is THE user folder. Only Public is skipped;
-  # if several remain, the one whose AppData changed last wins.
-  local u best="" bm=-1 m
-  for u in "$PFX"/drive_c/users/*; do
-    [ -d "$u" ] || continue
-    case "$(basename "$u")" in Public|public) continue ;; esac
-    if [ -d "$u/AppData" ]; then m=$(mtime_of "$u/AppData"); else m=0; fi
-    if [ "$m" -gt "$bm" ]; then best=$(basename "$u"); bm=$m; fi
-  done
-  if [ -n "$best" ]; then printf '%s\n' "$best"; else echo crossover; fi
+  # CX_REPORT_REAL_USERNAME is not set), so drive_c/users/crossover is THE user folder whenever it exists. A kept
+  # job dir can also hold a stale users/<mac user> folder that kits before 0.3.9 created (with an older PeakPack
+  # copy and profile), so crossover always wins; otherwise the folder whose AppData changed last.
+  prefix_user_of "$PFX"
 }
 # ensure_prefix -> creates $PFX with the runtime's pp-create-prefix.sh when missing/stale. Log: $GLOG/create-prefix.log
 ensure_prefix() {
@@ -264,6 +258,22 @@ $(player_log_candidates)
 EOF
   [ -n "$best" ] && { printf '%s' "$best"; return 0; }
   printf '%s/drive_c/users/%s/AppData/LocalLow/%s/%s/Player.log' "$PFX" "$(wine_user)" "$UNITY_COMPANY" "$UNITY_PRODUCT"
+}
+# player_log_detail [SINCE] -> where Player.log was looked for and what was found (for failure details)
+player_log_detail() {
+  local since=${1:-0} f n=0 out=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue; n=$((n + 1))
+    out="$out $(rel_to_job "$f") (modified $(( $(mtime_of "$f") - since )) s after the launch, last line: $(tail -1 "$f" 2>/dev/null | cut -c1-120));"
+  done <<EOF
+$(player_log_candidates)
+EOF
+  if [ "$n" = 0 ]; then
+    printf 'no Player.log under %s/drive_c/users/*/AppData/LocalLow/%s/%s (prefix users: %s)' \
+      "$(rel_to_job "$PFX")" "$UNITY_COMPANY" "$UNITY_PRODUCT" "$(users_seen "$PFX")"
+  else
+    printf 'looked for "Steam runtime manager initialized" in Player.log written since the launch; candidates:%s' "$out"
+  fi
 }
 # wait_for_player_log FIXED_STRING TIMEOUT_S SINCE_EPOCH -> 0 when the newest Player.log written since SINCE has it;
 # PLAYER_LOG_USED = the file that was checked last (recorded by the gates)

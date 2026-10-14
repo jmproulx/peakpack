@@ -39,6 +39,28 @@ is_num() { printf '%s' "$1" | grep -Eq '^-?(0|[1-9][0-9]*)(\.[0-9]+)?$'; }
 sha256_of() { shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1; }
 file_size() { if [ "$(uname -s)" = Darwin ]; then stat -f %z "$1"; else stat -c %s "$1"; fi 2>/dev/null || wc -c < "$1" | tr -d ' '; }
 mtime_of() { if [ "$(uname -s)" = Darwin ]; then stat -f %m "$1"; else stat -c %Y "$1"; fi 2>/dev/null || echo 0; }
+# prefix_user_of PREFIX -> "crossover" when PREFIX/drive_c/users/crossover exists; else the non-Public user folder
+# whose AppData changed last; else crossover (the name Wine will use). Shared by wine_user and app_wine_user.
+prefix_user_of() {
+  local u best="" bm=-1 m
+  [ -d "$1/drive_c/users/crossover" ] && { echo crossover; return 0; }
+  for u in "$1"/drive_c/users/*; do
+    [ -d "$u" ] || continue
+    case "$(basename "$u")" in Public|public) continue ;; esac
+    if [ -d "$u/AppData" ]; then m=$(mtime_of "$u/AppData"); else m=0; fi
+    if [ "$m" -gt "$bm" ]; then best=$(basename "$u"); bm=$m; fi
+  done
+  if [ -n "$best" ]; then printf '%s\n' "$best"; else echo crossover; fi
+}
+# users_seen PREFIX -> "crossover,fleet" (the user folders present; for failure details)
+users_seen() { (cd "$1/drive_c/users" 2>/dev/null && ls -1 | grep -v -x -E 'Public|public' | paste -sd, -) || echo "(no drive_c/users)"; }
+# path_detail PATH -> "looked for <job-relative PATH>: missing (nearest existing: <dir>)" or "...: present"
+path_detail() {
+  local p=$1 d
+  if [ -e "$p" ]; then printf 'looked for %s: present' "$(rel_to_job "$p")"; return 0; fi
+  d=$(dirname "$p"); while [ -n "$d" ] && [ "$d" != / ] && [ ! -d "$d" ]; do d=$(dirname "$d"); done
+  printf 'looked for %s: missing (nearest existing folder: %s; prefix users: %s)' "$(rel_to_job "$p")" "$(rel_to_job "$d")" "$(users_seen "$PFX")"
+}
 rel_to_job() { case "$1" in "$PP_JOB_DIR"/*) printf '%s' "${1#"$PP_JOB_DIR"/}" ;; *) printf '%s' "$1" ;; esac; }
 
 # JSON string literal (with quotes) for arbitrary text.
@@ -229,6 +251,7 @@ gate_on_signal() {
 }
 crit() {  # crit ID RESULT DESC [DETAIL]
   local id=$1 res=$2 desc=$3 det=${4:-}
+  if [ -z "$det" ] && [ "$res" = fail ]; then det="no detail from the gate; see $(rel_to_job "${GLOG:-logs}")/"; fi
   printf '{"id": %s, "result": %s, "check": %s, "detail": %s}\n' \
     "$(json_str "$id")" "$(json_str "$res")" "$(json_str "$desc")" "$(json_str "$(oneline "$det")")" >> "$GTMP/criteria.jsonl"
   printf '%-5s %s: %s%s\n' "$(printf '%s' "$res" | tr 'a-z' 'A-Z')" "$id" "$desc" "${det:+ ($(oneline "$det" | cut -c1-300))}"
