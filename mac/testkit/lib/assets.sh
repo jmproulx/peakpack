@@ -194,29 +194,46 @@ ensure_game_in_prefix() {
 peakpack_win_dir() { printf '%s/drive_c/users/%s/AppData/Local/PeakPack' "$PFX" "$(wine_user)"; }
 # ensure_peakpack -> PeakPack.exe (latest pack release) at C:\users\<u>\AppData\Local\PeakPack\PeakPack.exe
 ensure_peakpack() {
-  local url=${PP_PEAKPACK_URL:-https://github.com/$PP_REPO/releases/latest/download/PeakPack.exe} d
+  # Source: PP_PEAKPACK_TAG (run_slot exports the slot file's peakpack.tag; run_gate keeps it in job.env) =
+  # a mac-build-peakpack-* or rev-* release, verified against that release's SHA256SUMS; else releases/latest
+  # (verified against PeakPack.exe.sha256 when the release has it). Each source has its own cache folder, and
+  # the copy in the prefix is replaced whenever it differs, so a kept job dir never keeps an older PeakPack.
+  local tag url d sub want="" have src verified
+  tag=${PP_PEAKPACK_TAG:-$(job_env_get PEAKPACK_TAG)}
   d=$(peakpack_win_dir)
-  if [ ! -s "$DL/PeakPack.exe" ]; then
-    if [ -n "${PP_ASSETS_DIR:-}" ] && [ -f "$PP_ASSETS_DIR/PeakPack.exe" ]; then cp "$PP_ASSETS_DIR/PeakPack.exe" "$DL/PeakPack.exe"
-    else log "downloading PeakPack.exe ($url)"; fetch_url "$url" "$DL/PeakPack.exe" || return 1
+  if [ -n "$tag" ]; then
+    case "$tag" in mac-build-peakpack-*|rev-*) ;; *) log "PP_PEAKPACK_TAG must be mac-build-peakpack-* or rev-*: $tag"; return 1 ;; esac
+    url="https://github.com/$PP_REPO/releases/download/$tag"; sub="$DL/peakpack-$tag"; mkdir -p "$sub"
+    [ -s "$sub/SHA256SUMS" ] || fetch_url "$url/SHA256SUMS" "$sub/SHA256SUMS" || { log "no SHA256SUMS in $tag"; return 1; }
+    want=$(tr -d '\r' < "$sub/SHA256SUMS" | awk '{ n = $2; sub(/^\*/, "", n) } n == "PeakPack.exe" { print tolower($1); exit }')
+    [ -n "$want" ] || { log "$tag SHA256SUMS does not list PeakPack.exe"; return 1; }
+    if ! { [ -s "$sub/PeakPack.exe" ] && [ "$(sha256_of "$sub/PeakPack.exe")" = "$want" ]; }; then
+      log "downloading PeakPack.exe ($tag)"; fetch_url "$url/PeakPack.exe" "$sub/PeakPack.exe" || return 1
     fi
+    verified="yes (SHA256SUMS of $tag)"
+  else
+    url=${PP_PEAKPACK_URL:-https://github.com/$PP_REPO/releases/latest/download/PeakPack.exe}; sub="$DL/peakpack-latest"; mkdir -p "$sub"
+    if [ ! -s "$sub/PeakPack.exe" ]; then
+      if [ -n "${PP_ASSETS_DIR:-}" ] && [ -f "$PP_ASSETS_DIR/PeakPack.exe" ]; then cp "$PP_ASSETS_DIR/PeakPack.exe" "$sub/PeakPack.exe"
+      else log "downloading PeakPack.exe ($url)"; fetch_url "$url" "$sub/PeakPack.exe" || return 1
+      fi
+    fi
+    if [ -n "${PP_ASSETS_DIR:-}" ] && [ -f "$PP_ASSETS_DIR/PeakPack.exe.sha256" ]; then cp "$PP_ASSETS_DIR/PeakPack.exe.sha256" "$sub/PeakPack.exe.sha256"
+    elif [ ! -s "$sub/PeakPack.exe.sha256" ]; then fetch_url "$url.sha256" "$sub/PeakPack.exe.sha256" >/dev/null 2>&1 || rm -f "$sub/PeakPack.exe.sha256"
+    fi
+    [ -s "$sub/PeakPack.exe.sha256" ] && want=$(awk 'NR == 1 { print tolower($1) }' "$sub/PeakPack.exe.sha256" | tr -d '\r')
+    if [ -n "$want" ]; then verified="yes (PeakPack.exe.sha256)"; else verified="no (release has no PeakPack.exe.sha256)"; fi
   fi
-  # Pack releases since app 0.4.2 carry PeakPack.exe.sha256 ("<sha256>  PeakPack.exe"); verify when present.
-  local have want=""
-  have=$(sha256_of "$DL/PeakPack.exe")
-  if [ -n "${PP_ASSETS_DIR:-}" ] && [ -f "$PP_ASSETS_DIR/PeakPack.exe.sha256" ]; then cp "$PP_ASSETS_DIR/PeakPack.exe.sha256" "$DL/PeakPack.exe.sha256"
-  elif [ ! -s "$DL/PeakPack.exe.sha256" ]; then fetch_url "$url.sha256" "$DL/PeakPack.exe.sha256" >/dev/null 2>&1 || rm -f "$DL/PeakPack.exe.sha256"
-  fi
-  [ -s "$DL/PeakPack.exe.sha256" ] && want=$(awk 'NR == 1 { print tolower($1) }' "$DL/PeakPack.exe.sha256" | tr -d '\r')
+  src="$sub/PeakPack.exe"; have=$(sha256_of "$src")
   if [ -n "$want" ] && [ "$want" != "$have" ]; then
-    log "PeakPack.exe SHA-256 mismatch: got $have, release says $want"
-    rm -f "$DL/PeakPack.exe"
-    return 1
+    log "PeakPack.exe SHA-256 mismatch: got $have, release says $want"; rm -f "$src"; return 1
   fi
+  cp "$src" "$DL/PeakPack.exe"   # the selected copy (G-D2 records its hash)
   mkdir -p "$d"
-  [ -f "$d/PeakPack.exe" ] || cp "$DL/PeakPack.exe" "$d/PeakPack.exe"
+  cmp -s "$src" "$d/PeakPack.exe" || cp "$src" "$d/PeakPack.exe"
+  version_set peakpack_source "${tag:-releases/latest}"
   version_set peakpack_exe_sha256 "$have"
-  if [ -n "$want" ]; then version_set peakpack_exe_verified "yes (PeakPack.exe.sha256)"; else version_set peakpack_exe_verified "no (release has no PeakPack.exe.sha256)"; fi
+  version_set peakpack_exe_verified "$verified"
   return 0
 }
 # Newest PEAK Player.log in the prefix (Unity: AppData/LocalLow/LandCrab/PEAK/Player.log)

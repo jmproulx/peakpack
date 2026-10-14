@@ -88,6 +88,7 @@ export TMPDIR="$job_dir/tmp/"
 . "$KIT/lib/common.sh"
 if [ -n "$release" ]; then job_env_set RELEASE "$release"; fi
 if [ -n "${PP_STEAM_TESTS_TAG:-}" ]; then job_env_set STEAM_TESTS_TAG "$PP_STEAM_TESTS_TAG"; fi
+if [ -n "${PP_PEAKPACK_TAG:-}" ]; then job_env_set PEAKPACK_TAG "$PP_PEAKPACK_TAG"; fi
 # release: --release > the job's job.env > $PP_RELEASE > default
 PP_RELEASE=$(job_env_get RELEASE); [ -n "$PP_RELEASE" ] || { PP_RELEASE=${env_release:-$PP_DEFAULT_RELEASE}; job_env_set RELEASE "$PP_RELEASE"; }
 export PP_RELEASE

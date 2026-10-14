@@ -34,7 +34,7 @@ ensure_bridge || note "bridge files missing:$BRIDGE_MISSING"
 ensure_prefix || gate_finish_as error "prefix creation failed (logs/G-D2/create-prefix.log)"
 ensure_game_in_prefix || gate_finish_as blocked "PEAK is not in the job dir (run G-B5 first)"
 ensure_peakpack || gate_finish_as blocked "could not download PeakPack.exe (latest pack release)"
-crit peakpack_placed pass "PeakPack.exe in C:\\users\\<u>\\AppData\\Local\\PeakPack" "sha256 $(sha256_of "$DL/PeakPack.exe" | cut -c1-16)..."
+crit peakpack_placed pass "PeakPack.exe in C:\\users\\<u>\\AppData\\Local\\PeakPack" "$(job_env_get PEAKPACK_TAG | grep . || echo releases/latest), sha256 $(sha256_of "$DL/PeakPack.exe" | cut -c1-16)..."
 GATE_CLEANUP=wine_stop
 tests_dir="$PFX/drive_c/PeakPackTests"; mkdir -p "$tests_dir"
 cp "$BRIDGE/peakpack_steam_launcher.exe" "$BRIDGE/steamclient64.dll" "$tests_dir/"

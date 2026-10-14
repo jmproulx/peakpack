@@ -52,7 +52,17 @@ if app_running; then log "the app is already running (G-APP1 leaves it at the ga
 else app_launch --no-autoplay || gate_finish_as error "could not start the app"
 fi
 already_done=0
-ph=$(app_status_get phase)
+wait_for_phase "welcome|setup|done|ready|error|launching|playing" 120 >/dev/null; ph=$APP_PHASE_SEEN
+# An error left over from an earlier attempt: the friend's way out is the app's "Try Again" button.
+if [ "$ph" = error ]; then
+  note "the app opened in phase error ($(app_status_get problem.code)): asking the agent to click Try Again"
+  if cu_request try_again 300 "The PEAK (Modded) setup window shows an error from an earlier attempt. Click its 'Try Again' button once (nothing else; never type credentials). Answer ok once clicked, or fail with the error text you see."; then
+    wait_for_phase "setup|done|ready" 180 >/dev/null; ph=$APP_PHASE_SEEN
+    crit try_again info "app recovered from an earlier error with Try Again (CU)" "phase now $ph"
+  else
+    crit try_again fail "app recovered from an earlier error with Try Again (CU)" "${CU_ANSWER:-no answer} ${CU_NOTE:-}"; gate_end
+  fi
+fi
 case "$ph" in
   done|ready) already_done=1; note "the app is already set up in this job (phase $ph): its game step is not repeated" ;;
 esac

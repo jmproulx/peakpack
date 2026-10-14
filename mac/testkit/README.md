@@ -56,8 +56,8 @@ The exact pass/fail criteria are in each `gates/<gate>.md` and in `results/<gate
 ```sh
 JOB=~/peakpack-test/slot1-20261013-0900          # the hub picks the job id
 mkdir -p "$JOB/kit"
-curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.3.tar.gz \
-  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.3/mac
+curl -fsSL https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.4.tar.gz \
+  | tar -xz -C "$JOB/kit" --strip-components=2 peakpack-mac-testkit-0.3.4/mac
 cd "$JOB/kit"
 launchctl managername                     # must print Aqua (the logged-in desktop session), see below
 bash testkit/run_slot.sh testkit/slot1.job.json --job-dir "$JOB" --release mac-build-runtime-pp1-cx26.3.0 > "$JOB/run_slot-console.txt" 2>&1 &
@@ -131,6 +131,8 @@ Privacy: SteamIDs and persona names stay in `logs/`. The JSON only records that 
 **No macOS prompts by default:** the kit never runs `screencapture` unless `PP_SCREENSHOTS=1`, because it would raise the Screen Recording prompt. It opens `steam://open/console` only when computer-use steps run (not with `--no-cu`). Evidence screenshots are the hub's job. See NOTES-for-lead.md, "macOS prompts".
 
 **Steam test kit:** the probes and Steam test scripts come from the tests-only prerelease that the slot file pins under `steam_tests.tag` (currently `mac-build-steam-tests-1.2.1`, built by CI `mac-steam-tests.yml`). They are verified against that release's SHA256SUMS, and `PP_STEAM_TESTS_TAG` overrides the pin. Without a pin, the kit uses the runtime release's tests package with the kit's newer sources laid over it.
+
+**PeakPack.exe source:** `releases/latest` by default. A slot file's `peakpack.tag` (or `PP_PEAKPACK_TAG`) selects a `mac-build-peakpack-*` or `rev-*` release instead, for example the test build `mac-build-peakpack-0.4.3-test`. The exe is verified against that release's SHA256SUMS, and the copy in the prefix is replaced whenever it differs. Recorded as `peakpack_source` and `peakpack_exe_sha256`.
 
 **GUI session:** run the kit inside the logged-in desktop (Aqua) session: Terminal on the desktop, `open -a Terminal $JOB/run.command`, or `launchctl asuser`. From a remote shell, Wine cannot open windows, so G-A1, G-B2, G-D2, G-A2-lite, G-C0 and G-X1 end blocked (exit 2).
 

@@ -32,6 +32,8 @@ case "$job_id" in ''|*'{'*|auto) job_id="$(jv slot | tr -cd 'A-Za-z0-9-')"; job_
 [ -n "$release" ] || release=$(jv release.tag)
 # Steam test kit pin (tests-only prerelease); an explicit PP_STEAM_TESTS_TAG in the environment wins.
 [ -n "${PP_STEAM_TESTS_TAG:-}" ] || { stt=$(jv steam_tests.tag); [ -n "$stt" ] && export PP_STEAM_TESTS_TAG="$stt"; }
+# PeakPack.exe override (a test build in its own prerelease); default: releases/latest
+[ -n "${PP_PEAKPACK_TAG:-}" ] || { ppt=$(jv peakpack.tag); [ -n "$ppt" ] && export PP_PEAKPACK_TAG="$ppt"; }
 [ -n "$job_dir" ] || job_dir="$HOME/peakpack-test/$job_id"
 mkdir -p "$job_dir" && job_dir=$(cd "$job_dir" && pwd -P) || { echo "run_slot: cannot create $job_dir" >&2; exit 4; }
 case "$job_dir" in /|"$(cd "$HOME" && pwd -P)") echo "run_slot: refusing job dir $job_dir" >&2; exit 4 ;; esac

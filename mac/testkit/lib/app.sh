@@ -95,7 +95,9 @@ app_quit() {
 app_launch() {
   if app_running; then log "quitting the running app before the launch"; app_quit || return 1; fi
   [ -x "$APP_EXE" ] || return 1
-  mkdir -p "$APP_DATA" "$APP_UNINSTALL_TO"
+  mkdir -p "$APP_DATA" "$APP_UNINSTALL_TO" "$STATE"
+  # a status file from an earlier session must never satisfy a wait: remove it, remember the launch time
+  rm -f "$APP_STATUS"; now_s > "$STATE/app-launch-epoch"
   open -n "$APP_BUNDLE" --args --data-dir "$APP_DATA" --skip-update-check --uninstall-to "$APP_UNINSTALL_TO" "$@"
 }
 # app_cli SECONDS ARGS... -> runs the executable without the GUI; output in $GTMP/cli.out; 124 on timeout
@@ -114,6 +116,25 @@ app_cli() {
 # ---------------------------------------------------------------- status file (frontend/status.json)
 app_status_get() { json_get "$APP_STATUS" "$1"; }
 app_has_key() { json_flat "$1" 2>/dev/null | awk -F'\t' -v k="$2" '$1 == k { f = 1 } END { exit !f }'; }
+# iso_epoch ISO8601 -> epoch seconds (UTC "…Z", optional fractional seconds); empty if unparsable
+iso_epoch() {
+  local t=${1%%.*}; t=${t%Z}; t=${t%%+*}
+  date -j -u -f '%Y-%m-%dT%H:%M:%S' "$t" +%s 2>/dev/null || date -u -d "${t}Z" +%s 2>/dev/null
+}
+# app_status_fresh: the status belongs to a live app instance (its pid runs) and, when this job launched the
+# app, to a session that started at or after that launch (5 s slack). Used by every wait below.
+app_status_fresh() {
+  local pid ss le se
+  [ -s "$APP_STATUS" ] || return 1
+  pid=$(app_status_get pid)
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  le=$(cat "$STATE/app-launch-epoch" 2>/dev/null); ss=$(app_status_get sessionStarted)
+  if [ -n "$le" ] && [ -n "$ss" ]; then
+    se=$(iso_epoch "$ss"); [ -n "$se" ] && [ "$se" -ge $(( le - 5 )) ] || return 1
+  fi
+  return 0
+}
 # app_no_problem: status has no problem.code (null or absent counts as none)
 app_no_problem() { local c; c=$(app_status_get problem.code); [ -z "$c" ] || [ "$c" = null ]; }
 # wait_for_phase PHASE[|PHASE...] TIMEOUT_S -> 0 reached, 1 timeout, 2 the app reported phase error
@@ -122,7 +143,8 @@ wait_for_phase() {
   local want=$1 to=$2 t0 ph
   t0=$(now_s)
   while :; do
-    ph=$(app_status_get phase); APP_PHASE_SEEN=$ph
+    if app_status_fresh; then ph=$(app_status_get phase); else ph="(no fresh status)"; fi
+    APP_PHASE_SEEN=$ph
     case "|$want|" in *"|$ph|"*) return 0 ;; esac
     if [ "$ph" = error ]; then return 2; fi
     [ $(( $(now_s) - t0 )) -lt "$to" ] || return 1
@@ -134,7 +156,8 @@ wait_for_step() {
   local st=$1 ss=$2 to=$3 t0 cs cst ph
   t0=$(now_s)
   while :; do
-    ph=$(app_status_get phase); cst=$(app_status_get step); cs=$(app_status_get stepState)
+    if app_status_fresh; then ph=$(app_status_get phase); cst=$(app_status_get step); cs=$(app_status_get stepState)
+    else ph="(no fresh status)"; cst=""; cs=""; fi
     APP_PHASE_SEEN=$ph
     if [ "$cst" = "$st" ] && [ "$cs" = "$ss" ]; then return 0; fi
     if [ "$ph" = error ]; then return 2; fi
