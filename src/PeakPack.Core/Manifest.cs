@@ -58,6 +58,14 @@ public sealed class PackManifest
     /// our Wine prefix on macOS (MacPort Track D). Windows ignores it.</summary>
     public PlatformSettings? Platforms { get; set; }
 
+    // ---- v0.6 additions (mac/app/proposals/friendinstaller-platforms-mac.md). Optional and additive: apps that don't
+    // know them (every Windows PeakPack up to 0.4.2, older Mac front ends) skip unknown members. ----
+
+    /// <summary>The PEAK depot build the host's own game was on when this revision was published (read from his
+    /// steamapps/appmanifest_&lt;appid&gt;.acf). Informational: the Mac front end uses it to say "PEAK has an update".
+    /// Windows PeakPack never acts on it.</summary>
+    public GameDepot? GameDepot { get; set; }
+
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -125,11 +133,37 @@ public sealed class PackManifest
                     throw new InvalidDataException($"Mac plugin file '{f.Path}' also exists for every platform.");
                 if (!macDests.Add(f.Path)) throw new InvalidDataException($"Mac file '{f.Path}' is listed twice.");
             }
+            // runtime / frontEnd are deliberately NOT checked here (nor gameDepot below): they are for the Mac front end,
+            // which applies the same rules and falls back to its embedded pin. A bad pin must never stop a Windows
+            // friend's sync. The publisher refuses them instead (ValidateForPublish).
         }
         foreach (var ls in Lobby?.LiveSettings ?? [])
             if (string.IsNullOrWhiteSpace(ls.Plugin) || string.IsNullOrWhiteSpace(ls.Section) || string.IsNullOrWhiteSpace(ls.Key)
                 || (ls.Plugin + ls.Section + ls.Key).IndexOfAny(BadSettingChars) >= 0)
                 throw new InvalidDataException($"Live setting '{ls.Plugin}/{ls.Section}/{ls.Key}' is incomplete or has invalid characters.");
+    }
+
+    /// <summary>Validate() plus the rules for the optional Mac pins and gameDepot. The publisher calls this and refuses
+    /// to publish on any problem; friends' apps only call Validate() (see the comment there).</summary>
+    public void ValidateForPublish()
+    {
+        Validate();
+        var problems = PinProblems();
+        if (problems.Count > 0) throw new InvalidDataException(string.Join(" ", problems));
+    }
+
+    /// <summary>Every rule violation in platforms.mac.runtime, platforms.mac.frontEnd and gameDepot (empty = fine or absent).</summary>
+    public List<string> PinProblems()
+    {
+        var p = new List<string>();
+        if (Platforms?.Mac?.Runtime is { } rt) p.AddRange(rt.Problems());
+        if (Platforms?.Mac?.FrontEnd is { } fe) p.AddRange(fe.Problems());
+        if (GameDepot is { } gd)
+        {
+            p.AddRange(gd.Problems());
+            if (gd.AppId != GameAppId) p.Add($"gameDepot.appId {gd.AppId} isn't the pack's game ({GameAppId}).");
+        }
+        return p;
     }
 
     static readonly char[] BadSettingChars = ['|', '\n', '\r'];
@@ -221,6 +255,92 @@ public sealed class MacSettings
     public List<FileEntry> Files { get; set; } = new();
     /// <summary>Lowest Mac front-end version that understands this pack (informational for the front end).</summary>
     public string? MinFrontEnd { get; set; }
+    /// <summary>Optional signed pin of the Wine runtime the Mac front end should use (from a mac-build-runtime-*
+    /// prerelease's SHA256SUMS). Absent = the front end keeps its embedded pin.</summary>
+    public RuntimePin? Runtime { get; set; }
+    /// <summary>Optional signed pin of the Mac front end's self-update (from a mac-build-app-* prerelease's
+    /// SHA256SUMS). Absent = the front end uses the newest mac-build-app-* prerelease.</summary>
+    public FrontEndPin? FrontEnd { get; set; }
+}
+
+/// <summary>platforms.mac.runtime: { id, tag, asset, sha256, size }.</summary>
+public sealed class RuntimePin
+{
+    public const string TagPrefix = "mac-build-runtime-";
+    public string Id { get; set; } = "";
+    public string Tag { get; set; } = "";
+    public string Asset { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long? Size { get; set; }
+
+    /// <summary>The asset name the runtime workflow gives a runtime id.</summary>
+    public static string AssetFor(string id) => $"peakpack-runtime-{id}-x86_64.tar.xz";
+
+    static readonly System.Text.RegularExpressions.Regex IdRx = new(@"^pp[0-9]+-cx[0-9.]+$");
+    public static bool IsValidId(string? id) => id is not null && IdRx.IsMatch(id);
+
+    /// <summary>The proposal's rules (the Mac front end's RuntimePin.isWellFormed), plus size &gt; 0 when present.</summary>
+    public List<string> Problems()
+    {
+        var p = new List<string>();
+        if (!IsValidId(Id)) p.Add($"platforms.mac.runtime.id '{Id}' must look like pp<N>-cx<version>.");
+        if (Tag != TagPrefix + Id) p.Add($"platforms.mac.runtime.tag '{Tag}' must be '{TagPrefix}{Id}'.");
+        if (!Asset.EndsWith(".tar.xz", StringComparison.Ordinal) || Asset.IndexOfAny(['/', '\\']) >= 0)
+            p.Add($"platforms.mac.runtime.asset '{Asset}' must be a plain .tar.xz file name.");
+        if (!PackManifest.IsSha256(Sha256)) p.Add("platforms.mac.runtime.sha256 must be 64 hex characters.");
+        if (Size is <= 0) p.Add("platforms.mac.runtime.size must be positive.");
+        return p;
+    }
+}
+
+/// <summary>platforms.mac.frontEnd: { version, tag, zip, sha256 }.</summary>
+public sealed class FrontEndPin
+{
+    public const string TagPrefix = "mac-build-app-";
+    public const string ZipPrefix = "PEAK-Modded-Mac-";
+    public string Version { get; set; } = "";
+    public string Tag { get; set; } = "";
+    public string Zip { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+
+    public static string ZipFor(string version) => $"{ZipPrefix}{version}.zip";
+
+    // Same shape the Mac front end's DottedVersion accepts: numbers separated by dots, optional "-suffix".
+    static readonly System.Text.RegularExpressions.Regex VersionRx = new(@"^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?$");
+    public static bool IsValidVersion(string? v) => v is not null && VersionRx.IsMatch(v);
+
+    public List<string> Problems()
+    {
+        var p = new List<string>();
+        if (!IsValidVersion(Version)) p.Add($"platforms.mac.frontEnd.version '{Version}' isn't a dotted version.");
+        if (Tag != TagPrefix + Version) p.Add($"platforms.mac.frontEnd.tag '{Tag}' must be '{TagPrefix}{Version}'.");
+        if (!Zip.EndsWith(".zip", StringComparison.Ordinal) || Zip.IndexOfAny(['/', '\\']) >= 0)
+            p.Add($"platforms.mac.frontEnd.zip '{Zip}' must be a plain .zip file name.");
+        if (!PackManifest.IsSha256(Sha256)) p.Add("platforms.mac.frontEnd.sha256 must be 64 hex characters.");
+        return p;
+    }
+}
+
+/// <summary>gameDepot: { appId, depotId, manifestId, buildId } of the host's own PEAK install. Ids are decimal strings
+/// (depot manifest gids don't fit every JSON reader's number type).</summary>
+public sealed class GameDepot
+{
+    public int AppId { get; set; }
+    public int DepotId { get; set; }
+    public string ManifestId { get; set; } = "";
+    public string BuildId { get; set; } = "";
+
+    static bool IsDecimalId(string? s) => s is { Length: > 0 and <= 20 } && s.All(char.IsAsciiDigit) && ulong.TryParse(s, out var v) && v > 0;
+
+    public List<string> Problems()
+    {
+        var p = new List<string>();
+        if (AppId <= 0) p.Add("gameDepot.appId must be positive.");
+        if (DepotId <= 0) p.Add("gameDepot.depotId must be positive.");
+        if (!IsDecimalId(ManifestId)) p.Add($"gameDepot.manifestId '{ManifestId}' must be a decimal id.");
+        if (!IsDecimalId(BuildId)) p.Add($"gameDepot.buildId '{BuildId}' must be a decimal id.");
+        return p;
+    }
 }
 
 public sealed class LiveSetting

@@ -1,0 +1,8 @@
+{
+  "_comment": "Example only (DESIGN §18.9). Merge these keys into publish.json when a Mac runtime / app build should go to friends. The tags must be existing mac-build-* PRERELEASES with a SHA256SUMS asset; the publisher refuses otherwise. Each key is independent: leave any of them out.",
+  "gameDepot": "auto",
+  "mac": {
+    "runtime": { "tag": "mac-build-runtime-pp2-cx26.3.0" },
+    "frontEnd": { "tag": "mac-build-app-0.2.0" }
+  }
+}

@@ -62,7 +62,22 @@ public sealed class PublishConfig
         /// config/ (forced ifMissing). Never installed on Windows.</summary>
         public List<CustomFile> Files { get; set; } = new();
         public string? MinFrontEnd { get; set; }
+        /// <summary>Optional { "tag": "mac-build-runtime-&lt;id&gt;" }: sign that prerelease's Wine runtime into
+        /// platforms.mac.runtime (from its SHA256SUMS). Absent = no runtime pin (Mac app keeps its embedded one).</summary>
+        public ReleaseRef? Runtime { get; set; }
+        /// <summary>Optional { "tag": "mac-build-app-&lt;version&gt;" }: sign that prerelease's app zip into
+        /// platforms.mac.frontEnd. Absent = no front-end pin.</summary>
+        public ReleaseRef? FrontEnd { get; set; }
     }
+
+    public sealed class ReleaseRef
+    {
+        public string Tag { get; set; } = "";
+    }
+
+    /// <summary>Optional: "auto" = record the PEAK depot build from &lt;gameDir&gt;\..\..\appmanifest_&lt;appid&gt;.acf
+    /// (read-only) as manifest.gameDepot; or a path to that .acf. Absent = no gameDepot. Unreadable = left out.</summary>
+    public string? GameDepot { get; set; }
 
     /// <summary>Fields this version doesn't know (e.g. added by hand or by a newer tool). Kept on load and written
     /// back on Save, so the Host window and the CLI can both edit the same publish.json without losing anything.</summary>
@@ -150,6 +165,10 @@ public sealed class PublishConfig
 public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Action<string> log)
 {
     public const string AutoReloadPackage = "Hamunii-AutoReload";
+
+    /// <summary>How the optional Mac pins read GitHub (release JSON + SHA256SUMS). Null = live GitHub (api.github.com
+    /// allowed for the publisher only). Tests inject canned answers.</summary>
+    public Func<string, CancellationToken, Task<byte[]>>? PinFetch { get; init; }
 
     public async Task<PackManifest> PublishAsync(PublishConfig cfg, string outDir, PackManifest? previous, CancellationToken ct = default)
     {
@@ -263,8 +282,21 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
                 });
                 log($"  mac {(isConfig ? "config" : "file")} {cf.Dest} -> {assetName}");
             }
+            if (mac.Runtime is not null || mac.FrontEnd is not null)
+            {
+                if (!cfg.HasRealRepo) throw new InvalidDataException("mac.runtime / mac.frontEnd need githubRepo (the repo with the mac-build-* prereleases).");
+                using var ghDl = PinFetch is null ? MacPins.CreateGitHubDownloader() : null;
+                var pins = new MacPins(PinFetch ?? MacPins.GitHubFetch(ghDl!), log);
+                if (mac.Runtime is { } rt) ms.Runtime = await pins.ResolveRuntimeAsync(cfg.GithubRepo!, rt.Tag.Trim(), ct);
+                if (mac.FrontEnd is { } fe) ms.FrontEnd = await pins.ResolveFrontEndAsync(cfg.GithubRepo!, fe.Tag.Trim(), ct);
+                if (ms.FrontEnd is not null && !string.IsNullOrWhiteSpace(ms.MinFrontEnd) && MacPins.CompareVersions(ms.FrontEnd.Version, ms.MinFrontEnd) < 0)
+                    throw new InvalidDataException($"mac.frontEnd {ms.FrontEnd.Version} is older than mac.minFrontEnd {ms.MinFrontEnd}: Mac friends would be told to update to a version that doesn't qualify.");
+            }
             m.Platforms = new PlatformSettings { Mac = ms };
         }
+
+        if (!string.IsNullOrWhiteSpace(cfg.GameDepot))
+            m.GameDepot = MacPins.ReadGameDepot(MacPins.AcfPath(cfg.GameDepot.Trim(), cfg.GameDir, m.GameAppId), m.GameAppId, log);
 
         if (cfg.App is { } app && File.Exists(app.Source))
         {
@@ -277,7 +309,7 @@ public sealed class Publisher(Downloader downloader, ThunderstoreIndex index, Ac
 
         m.ModsRequiredToJoin = cfg.ModsRequiredToJoin
             ?? (m.Packages.Any(p => p.Tags?.Contains("All Clients") == true) || m.Files.Any(f => f.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)));
-        m.Validate();
+        m.ValidateForPublish(); // = Validate() when no pins/gameDepot are configured
         var bytes = new UTF8Encoding(false).GetBytes(m.ToJson());
         await File.WriteAllBytesAsync(Path.Combine(outDir, "manifest.json"), bytes, ct);
         if (!string.IsNullOrWhiteSpace(cfg.SigningKey))

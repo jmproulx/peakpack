@@ -55,6 +55,16 @@ public static class HotUpdater
 
     public static bool CanRollBack(AppPaths p) => File.Exists(LastRollback(p));
 
+    /// <summary>The platform settings PeakPack itself acts on (launch args, Mac files), as JSON. The Mac front end's own
+    /// pins (runtime, frontEnd) are left out: they change nothing PeakPack installs, so they never force a restart.</summary>
+    static string InstallRelevantPlatforms(PackManifest m)
+    {
+        var mac = m.Platforms?.Mac;
+        if (mac is null) return JsonSerializer.Serialize(m.Platforms, PackManifest.JsonOptions);
+        var copy = new MacSettings { ExtraArgs = mac.ExtraArgs, Files = mac.Files, MinFrontEnd = mac.MinFrontEnd };
+        return JsonSerializer.Serialize(new PlatformSettings { Mac = copy }, PackManifest.JsonOptions);
+    }
+
     /// <summary>Works out what a live update to <paramref name="m"/> would do, without changing anything.</summary>
     public static (string Status, List<FileEntry> Files, string Message) Plan(PackManifest? installed, PackManifest m, InstallState state)
     {
@@ -65,7 +75,7 @@ public static class HotUpdater
         if (!string.Equals(installed.Loader.Id, m.Loader.Id, StringComparison.OrdinalIgnoreCase)
             || !installed.Packages.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(m.Packages.Select(p => p.Id)))
             return (Status.RestartNeeded, [], "Thunderstore mods or BepInEx changed.");
-        if (JsonSerializer.Serialize(installed.Platforms, PackManifest.JsonOptions) != JsonSerializer.Serialize(m.Platforms, PackManifest.JsonOptions))
+        if (InstallRelevantPlatforms(installed) != InstallRelevantPlatforms(m))
             return (Status.RestartNeeded, [], "Platform settings changed (e.g. Mac defaults or launch options).");
         var before = installed.Files.ToDictionary(f => f.Path, StringComparer.OrdinalIgnoreCase);
         var after = m.Files.ToDictionary(f => f.Path, StringComparer.OrdinalIgnoreCase);

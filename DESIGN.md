@@ -82,6 +82,16 @@ In game: PeakPack.Companion reads <profile>\BepInEx\PeakPack\pack-info.json → 
 
 v0.2 fields plus: `hostName`, `packId` (stable slug for the lobby check), `changelog[]` (last 20, newest first), `lobby { mismatchPolicy: warn|block, liveSettings[{plugin, section, key}] }`, and per package/file `title` + `description` (friendly name and one line "what it does", from `modInfo` in publish.json or Thunderstore's own description). The manifest is still pure data: **no field can run a command or script**.
 
+v0.6 adds three more optional, signed fields (details and rules in §18.9). Schema stays 1: every app so far, including the shipped Windows PeakPack 0.4.2, skips unknown members, and `tools/pins-compat-test.ps1` proves it with the rev-5 exe itself.
+
+| Field | Shape | Filled by the publisher from | Used by |
+|---|---|---|---|
+| `platforms.mac.runtime` | `{ id, tag, asset, sha256, size }` | publish.json `mac.runtime.tag` → that `mac-build-runtime-*` prerelease's `SHA256SUMS` + asset size | Mac front end (runtime pin; falls back to its embedded pin) |
+| `platforms.mac.frontEnd` | `{ version, tag, zip, sha256 }` | publish.json `mac.frontEnd.tag` → that `mac-build-app-*` prerelease's `SHA256SUMS` | Mac front end (self-update pin) |
+| `gameDepot` (top level) | `{ appId, depotId, manifestId, buildId }` (ids as decimal strings) | publish.json `gameDepot: "auto"` → `<gameDir>\..\..\appmanifest_<appid>.acf` (read-only; left out if unreadable) | Mac front end ("PEAK has an update") |
+
+Windows PeakPack never acts on them, and friends' `Validate()` deliberately doesn't check them (a bad Mac pin must never stop a Windows sync). The publisher checks them (`ValidateForPublish`) and refuses to publish on any problem.
+
 ### Sync (`Installer.SyncAsync`), idempotent
 
 As v0.2, plus: honours `SyncOptions(Strict, ManageGameFolder, ShortcutName)`; writes `profile\BepInEx\PeakPack\pack-info.json` (pack id, revision, host name, shortcut name, lobby policy, live-setting whitelist) and `installed-manifest.json` (so the next check can say exactly what changed: `PackDiff`).
@@ -499,7 +509,7 @@ A thin wrapper; all mod logic stays in the Windows PeakPack inside the prefix. B
 - **Updates:**
   - mods: every click (PeakPack);
   - PeakPack.exe: self-updates from the manifest's `app` entry;
-  - the front end and the Wine runtime: from the `mac-build-*` prereleases and `mac-kit.json`, owned by MacPort.
+  - the front end and the Wine runtime: from the `mac-build-*` prereleases and `mac-kit.json`, owned by MacPort. When the signed manifest carries `platforms.mac.runtime` / `platforms.mac.frontEnd` (§18.9), those pins win.
 - **Signature:** every pack file is verified by PeakPack exactly as on Windows. The front end must not download mods itself.
 
 ### 18.7 Tests and review (v0.5)
@@ -583,3 +593,61 @@ A thin wrapper; all mod logic stays in the Windows PeakPack inside the prefix. B
 - `publish`'s "Changes since previous" now also lists Mac-only plugins.
 
 **Test counts at this point:** sandbox 38, v3 40, v4 37, v5 79 (new: Mac-only plugin, validation, sha256 asset, expect-plugins), friend GUI 23, Host GUI self-test OK.
+
+### 18.9 Signed Mac pins and gameDepot (v0.6, optional)
+
+From the Mac app lead's proposal (`mac/app/proposals/friendinstaller-platforms-mac.md`). Three additive manifest fields move what the Mac front end installs outside PeakPack (its Wine runtime and its own self-update) under Joshua's signature, and make "PEAK has an update" exact. Schema stays 1. The Mac front end already reads all three when present (`mac/app/Sources/PeakModdedCore/PackManifest.swift`).
+
+**publish.json keys** (all optional and independent; example in `docs/mac-pins.publish.example.json`). Not in Joshua's publish.json yet: he adds them when a Mac runtime or app build should reach friends.
+
+```json
+"gameDepot": "auto",
+"mac": {
+  "runtime":  { "tag": "mac-build-runtime-pp2-cx26.3.0" },
+  "frontEnd": { "tag": "mac-build-app-0.2.0" }
+}
+```
+
+**What the publisher does** (`MacPins.cs`, called from `Publisher.PublishAsync`, so `prepare`, `release --dry-run` and `publish` all do it):
+
+- `mac.runtime.tag`: reads the release from `api.github.com/repos/<githubRepo>/releases/tags/<tag>`, then its `SHA256SUMS`. It takes the line for `peakpack-runtime-<id>-x86_64.tar.xz` (`id` = the tag minus `mac-build-runtime-`) and the asset's size from the release. That fills `platforms.mac.runtime { id, tag, asset, sha256, size }`.
+- `mac.frontEnd.tag`: the same for `mac-build-app-<version>`, line `PEAK-Modded-Mac-<version>.zip`. That fills `platforms.mac.frontEnd { version, tag, zip, sha256 }`.
+- `gameDepot: "auto"`: reads `<gameDir>\..\..\appmanifest_3527290.acf` (or an explicit `.acf` path). It takes only `appid`, `buildid` and `InstalledDepots/<appid+1>/manifest` (or the only installed depot). Nothing else from the file (such as `LastOwner`) is ever used. If the file is missing or unreadable, `gameDepot` is left out with a log line; that is not a refusal. If Steam says an update is pending (`StateFlags` not 4), a note is printed and the installed build is recorded.
+- "What friends will get" prints the pinned values (runtime id, asset, sha256, size and tag; app version, zip, sha256 and tag; depot, manifest and build).
+- Only the publisher may call `api.github.com`. The friend app's download allowlist is unchanged.
+
+**Refusals** (prepare/publish fails, nothing is signed or written):
+
+- The release is missing (404, mistyped tag), a draft, or **not a prerelease**; GitHub answers with another tag; or the answer isn't release JSON.
+- There's no `SHA256SUMS` asset, no line for the expected asset, the asset isn't in the release, or its size is 0.
+- The tag doesn't start with `mac-build-runtime-` / `mac-build-app-`.
+- `githubRepo` isn't set.
+- `frontEnd.version` is older than `mac.minFrontEnd`: friends would be told to update to a build that doesn't qualify.
+- Any schema rule fails (`PackManifest.ValidateForPublish`):
+  - runtime: `id` matches `^pp[0-9]+-cx[0-9.]+$`; `tag` = `mac-build-runtime-` + `id`; `asset` ends in `.tar.xz` with no `/` or `\`; `sha256` is 64 hex characters; `size` > 0 when present;
+  - frontEnd: `version` is dotted (`0.2.0`, optional `-suffix`); `tag` = `mac-build-app-` + `version`; `zip` ends in `.zip` with no `/` or `\`; `sha256` is 64 hex characters;
+  - gameDepot: `appId` = the manifest's `gameAppId`; `depotId` > 0; `manifestId` and `buildId` are decimal ids (written as strings).
+
+**Friends' apps:**
+
+- `PackManifest.Validate()` doesn't check the pins, so a bad Mac pin can never stop a Windows sync. The Mac front end applies the same rules itself and falls back to its embedded pin.
+- Live-update planning (`HotUpdater.Plan`) ignores `runtime` and `frontEnd`: they change nothing PeakPack installs, so they never force a restart. Changed launch args or Mac files still do.
+- `PackDiff` (the "Update available: N mods changed" text) is unchanged. Pins are not mods.
+
+**Windows compatibility** (`tools/pins-compat-test.ps1`, 18 checks). It runs the **shipped rev-5 PeakPack.exe 0.4.2**, byte-identical to rev-5's `app.sha256`, against the rev-5 manifest with the three fields added, signed with a throwaway key:
+
+- `--headless --status` gives the same result as for the unmodified manifest, on Windows and simulated Mac.
+- `--headless --sync` installs revision 5 on both platforms (same HeliPilot SHA-256; Mac preset only on Mac), then reports "Ready to play".
+- Negative controls fail as they should: the same file with schema 99 ("too old"), and a wrong key.
+- Why it works: `PackManifest.JsonOptions` has never set `UnmappedMemberHandling`, so System.Text.Json skips unknown members. The companion never reads the manifest; it reads `pack-info.json`, which PeakPack writes from fixed fields, with Unity's `JsonUtility`, which also ignores unknown fields.
+
+**Unit tests:** `tools/ManifestPinsTests` (`dotnet run --project tools/ManifestPinsTests`; `-- --live` also resolves the real `mac-build-runtime-pp1-cx26.3.0` read-only). It has 110 checks:
+
+- schema present/absent, round-trip, JSON names and types matching the Swift decoder;
+- every validation rule, publisher side and friend side;
+- `SHA256SUMS` formats;
+- GitHub resolution refusals (canned answers, no network);
+- the `.acf` reader, including the guarantee that it never leaks `LastOwner`;
+- live-update planning;
+- an offline end-to-end `PublishAsync` with a local loader and a throwaway key: the keys absent give the old manifest and no GitHub calls; the keys present give fields covered by the signature; refusals write no manifest or signature;
+- publish.json load/save: an existing publish.json gains no new keys when the Host window saves it.

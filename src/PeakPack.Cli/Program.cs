@@ -136,6 +136,7 @@ static async Task<int> Publish(Args a)
     Console.WriteLine($"  loader: {m.Loader.Id}");
     foreach (var p in m.Packages) Console.WriteLine($"  {p.Id,-55} {p.Reason}");
     foreach (var f in m.Files) Console.WriteLine($"  {f.Id,-55} file {f.Path}");
+    foreach (var line in PinLines(m)) Console.WriteLine("  " + line);
     Console.WriteLine("Changes since previous:");
     foreach (var d in Publisher.Diff(prev, m)) Console.WriteLine("  " + d);
     Console.WriteLine("\nNext: upload everything in the output folder (see tools/publish-release.ps1).");
@@ -215,11 +216,23 @@ static async Task<PublishPipeline.Prepared> PrepareOnly(Args a, PublishConfig cf
                           (plugs.Count > 0 ? $"; Mac-only files: {string.Join(", ", plugs.Select(f => $"{Path.GetFileName(f.Path)} {f.Version}"))}" : "") +
                           (cfgs.Count > 0 ? $"; {cfgs.Count} config default(s) (only where they have no config yet): {string.Join(", ", cfgs.Select(f => Path.GetFileName(f.Path)))}" : ""));
     }
+    foreach (var line in PinLines(p.Manifest)) Console.WriteLine(line);
     if (p.Manifest.App is { } app) Console.WriteLine($"Friend app: {app.Version} (friends on an older PeakPack update themselves)");
     Console.WriteLine("Assets:");
     foreach (var f in p.Assets) Console.WriteLine("  " + f);
     foreach (var pr in p.Problems) Console.WriteLine("NOT READY: " + pr);
     return p;
+}
+
+/// <summary>The signed Mac pins and gameDepot, in the words used under "What friends will get" (empty when absent).</summary>
+static IEnumerable<string> PinLines(PackManifest m)
+{
+    if (m.Platforms?.Mac?.Runtime is { } rt)
+        yield return $"Mac runtime (signed pin): {rt.Id} = {rt.Asset}, sha256 {rt.Sha256}, {rt.Size:N0} bytes, from {rt.Tag}";
+    if (m.Platforms?.Mac?.FrontEnd is { } fe)
+        yield return $"Mac app (signed self-update pin): {fe.Version} = {fe.Zip}, sha256 {fe.Sha256}, from {fe.Tag}";
+    if (m.GameDepot is { } gd)
+        yield return $"PEAK build (gameDepot): app {gd.AppId}, depot {gd.DepotId}, manifest {gd.ManifestId}, build {gd.BuildId}";
 }
 
 static async Task<int> Prepare(Args a, bool release)
