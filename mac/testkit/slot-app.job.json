@@ -1,0 +1,273 @@
+{
+  "schema": "peakpack-mac-job/1",
+  "slot": "slot-app",
+  "job_id": "auto",
+  "job_id_hint": "the hub picks it before starting, e.g. slot-app-20261013-0900, and passes --job-id; \"auto\" = slot-app-<date-time>",
+  "title": "PeakPack for Mac - app slot: PEAK (Modded).app download, first run, Steam console game step, daily launch, options (modded and normal), repair and uninstall",
+  "requester": "PeakPack for Mac (MacPort lead) - Joshua's project",
+  "machine": {
+    "host": "M1 iMac",
+    "macos_user": "fleet",
+    "screen": "ours for the whole slot (computer-use steps click in PEAK (Modded), in Steam's Console view, and in the app's menus)",
+    "needs": [
+      "Rosetta 2 (hub: installed; if missing, G-APP1 exits needs-human and Joshua installs it with macOS's own prompt)",
+      "Mac Steam running under fleet, signed in once with Remember me (H-STEAM; the kit never reads Steam login/config files)",
+      "Run INSIDE fleet's logged-in GUI (Aqua) session: launchctl managername must print Aqua; from a remote shell every app gate ends BLOCKED (exit 2)",
+      "screen recording + input control for the hub's tooling (computer-use steps)",
+      "about 6 GB free on the disk for the app, its runtime, the prefix and the game download (1.93 GB)"
+    ],
+    "optional": [
+      "Xcode Command Line Tools: NOT required (the arm64/x86_64 lipo check is skipped without them)"
+    ]
+  },
+  "release": {
+    "repo": "jmproulx/peakpack",
+    "tag": "mac-build-runtime-pp1-cx26.3.0",
+    "app_release": "mac-build-app-0.1.1",
+    "app_page": "https://github.com/jmproulx/peakpack/releases/tag/mac-build-app-0.1.1",
+    "app_assets_used": [
+      "SHA256SUMS",
+      "PEAK-Modded-Mac-0.1.1.zip"
+    ],
+    "note": "app_release is the pin for the APP gates (passed to each gate as --app-release; G-APP1 saves it to the job's job.env). mac-build-app-0.1.1 is published (14 Oct 2026); bump it here for newer app builds. tag is the kit's runtime release, which no app gate uses (run_slot passes it as --release)."
+  },
+  "app": {
+    "bundle": "PEAK (Modded).app (from PEAK-Modded-Mac-<version>.zip, unpacked into $JOB/apps)",
+    "data_dir": "$JOB/appdata (its runtime, prefix, frontend/status.json, Logs)",
+    "launch": "open -n \"$JOB/apps/PEAK (Modded).app\" --args --data-dir $JOB/appdata --skip-update-check --uninstall-to $JOB/uninstalled [--no-autoplay | --options | nothing for a Dock-click start]",
+    "verification": "every zip is checked against the release's SHA256SUMS by lib/app.sh (ensure_app); the game depot is checked file by file against expect/peak-win-<version>-*.manifest when the version matches"
+  },
+  "kit": {
+    "source_archive": "https://github.com/jmproulx/peakpack/archive/refs/tags/mac-testkit-0.3.0.tar.gz",
+    "path_in_archive": "peakpack-mac-testkit-0.3.0/mac/testkit",
+    "setup": "JOB=~/peakpack-test/<job_id>; mkdir -p $JOB/kit && curl -fsSL <source_archive> | tar -xz -C $JOB/kit --strip-components=2 peakpack-mac-testkit-0.3.0/mac && cd $JOB/kit   (the kit then lives at $JOB/kit/testkit; cleanup.sh removes it with the job dir)",
+    "invoke_as": "bash testkit/<script>.sh (never rely on exec bits)"
+  },
+  "job_dir": "~/peakpack-test/<job_id>  (everything is written here; exceptions listed under outside_paths)",
+  "time_budget_min": 240,
+  "expected_machine_min": 161,
+  "how_to_run": {
+    "all_in_one": "cd $JOB/kit && bash testkit/run_slot.sh testkit/slot-app.job.json --job-id <job_id> > $JOB/run_slot-console.txt 2>&1 &   (background; watch requests with: bash testkit/cu.sh $JOB wait). The app gates take the release from the slot's gate args: --app-release mac-build-app-0.1.1",
+    "one_gate": "bash testkit/run_gate.sh <gate> --job-dir ~/peakpack-test/<job_id> -- --app-release mac-build-app-0.1.1 [gate args]",
+    "computer_use": "scripts print [CU-REQUEST] lines and write <job-dir>/cu/<gate>.<step>.request; do the steps in gates/<gate>.md (section CU-<step>), then answer: bash testkit/cu.sh <job-dir> done <gate>.<step> ok|fail|skip \"note\" [key=value ...]",
+    "exit_codes": {
+      "0": "pass",
+      "1": "fail",
+      "2": "blocked (precondition missing)",
+      "3": "needs-human",
+      "4": "error (incl. timeout)"
+    }
+  },
+  "early_cu": [],
+  "run_order": [
+    "H-STEAM",
+    "G-APP1",
+    "G-APP2",
+    "G-APP3",
+    "G-APP4",
+    "G-APP5",
+    "G-APP6"
+  ],
+  "gates": [
+    {
+      "id": "H-STEAM",
+      "title": "Mac Steam running (no login files read)",
+      "doc": "testkit/gates/H-STEAM.md",
+      "command": "bash testkit/run_gate.sh H-STEAM --job-dir $JOB",
+      "args": "",
+      "requires": [],
+      "needs_human": "only if Steam is not running and a sign-in window appears when the hub opens it",
+      "computer_use": [],
+      "expected_min": 1,
+      "timeout_min": 3,
+      "pass": "steam_osx running. Signed-in is proven by G-B1 and by G-APP1's steam step, not here",
+      "on_fail": "exit 3: the hub may run `open -a Steam` (no credentials), wait ~30 s and re-run H-STEAM; only a sign-in window needs Joshua"
+    },
+    {
+      "id": "G-APP1",
+      "title": "PEAK (Modded).app: download and verify, static checks, first run up to the game step",
+      "doc": "testkit/gates/G-APP1.md",
+      "command": "bash testkit/run_gate.sh G-APP1 --job-dir $JOB -- --app-release mac-build-app-0.1.1",
+      "args": "--app-release mac-build-app-0.1.1",
+      "requires": [
+        "H-STEAM"
+      ],
+      "needs_human": "only if Rosetta 2 is missing (exit 3; Joshua installs it with macOS's prompt) or the app waits more than 3 min at its steam step (Mac Steam not signed in under fleet)",
+      "computer_use": [
+        "welcome (click Set Up PEAK)"
+      ],
+      "expected_min": 25,
+      "timeout_min": 60,
+      "pass": "zip matches SHA256SUMS; unpacks; codesign --verify --deep --strict; lipo arm64+x86_64 (with CLT, else skipped); LSMinimumSystemVersion 12.0; NSMicrophoneUsageDescription; --version; --print-status schema 1 with nextStep; welcome reached; Set Up PEAK clicked (agent); the app reaches step game (waiting for user) with runtime id, prefix stamp and no problem; the app keeps running",
+      "on_fail": "continue (G-APP2 to G-APP6 are blocked by their requires)"
+    },
+    {
+      "id": "G-APP2",
+      "title": "PEAK (Modded).app game step: Steam console paste, verify, PeakPack and mods, quit",
+      "doc": "testkit/gates/G-APP2.md",
+      "command": "bash testkit/run_gate.sh G-APP2 --job-dir $JOB -- --app-release mac-build-app-0.1.1 --timeout-min 100",
+      "args": "--app-release mac-build-app-0.1.1 --timeout-min 100",
+      "requires": [
+        "G-APP1"
+      ],
+      "needs_human": false,
+      "computer_use": [
+        "paste (Open Steam Console, paste, Return)"
+      ],
+      "expected_min": 75,
+      "timeout_min": 130,
+      "pass": "app phase done ('All set') within 100 min; PEAK.exe, UnityPlayer.dll, steam_api64.dll, Assembly-CSharp.dll in appdata/prefix/drive_c/Games/PEAK; every file's SHA-256 equals the Windows reference when version.txt matches (2.6.b); status manifestId a number and equal to Steam's console manifest; PeakPack.exe and BepInEx core installed; packRevision in state.json; depot gone from Steam's content folder; app quit",
+      "on_fail": "continue (G-APP3 is blocked by its requires)"
+    },
+    {
+      "id": "G-APP3",
+      "title": "PEAK (Modded).app daily launch (Dock-click start) to the main menu",
+      "doc": "testkit/gates/G-APP3.md",
+      "command": "bash testkit/run_gate.sh G-APP3 --job-dir $JOB -- --app-release mac-build-app-0.1.1",
+      "args": "--app-release mac-build-app-0.1.1",
+      "requires": [
+        "G-APP2"
+      ],
+      "needs_human": false,
+      "computer_use": [
+        "mainmenu (main menu drawn)",
+        "quit (main menu's Quit)"
+      ],
+      "expected_min": 10,
+      "timeout_min": 20,
+      "pass": "launching then playing; PEAK.exe runs; Player.log 'Steam runtime manager initialized: True'; main menu fully drawn (agent); PEAK ends from its menu (or wineserver -k fallback); the app quits by itself within 60 s; status lastLaunch is modded; no problem",
+      "on_fail": "continue (G-APP4 is blocked by its requires)"
+    },
+    {
+      "id": "G-APP4",
+      "title": "PEAK (Modded).app options window: Show FPS, Play with Mods, plugins load, Metal HUD",
+      "doc": "testkit/gates/G-APP4.md",
+      "command": "bash testkit/run_gate.sh G-APP4 --job-dir $JOB -- --app-release mac-build-app-0.1.1",
+      "args": "--app-release mac-build-app-0.1.1",
+      "requires": [
+        "G-APP3"
+      ],
+      "needs_human": false,
+      "computer_use": [
+        "options (Show FPS on, Play with Mods)",
+        "hud (Metal HUD fps)",
+        "quit (main menu's Quit)",
+        "fpsoff (Show FPS off again)"
+      ],
+      "expected_min": 15,
+      "timeout_min": 30,
+      "pass": "BepInEx chainloader complete after the click; every 'N plugins to load' plugin loaded; no BepInEx load errors; every name in expect/pack-plugins.txt loaded; status lastLaunch is modded; Metal HUD visible (agent, fps recorded); PEAK ends; Show FPS unticked; app quit",
+      "on_fail": "continue (G-APP5 is blocked by its requires)"
+    },
+    {
+      "id": "G-APP5",
+      "title": "PEAK (Modded).app Play Normal PEAK: vanilla launch, no BepInEx",
+      "doc": "testkit/gates/G-APP5.md",
+      "command": "bash testkit/run_gate.sh G-APP5 --job-dir $JOB -- --app-release mac-build-app-0.1.1",
+      "args": "--app-release mac-build-app-0.1.1",
+      "requires": [
+        "G-APP4"
+      ],
+      "needs_human": false,
+      "computer_use": [
+        "playnormal (Play Normal PEAK)",
+        "quit (main menu's Quit)"
+      ],
+      "expected_min": 10,
+      "timeout_min": 20,
+      "pass": "PEAK.exe runs; Player.log 'Steam runtime manager initialized'; LogOutput.log not rewritten; no BepInEx/Doorstop/Chainloader text in Player.log; status lastLaunch is vanilla; PEAK ends; app quit",
+      "on_fail": "continue (G-APP6 is blocked by its requires)"
+    },
+    {
+      "id": "G-APP6",
+      "title": "PEAK (Modded).app repair (damaged stamp and runtime file) and uninstall (moved out of the job)",
+      "doc": "testkit/gates/G-APP6.md",
+      "command": "bash testkit/run_gate.sh G-APP6 --job-dir $JOB -- --app-release mac-build-app-0.1.1",
+      "args": "--app-release mac-build-app-0.1.1",
+      "requires": [
+        "G-APP5"
+      ],
+      "needs_human": false,
+      "computer_use": [
+        "repair (PEAK menu > Repair > Repair)",
+        "uninstall (PEAK menu > Uninstall > Move to Trash)"
+      ],
+      "expected_min": 25,
+      "timeout_min": 60,
+      "pass": "prefix stamp and runtime file restored (original SHA-256; manifest entry when listed); status no problem; --print-status readyToPlay true; appdata gone after Uninstall; uninstalled/appdata-* has runtime/ and prefix/; app bundle still in the job; Steam content, downloading and depotcache listings unchanged; app quit",
+      "on_fail": "continue"
+    }
+  ],
+  "human_steps": [
+    {
+      "who": "Joshua",
+      "when": "already done (Mac Steam signed in under fleet with Remember me, per slot1)",
+      "what": "nothing else in this slot; if H-STEAM exits 3 (signed out) or G-APP1 waits at the steam step, Joshua signs in to Steam under fleet",
+      "gate": "H-STEAM, G-APP1"
+    },
+    {
+      "who": "Joshua",
+      "when": "only if G-APP1 exits 3 for Rosetta 2",
+      "what": "install Rosetta 2 with macOS's own prompt (his administrator password); the kit and the agent never click it or type a password",
+      "gate": "G-APP1"
+    },
+    {
+      "who": "Joshua (optional, not a gate)",
+      "when": "after the slot, if he wants the quarantine path tested",
+      "what": "copy the app downloaded with a browser (quarantined) and open it by hand; Open Anyway may ask for an administrator password (never typed by the agent)",
+      "gate": "none (manual)"
+    },
+    {
+      "who": "Joshua",
+      "when": "only if a macOS privacy prompt appears (microphone from PEAK, files)",
+      "what": "decides the prompt; the agent takes it as dialog-<n> and never clicks Allow",
+      "gate": "G-APP3, G-APP4, G-APP5"
+    }
+  ],
+  "later_slots": "none for the app gates; slot1.job.json (the Windows PeakPack gates), slot3.job.json (G-X1, H-MIC; humans), slot4.job.json (G-C0, optional G-A2-CX)",
+  "outside_paths": [
+    "~/Library/Application Support/Steam/[Steam.AppBundle/Steam/Contents/MacOS/]steamapps/content/app_3527290 (the app's download_depot; the app moves the depot into $JOB/appdata; G-APP2 checks it is gone; cleanup.sh removes an empty leftover, if the job created it)",
+    "~/Library/Application Support/Steam/[...]/depotcache/3527291_*.manifest (Steam writes it during the download; G-APP2 records new ones; cleanup.sh removes them)",
+    "/tmp/.wine-<uid>/server-<dev>-<inode> (Wine server socket of the app's prefix, $JOB/appdata/prefix; removed by cleanup.sh)",
+    "~/Library/* paths written by PEAK (Modded).app itself (Preferences, Caches, Application Support, Logs): NOT YET KNOWN. The first run is to be listed here; cleanup.sh does not know them yet (see gates/APP-README.md, Known limits)",
+    "Steam-side records of playtime / 'Playing PEAK' on Joshua's account (server-side, expected)",
+    "macOS-managed caches: Rosetta AOT translations (/var/db/oah), Metal shader caches (per-user temp) - system-managed, not removed"
+  ],
+  "copy_back": {
+    "command": "bash testkit/collect.sh $JOB",
+    "file": "$JOB/copyback/peakpack-<job_id>-results.tar.gz (+ .sha256)",
+    "contains": [
+      "results/*.json + summary.json/summary.txt",
+      "logs/<gate>/ (console.log, LogOutput-modded.log, Player logs, codesign.txt, print-status JSON, manifests)",
+      "evidence/<gate>/*.png",
+      "cu/ (requests and answers)",
+      "state/ (versions, pre-existing snapshot, outside paths)"
+    ],
+    "also_copy": [
+      "$JOB/appdata/Logs/ (the app's own logs: PEAK Modded.log, prefix.log, peakpack.log, launcher.log, wine/)",
+      "$JOB/appdata/frontend/status.json and state.json",
+      "$JOB/appdata/prefix/drive_c/users/*/AppData/LocalLow/LandCrab/PEAK/Player.log",
+      "$JOB/appdata/prefix/drive_c/users/*/AppData/Local/PeakPack/profile/BepInEx/LogOutput.log",
+      "$JOB/uninstalled/appdata-*/ (the moved copy, from G-APP6; its Logs/ and frontend/status.json)",
+      "evidence/<gate>/*.png (the agent's screenshots are saved with cu.sh shot)"
+    ],
+    "also_relay": "the agent's answers for every CU step, and the run_slot console output"
+  },
+  "cleanup": {
+    "command": "bash testkit/cleanup.sh $JOB",
+    "dry_run_first": "bash testkit/cleanup.sh $JOB --dry-run",
+    "removes": [
+      "our Wine processes (the app's prefix, wineserver -k) and anything started from the job dir; PEAK (Modded).app's own processes are stopped by G-APP6's app_quit or pkill",
+      "Steam depot content/download folders and depotcache files created by this job",
+      "the job dir including the kit ($JOB/kit), the app bundle ($JOB/apps), the app data ($JOB/appdata) and $JOB/uninstalled",
+      "~/peakpack-test when empty"
+    ],
+    "leaves": [
+      "Mac Steam and its login",
+      "system settings, Rosetta, CLT",
+      "anything that existed before the job"
+    ]
+  },
+  "direct_shell_needed": "none",
+  "scheduling_note": "The app slot needs Joshua only for Rosetta 2 (if missing) and for a Steam sign-in (if signed out). Otherwise it runs unattended in the fleet's GUI session. The Steam console paste (G-APP2) is done by the agent with computer use, so the screen must be ours for the whole slot."
+}

@@ -151,6 +151,9 @@ $HOME/Library/Preferences/unity.$UNITY_COMPANY.$UNITY_PRODUCT.plist
 $HOME/Library/Saved Application State/com.peakpack.testkit.native.savedState
 $HOME/Library/Caches/com.peakpack.testkit.native
 $HOME/Library/Caches/$UNITY_COMPANY
+$HOME/Library/Preferences/com.peakpack.modded.plist
+$HOME/Library/Saved Application State/com.peakpack.modded.savedState
+$HOME/Library/Caches/com.peakpack.modded
 EOF
 }
 depotcache_dirs() { printf '%s\n%s\n' "$STEAM_DATA/depotcache" "$STEAM_MACOS_DIR/depotcache"; }
