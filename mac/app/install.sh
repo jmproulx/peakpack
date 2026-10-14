@@ -66,5 +66,42 @@ fi
 xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
 
 say "Installed to $dest"
-say "Opening it now. Click \"Set Up PEAK\" and follow the steps."
+
+# ---- Steam for Mac: PEAK (Modded) needs it signed in with your own account. If it's missing,
+# install Valve's official Steam.app (from Valve's CDN, checked against Apple's notarization and
+# Valve's signature). If anything about that fails, open Steam's download page instead.
+steam_app=""
+for d in /Applications "$HOME/Applications"; do [ -d "$d/Steam.app" ] && steam_app="$d/Steam.app" && break; done
+if [ -z "$steam_app" ]; then
+  say "Steam isn't installed yet, so getting Steam for Mac from Valve..."
+  steam_ok=0
+  if curl -fsSL --retry 3 -o "$TMP/steam.dmg" "https://cdn.fastly.steamstatic.com/client/installer/steam.dmg"; then
+    mnt="$TMP/steam-mnt"; mkdir -p "$mnt"
+    if hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mnt" "$TMP/steam.dmg"; then
+      signer=""
+      [ -d "$mnt/Steam.app" ] && signer=$(codesign -dv --verbose=2 "$mnt/Steam.app" 2>&1 || true)
+      case "$signer" in
+        *"Authority=Developer ID Application: Valve Corporation"*)
+          if codesign --verify --deep --strict "$mnt/Steam.app" >/dev/null 2>&1 \
+             && spctl --assess --type execute "$mnt/Steam.app" >/dev/null 2>&1; then
+            ditto "$mnt/Steam.app" "$dest_dir/Steam.app" && steam_app="$dest_dir/Steam.app" && steam_ok=1
+          fi ;;
+      esac
+      hdiutil detach -quiet "$mnt" 2>/dev/null || hdiutil detach -force -quiet "$mnt" 2>/dev/null || true
+    fi
+  fi
+  if [ "$steam_ok" = 1 ]; then
+    say "Steam installed. It opens now: sign in with YOUR Steam account (the one that owns PEAK)."
+    say "Let Steam finish updating itself, then come back to PEAK (Modded)."
+    open "$steam_app"
+  else
+    say "Couldn't install Steam automatically, so opening Steam's download page. Install it, open it, and sign in."
+    open "https://store.steampowered.com/about/"
+  fi
+elif ! pgrep -xq steam_osx; then
+  say "Opening Steam: sign in if it asks."
+  open "$steam_app"
+fi
+
+say "Opening PEAK (Modded) now. Click \"Set Up PEAK\" and follow the steps."
 open "$dest"
