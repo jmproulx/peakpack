@@ -167,7 +167,7 @@ How the overall status is decided (from `lib/common.sh`):
 
 With `--modded --test-drive` the gate copies the TEST-ONLY plugin `PeakPack.TestDrive.dll` (Steam tests 1.3.0+,
 `probes/testdrive`) into the test prefix's PeakPack profile and writes `BepInEx/config/com.peakpack.testdrive.cfg`
-(`WalkSeconds` = minutes x 60). After CU-menu it writes `BepInEx/config/peakpack.testdrive.go`; the plugin then
+(`WalkSeconds` = minutes x 60), and puts the DLL into `plugins/PeakPack.TestDrive/` only AFTER PeakPack's `--launch` returns (its sync runs first and strict mode deletes plugins the pack does not own; re-placed for 60 s if removed). Criterion `test_drive_loaded` needs the plugin's `TESTDRIVE active` line; without it the agent drives instead. After CU-menu it writes `BepInEx/config/peakpack.testdrive.go`; the plugin then
 presses Play Solo, starts the expedition at the airport kiosk and walks the scout on the island for the window.
 CU-shore is replaced by waiting for `TESTDRIVE walk_start` in LogOutput.log (900 s); CU-fps only reads the HUD
 (no keys). Criterion `test_drive_walk` checks `TESTDRIVE walk_end`; `logs/G-A2-lite/testdrive.log` has every

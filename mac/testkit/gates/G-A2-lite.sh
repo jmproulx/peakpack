@@ -96,7 +96,10 @@ if [ "$modded" = 1 ]; then
     td_dll=$( [ -n "${TESTS:-}" ] && find "$TESTS" -name 'PeakPack.TestDrive.dll' 2>/dev/null | head -n 1)
     if [ -n "$td_dll" ] && [ -d "$bep/plugins" ]; then
       td_dir="$bep/plugins/PeakPack.TestDrive"; td_cfg="$bep/config/com.peakpack.testdrive.cfg"; td_go="$bep/config/peakpack.testdrive.go"
-      mkdir -p "$td_dir" "$bep/config"; cp "$td_dll" "$td_dir/"; rm -f "$td_go"
+      # The DLL goes in AFTER PeakPack's sync: --launch always syncs first, and its strict mode deletes every plugin
+      # the pack manifest does not own (0.3.12 installed it before the launch and it was gone). Config files are
+      # not touched by sync, so the config is written now.
+      mkdir -p "$bep/config"; rm -f "$td_go"; rm -rf "$td_dir"
       printf '[TestDrive]\n\nWalkSeconds = %s\n\nGoWaitSeconds = 900\n\nStageTimeoutSeconds = 600\n\nAscent = 0\n' "$(( minutes * 60 ))" > "$td_cfg"
       metric test_drive "on" str; metric test_drive_dll_sha256 "$(sha256_of "$td_dll")" str
     else
@@ -110,6 +113,19 @@ if [ "$modded" = 1 ]; then
   PP_HUD=1 PP_EXTRA_OVERRIDES="winhttp=n,b" pp_wine normal "C:\\users\\$wu\\AppData\\Local\\PeakPack\\PeakPack.exe" --headless --launch \
      --launch-method direct --game-dir 'C:\Games\PEAK' --status-out 'C:\PeakPackTests\a2-launch.json' > "$GLOG/peakpack-launch.out" 2>&1
   note "modded run: the resolution args come from the pack (-force-d3d11 only); PEAK uses its saved resolution"
+  if [ "$test_drive" = 1 ]; then
+    # PeakPack has synced and started PEAK; BepInEx's chainloader scans plugins/ only after Unity's start-up, so the
+    # test-only plugin is placed now (and re-placed for 60 s should anything remove it again).
+    mkdir -p "$td_dir"; cp "$td_dll" "$td_dir/"
+    t0=$(now_s); td_recopies=0
+    while [ $(( $(now_s) - t0 )) -lt 60 ]; do
+      if [ ! -f "$td_dir/PeakPack.TestDrive.dll" ]; then mkdir -p "$td_dir"; cp "$td_dll" "$td_dir/"; td_recopies=$((td_recopies + 1)); fi
+      grep -a -q -E 'TESTDRIVE (active|off|inert)|Chainloader startup complete' "$bep/LogOutput.log" 2>/dev/null && break
+      sleep 1
+    done
+    metric test_drive_recopies "$td_recopies"
+    grep -a -q 'PeakPack.TestDrive' "$GLOG/peakpack-launch.out" "$tests_dir/a2-launch.json" 2>/dev/null && metric test_drive_seen_in_sync true
+  fi
 else
   # shellcheck disable=SC2086  # ARGS is a fixed list of plain flags
   PP_HUD=1 pp_wine normal 'C:\PeakPackTests\peakpack_steam_launcher.exe' --forwarder-src 'C:\PeakPackTests\steamclient64.dll' \
@@ -120,6 +136,17 @@ progress_monitor_start start
 if wait_for_player_log "Steam runtime manager initialized" 600 "$t_launch"; then progress_monitor_stop; plog=$PLAYER_LOG_USED; metric player_log "$(rel_to_job "$plog")" str; crit started pass "PEAK started (Player.log, Steam initialised)" "$(( $(now_s) - t_launch )) s"
 else hang_snapshot start; metric start_progress "$(progress_verdict start)" str; progress_monitor_stop; crit started fail "PEAK started within 600 s" "$(player_log_detail "$t_launch")"; gate_end; fi
 metric start_to_steam_s "$(( $(now_s) - t_launch ))"
+if [ "$test_drive" = 1 ]; then
+  # the plugin's Awake line ("TESTDRIVE active ...") proves it loaded; without it, fall back to the agent
+  t0=$(now_s); while ! grep -a -q -E 'TESTDRIVE (active|off|inert)' "$bep/LogOutput.log" 2>/dev/null && [ $(( $(now_s) - t0 )) -lt 60 ]; do sleep 2; done
+  tdl=$(grep -a -m1 -E 'TESTDRIVE (active|off|inert)' "$bep/LogOutput.log" 2>/dev/null | sed 's/.*TESTDRIVE //')
+  case "$tdl" in
+    active*) crit test_drive_loaded pass "test-drive plugin loaded (its Awake line in LogOutput.log)" "$tdl" ;;
+    *) crit test_drive_loaded fail "test-drive plugin loaded (its Awake line in LogOutput.log)" \
+         "${tdl:-no TESTDRIVE line}; plugin file $( [ -f "$td_dir/PeakPack.TestDrive.dll" ] && echo present || echo missing) in $(rel_to_job "$td_dir"); chainloader: $(grep -a -c 'Loading \[' "$bep/LogOutput.log" 2>/dev/null) plugins loading"
+       note "test drive did not load: the agent drives the Shore step instead"; test_drive=0 ;;
+  esac
+fi
 
 # ---- the agent drives the game
 cu_request_peak menu 300 "PEAK is starting fullscreen with the Metal HUD (top-right overlay with FPS). When the main menu is drawn: screenshot evidence/G-A2-lite/a2-01-main-menu.png and read the HUD's FPS. Answer: ok fps=<number>. If a crash dialog or a black screen stays for 60 s, answer fail <what>."
